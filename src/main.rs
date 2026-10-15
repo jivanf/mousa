@@ -739,7 +739,7 @@ impl Render for Mousa {
             .child(
                 div()
                     .text_size(text::secondary())
-                    .child(format!("{n} tracks  /  built to keep up")),
+                    .child(format!("{n} tracks")),
             );
         if let Some(error) = self.error.clone() {
             content = content.child(
