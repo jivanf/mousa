@@ -936,7 +936,7 @@ impl Render for Mousa {
             .size_full()
             .bg(rgb(PAPER))
             .text_color(rgb(INK))
-            .font_family("DejaVu Sans")
+            .font_family("DM Sans")
             .flex()
             .flex_col()
             .child(
@@ -952,7 +952,13 @@ impl Render for Mousa {
 }
 fn main() {
     Application::new().run(|cx| {
+        cx.text_system()
+            .add_fonts(vec![std::borrow::Cow::Borrowed(
+                include_bytes!("../assets/fonts/DMSans.ttf").as_slice(),
+            )])
+            .expect("load bundled DM Sans font");
         gpui_component::init(cx);
+        gpui_component::Theme::global_mut(cx).font_family = "DM Sans".into();
         cx.bind_keys([
             KeyBinding::new("ctrl-space", TogglePlayback, Some("Mousa")),
             KeyBinding::new("ctrl-right", NextTrack, Some("Mousa")),
