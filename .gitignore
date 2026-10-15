@@ -1,9 +1,19 @@
 /target
 .env
+.env.*
+!.env.example
 *client_secret*.json
 credentials*.json
 *.db
 *.db-shm
 *.db-wal
 
-google-client.json
+google-client*.json
+
+# Local credentials and private keys
+credentials/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
