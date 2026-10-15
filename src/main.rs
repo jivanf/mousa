@@ -433,7 +433,11 @@ impl Mousa {
                 let id = t.id;
                 let title = t.title.clone();
                 let artist = t.artist.clone();
-                let duration = time(t.duration);
+                let duration = if t.duration.is_finite() && t.duration > 0. {
+                    time(t.duration)
+                } else {
+                    "–:–".into()
+                };
                 let track = t.clone();
                 let is_active = if queue {
                     i == active_queue_index
@@ -475,12 +479,6 @@ impl Mousa {
                                     .text_color(color::muted())
                                     .child(artist),
                             ),
-                    )
-                    .child(
-                        div()
-                            .font_family(font::MONO)
-                            .text_size(text::label())
-                            .child(duration),
                     )
                     .when(can_move, |d| {
                         d.child(
@@ -550,6 +548,15 @@ impl Mousa {
                             )),
                         )
                     })
+                    .child(
+                        div()
+                            .min_w(layout::time_label())
+                            .flex_shrink_0()
+                            .text_right()
+                            .font_family(font::MONO)
+                            .text_size(text::label())
+                            .child(duration),
+                    )
                     .into_any_element()
             }),
         )

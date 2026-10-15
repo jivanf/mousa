@@ -293,7 +293,10 @@ component dependency has one, but Mousa uses a custom Bar for this geometry.
 tertiary with the md shadow.
 
 **Track row.** Minimum 56px high, neutral, 1px divider below. Index in mono at left,
-title (body-md) over artist (body-sm, secondary), duration in mono at right.
+title (body-md) over artist (body-sm, secondary), duration in mono fixed at the
+right edge. Unknown lengths display `–:–`. Hover actions appear immediately to
+the left of the duration, retaining their space so neither metadata nor duration
+shifts on hover; each action is also revealed on keyboard focus.
 Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
 Playing row is tertiary. Selected row is inverted.

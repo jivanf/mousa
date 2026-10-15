@@ -282,3 +282,24 @@ fn recently_confirmed_writes_survive_stale_google_catalog() {
         1
     );
 }
+
+#[test]
+fn google_refresh_backfills_duration_without_changing_entry_identity() {
+    let mut db = Library::open(":memory:").unwrap();
+    let id = db.create("Durations").unwrap();
+    let mut unknown = track("Previously synced");
+    unknown.duration = 0.;
+    db.reconcile_entries(id, &[("remote-item".into(), unknown.clone())])
+        .unwrap();
+    let original = db.tracks(id, "", Sort::Position).unwrap()[0].id;
+    let mut known = unknown.clone();
+    known.duration = 253.;
+    db.reconcile_entries(id, &[("remote-item".into(), known)])
+        .unwrap();
+    let updated = db.tracks(id, "", Sort::Position).unwrap();
+    assert_eq!(updated[0].id, original);
+    assert_eq!(updated[0].duration, 253.);
+    db.reconcile_entries(id, &[("remote-item".into(), unknown)])
+        .unwrap();
+    assert_eq!(db.tracks(id, "", Sort::Position).unwrap()[0].duration, 253.);
+}

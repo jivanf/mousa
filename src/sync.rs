@@ -6,7 +6,11 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use reqwest::{Method, blocking::Client};
 use serde_json::{Value, json};
-use std::{sync::Mutex, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Mutex,
+    time::Duration,
+};
 
 static OPERATIONS: Mutex<()> = Mutex::new(());
 const API: &str = "https://www.googleapis.com/youtube/v3";
@@ -101,7 +105,13 @@ impl Google {
         );
         Ok(())
     }
-    fn refresh(&self, db: &mut Library, id: i64, remote: &str) -> Result<()> {
+    fn refresh(
+        &self,
+        db: &mut Library,
+        id: i64,
+        remote: &str,
+        durations: &mut HashMap<String, f64>,
+    ) -> Result<()> {
         if db.recently_written(id)? {
             return Ok(());
         }
@@ -109,6 +119,19 @@ impl Google {
             "playlistItems",
             &[("part", "snippet"), ("playlistId", remote)],
         )?;
+        let videos = items
+            .iter()
+            .filter_map(|item| item["snippet"]["resourceId"]["videoId"].as_str())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        fetch_durations(&videos, durations, |ids| {
+            self.request(
+                Method::GET,
+                "videos",
+                &[("part", "contentDetails"), ("id", ids)],
+                None,
+            )
+        })?;
         let mut tracks = Vec::new();
         for item in items {
             let s = &item["snippet"];
@@ -129,7 +152,7 @@ impl Google {
                         .unwrap_or("")
                         .trim_end_matches(" - Topic")
                         .into(),
-                    duration: 0.,
+                    duration: durations.get(video).copied().unwrap_or(0.),
                 },
             ));
         }
@@ -163,8 +186,9 @@ pub fn refresh(mut progress: impl FnMut()) -> Result<()> {
     let ids = db.reconcile_catalog(&g.account, &catalog)?;
     progress();
     let mut failures = Vec::new();
+    let mut durations = HashMap::new();
     for (id, remote) in ids {
-        if let Err(e) = g.refresh(&mut db, id, &remote) {
+        if let Err(e) = g.refresh(&mut db, id, &remote, &mut durations) {
             failures.push(e.to_string());
         } else {
             progress();
@@ -334,7 +358,7 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     };
     let g = Google::connect()?;
     g.check(&account)?;
-    g.refresh(&mut db, playlist, &remote)?;
+    g.refresh(&mut db, playlist, &remote, &mut HashMap::new())?;
     let tracks = db.tracks(playlist, "", Sort::Position)?;
     let index = tracks
         .iter()
@@ -354,4 +378,143 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     db.move_entry(id, delta)?;
     db.mark_written(playlist)?;
     Ok(())
+}
+
+/// Video durations are absent from playlistItems; resolve unique IDs in batches.
+/// Cache includes unavailable IDs for this refresh only, so duplicates and other
+/// playlists do not repeat requests, while later refreshes can retry missing data.
+fn fetch_durations(
+    videos: &[String],
+    cache: &mut HashMap<String, f64>,
+    mut fetch: impl FnMut(&str) -> Result<Value>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    let missing: Vec<_> = videos
+        .iter()
+        .filter(|id| !cache.contains_key(*id) && seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    for batch in missing.chunks(50) {
+        let response = fetch(&batch.join(","))?;
+        let items = response["items"]
+            .as_array()
+            .context("YouTube returned no video details; cache left intact")?;
+        let mut resolved = HashMap::new();
+        for item in items {
+            if let (Some(id), Some(duration)) = (
+                item["id"].as_str(),
+                item["contentDetails"]["duration"].as_str(),
+            ) && let Some(seconds) = youtube_duration(duration)
+            {
+                resolved.insert(id, seconds);
+            }
+        }
+        for id in batch {
+            cache.insert(id.clone(), resolved.get(id.as_str()).copied().unwrap_or(0.));
+        }
+    }
+    Ok(())
+}
+
+/// Parse YouTube's ISO 8601 day/hour/minute/second durations without treating
+/// absent, malformed, or calendar-based durations as a real zero-length track.
+fn youtube_duration(value: &str) -> Option<f64> {
+    let mut total = 0.;
+    let mut number = String::new();
+    let mut in_time = false;
+    let mut last_rank = 0;
+    let mut units = 0;
+    let mut time_units = 0;
+    for c in value.strip_prefix('P')?.chars() {
+        if c == 'T' {
+            if in_time || !number.is_empty() {
+                return None;
+            }
+            in_time = true;
+        } else if c.is_ascii_digit() || c == '.' {
+            number.push(c);
+        } else {
+            let (rank, factor) = match (in_time, c) {
+                (false, 'D') => (1, 86400.),
+                (true, 'H') => (2, 3600.),
+                (true, 'M') => (3, 60.),
+                (true, 'S') => (4, 1.),
+                _ => return None,
+            };
+            if rank <= last_rank || number.is_empty() {
+                return None;
+            }
+            let n: f64 = number.parse().ok()?;
+            if !n.is_finite() || n < 0. {
+                return None;
+            }
+            total += n * factor;
+            last_rank = rank;
+            units += 1;
+            time_units += usize::from(in_time);
+            number.clear();
+        }
+    }
+    (units > 0 && (!in_time || time_units > 0) && number.is_empty() && total.is_finite())
+        .then_some(total)
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+
+    #[test]
+    fn parses_video_lengths_and_rejects_unknown_formats() {
+        for (value, seconds) in [
+            ("PT19S", 19.),
+            ("PT4M13S", 253.),
+            ("PT2H3M4S", 7384.),
+            ("P1DT2H", 93600.),
+            ("PT0S", 0.),
+            ("PT1.5S", 1.5),
+        ] {
+            assert_eq!(youtube_duration(value), Some(seconds), "{value}");
+        }
+        for value in [
+            "",
+            "P",
+            "PT",
+            "P1M",
+            "PT-1S",
+            "PT1H2H",
+            "PT1S2M",
+            "PT1",
+            "P1DT",
+            "not a duration",
+        ] {
+            assert_eq!(youtube_duration(value), None, "{value}");
+        }
+    }
+
+    #[test]
+    fn batches_deduplicates_and_matches_response_ids_not_positions() {
+        let mut videos: Vec<_> = (0..5000).map(|i| format!("v{i}")).collect();
+        videos.extend(videos.clone());
+        let mut cache = HashMap::new();
+        let mut calls = 0;
+        fetch_durations(&videos, &mut cache, |ids| {
+            calls += 1;
+            let ids: Vec<_> = ids.split(',').collect();
+            assert!(ids.len() <= 50);
+            Ok(json!({"items": ids.into_iter().rev().filter(|id| *id != "v1").map(|id| json!({"id":id,"contentDetails":{"duration":"PT4M13S"}})).collect::<Vec<_>>()}))
+        }).unwrap();
+        assert_eq!(calls, 100);
+        assert_eq!(cache["v1"], 0.); // unavailable video omitted by YouTube
+        assert_eq!(cache["v4999"], 253.);
+        fetch_durations(&videos, &mut cache, |_| panic!("duplicates must use cache")).unwrap();
+    }
+
+    #[test]
+    fn failed_video_request_is_not_cached_as_unknown() {
+        let mut cache = HashMap::new();
+        assert!(
+            fetch_durations(&["video".into()], &mut cache, |_| anyhow::bail!("offline")).is_err()
+        );
+        assert!(cache.is_empty());
+    }
 }

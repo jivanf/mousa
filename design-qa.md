@@ -45,3 +45,11 @@ Screenshots were captured from actual native windows on an isolated X11 display 
 ## Scope of verification
 
 This review validates the Linux UI and existing library tests. It does not claim cross-platform rendering, screen-reader certification, or a new live Google/Last.fm integration test. Network and storage behavior were not changed by the design adoption.
+
+## Track duration follow-up
+
+[Updated rows](docs/track-duration-actions.png) show a hovered row with actions immediately left of its fixed, right-aligned duration, plus an unknown length on the second row. Captured from an isolated 5,000-track fixture at 1280 × 840. The same row renderer serves playlists and queues.
+
+Google sync previously initialized every imported duration to zero. It now resolves video details in batches and parses ISO 8601 durations. Tests cover a 5,000-video batch set, duplicate IDs, reordered API responses, unavailable videos, request failures, and backfilling existing rows while retaining their IDs and previously known lengths. Three duration unit tests and ten library tests pass (the optional 100,000-track stress test remains ignored); Clippy passes with warnings denied.
+
+Live account refresh completed successfully: 9,999 of 10,023 cached Google entries have positive lengths; 24 remain unknown. No remote playlists were edited.
