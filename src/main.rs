@@ -50,6 +50,9 @@ struct Mousa {
     tracks: Arc<Vec<Track>>,
     selected: Option<i64>,
     seek: Entity<SliderState>,
+    volume_slider: Entity<SliderState>,
+    track_list: ListState,
+    queue_list: ListState,
     search: Entity<InputState>,
     playlist_search: Entity<InputState>,
     field: Entity<InputState>,
@@ -109,6 +112,7 @@ impl Mousa {
         let player = Player::start();
         mpris::start(player.clone());
         let (tx, rx) = mpsc::channel();
+        let volume_slider = cx.new(|_| SliderState::new().min(0.).max(100.).step(1.));
         let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search this playlist…"));
         let playlist_search =
@@ -126,6 +130,9 @@ impl Mousa {
             tracks: Arc::new(vec![]),
             selected: None,
             seek: seek.clone(),
+            volume_slider: volume_slider.clone(),
+            track_list: ListState::new(0, ListAlignment::Top, px(200.)),
+            queue_list: ListState::new(0, ListAlignment::Top, px(200.)),
             search: search.clone(),
             playlist_search: playlist_search.clone(),
             field,
@@ -155,6 +162,11 @@ impl Mousa {
             queue: Arc::new(vec![]),
             queue_index: 0,
         };
+        app.subscriptions
+            .push(cx.subscribe(&volume_slider, |this, _, event, _| {
+                let SliderEvent::Change(value) = event;
+                this.player.send(Command::Volume(value.start() as f64));
+            }));
         app.subscriptions
             .push(cx.subscribe(&seek, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
@@ -225,6 +237,7 @@ impl Mousa {
                 ))
             });
         } else {
+            self.track_list.reset(0);
             self.tracks = Arc::new(vec![]);
         }
         cx.notify();
@@ -248,6 +261,7 @@ impl Mousa {
                 }
                 Reply::Tracks(g, t) => {
                     if g == self.generation {
+                        self.track_list.reset(t.len());
                         self.tracks = Arc::new(t);
                     }
                 }
@@ -279,6 +293,9 @@ impl Mousa {
             .unwrap_or_else(|| "Nothing playing yet".into());
         if self.revision != s.revision {
             self.revision = s.revision;
+            if !Arc::ptr_eq(&self.queue, &s.queue) {
+                self.queue_list.reset(s.queue.len());
+            }
             self.queue = s.queue.clone();
             changed = true;
         }
@@ -391,107 +408,109 @@ impl Mousa {
         } else {
             self.tracks.clone()
         };
-        let count = tracks.len();
+
         let can_move = !queue && self.search.read(cx).value().is_empty();
         let active = self.playing_id;
-        uniform_list(
-            if queue { "queue-list" } else { "track-list" },
-            count,
-            cx.processor(move |_this, range: std::ops::Range<usize>, _, cx| {
-                range
-                    .map(|i| {
-                        let t = &tracks[i];
-                        let id = t.id;
-                        let title = t.title.clone();
-                        let artist = t.artist.clone();
-                        let duration = time(t.duration);
-                        let track = t.clone();
+        list(
+            if queue {
+                self.queue_list.clone()
+            } else {
+                self.track_list.clone()
+            },
+            cx.processor(move |_this, i: usize, _, cx| {
+                let t = &tracks[i];
+                let id = t.id;
+                let title = t.title.clone();
+                let artist = t.artist.clone();
+                let duration = time(t.duration);
+                let track = t.clone();
+                div()
+                    .id(("track", i))
+                    .min_h(px(62.))
+                    .py_3()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_4()
+                    .border_b_1()
+                    .border_color(rgb(INK))
+                    .bg(rgb(if Some(id) == active {
+                        LIME
+                    } else if i.is_multiple_of(2) {
+                        PAPER
+                    } else {
+                        0xfffcf5
+                    }))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if queue {
+                            this.player.send(Command::Jump(i));
+                        } else {
+                            this.play(id, cx);
+                        }
+                    }))
+                    .child(div().w(px(35.)).text_sm().child(format!("{:02}", i + 1)))
+                    .child(
                         div()
-                            .id(("track", i))
-                            .h(px(62.))
-                            .w_full()
+                            .flex_1()
+                            .min_w_0()
                             .flex()
-                            .items_center()
-                            .gap_3()
-                            .px_4()
-                            .border_b_1()
-                            .border_color(rgb(INK))
-                            .bg(rgb(if Some(id) == active {
-                                LIME
-                            } else if i % 2 == 0 {
-                                PAPER
-                            } else {
-                                0xfffcf5
-                            }))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if queue {
-                                    this.player.send(Command::Jump(i));
-                                } else {
-                                    this.play(id, cx);
-                                }
-                            }))
-                            .child(div().w(px(35.)).text_sm().child(format!("{:02}", i + 1)))
+                            .flex_col()
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .child(
-                                        div().truncate().font_weight(FontWeight::BOLD).child(title),
-                                    )
-                                    .child(div().truncate().text_sm().child(artist)),
+                                    .whitespace_normal()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(title),
                             )
-                            .child(div().text_sm().child(duration))
-                            .when(can_move, |d| {
-                                d.child(button(("up", i), "↑", PAPER).on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.job(move || {
-                                            sync::move_entry(id, -1)?;
-                                            Ok(Reply::Done("Track moved".into()))
-                                        });
-                                    },
-                                )))
-                                .child(
-                                    button(("down", i), "↓", PAPER).on_click(cx.listener(
-                                        move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            this.job(move || {
-                                                sync::move_entry(id, 1)?;
-                                                Ok(Reply::Done("Track moved".into()))
-                                            });
-                                        },
-                                    )),
-                                )
-                            })
-                            .child(
-                                button(("enqueue", i), if queue { "×" } else { "+ Queue" }, PAPER)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        if queue {
-                                            this.player.send(Command::Remove(i));
-                                        } else {
-                                            this.player.send(Command::Append(track.clone()));
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .when(!queue, |d| {
-                                d.child(button(("remove", i), "×", PAPER).on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.job(move || {
-                                            sync::remove(id)?;
-                                            Ok(Reply::Done("Track removed".into()))
-                                        });
-                                        cx.notify();
-                                    },
-                                )))
-                            })
+                            .child(div().truncate().text_sm().child(artist)),
+                    )
+                    .child(div().text_sm().child(duration))
+                    .when(can_move, |d| {
+                        d.child(button(("up", i), "↑", PAPER).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.job(move || {
+                                    sync::move_entry(id, -1)?;
+                                    Ok(Reply::Done("Track moved".into()))
+                                });
+                            },
+                        )))
+                        .child(button(("down", i), "↓", PAPER).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.job(move || {
+                                    sync::move_entry(id, 1)?;
+                                    Ok(Reply::Done("Track moved".into()))
+                                });
+                            },
+                        )))
                     })
-                    .collect()
+                    .child(
+                        button(("enqueue", i), if queue { "×" } else { "+ Queue" }, PAPER)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                if queue {
+                                    this.player.send(Command::Remove(i));
+                                } else {
+                                    this.player.send(Command::Append(track.clone()));
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .when(!queue, |d| {
+                        d.child(button(("remove", i), "×", PAPER).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.job(move || {
+                                    sync::remove(id)?;
+                                    Ok(Reply::Done("Track removed".into()))
+                                });
+                                cx.notify();
+                            },
+                        )))
+                    })
+                    .into_any_element()
             }),
         )
         .h_full()
@@ -508,6 +527,10 @@ impl Render for Mousa {
         if (self.seek.read(cx).value().start() - progress).abs() > 0.001 {
             self.seek
                 .update(cx, |s, cx| s.set_value(progress, window, cx));
+        }
+        if (self.volume_slider.read(cx).value().start() - self.volume as f32).abs() > 0.5 {
+            self.volume_slider
+                .update(cx, |s, cx| s.set_value(self.volume as f32, window, cx));
         }
         let filter = self.playlist_search.read(cx).value().to_lowercase();
         let title = if self.queue_view {
@@ -834,7 +857,7 @@ impl Render for Mousa {
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
             )
             .child(
-                button("play", if self.paused { "▶ PLAY" } else { "Ⅱ PAUSE" }, LIME)
+                button("play", if self.paused { "▶" } else { "Ⅱ" }, LIME)
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Toggle))),
             )
             .child(
@@ -853,67 +876,74 @@ impl Render for Mousa {
                 button("repeat", "REPEAT", if self.repeat { PINK } else { PAPER })
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Repeat))),
             );
-        let player =
-            div()
-                .border_t_2()
-                .border_color(rgb(INK))
-                .bg(rgb(0xffffff))
-                .p_4()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .child(
-                            div()
-                                .w(px(260.))
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .font_weight(FontWeight::BOLD)
-                                        .child(self.current_title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_sm()
-                                        .child(self.current_artist.clone()),
-                                ),
-                        )
-                        .child(controls)
-                        .child(div().flex_1())
-                        .child(button("vol-down", "−", PAPER).on_click(cx.listener(
-                            |this, _, _, _| this.player.send(Command::Volume(this.volume - 5.)),
-                        )))
-                        .child(format!("{}%", self.volume as u32))
-                        .child(button("vol-up", "+", PAPER).on_click(cx.listener(
-                            |this, _, _, _| this.player.send(Command::Volume(this.volume + 5.)),
-                        ))),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .text_sm()
-                        .child(time(self.position))
-                        .child(button("back10", "−10s", PAPER).on_click(cx.listener(
-                            |this, _, _, _| this.player.send(Command::Seek(this.position - 10.)),
-                        )))
-                        .child(
-                            div()
-                                .flex_1()
-                                .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
-                        )
-                        .child(button("forward10", "+10s", PAPER).on_click(cx.listener(
-                            |this, _, _, _| this.player.send(Command::Seek(this.position + 10.)),
-                        )))
-                        .child(time(self.duration)),
-                );
+        let player = div()
+            .border_t_2()
+            .border_color(rgb(INK))
+            .bg(rgb(0xffffff))
+            .p_4()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .whitespace_normal()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.current_title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .whitespace_normal()
+                                    .text_sm()
+                                    .child(self.current_artist.clone()),
+                            ),
+                    )
+                    .child(controls.flex_shrink_0())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .justify_end()
+                            .items_center()
+                            .gap_3()
+                            .child(div().w(px(150.)).child(Slider::new(&self.volume_slider)))
+                            .child(
+                                div()
+                                    .w(px(42.))
+                                    .text_sm()
+                                    .child(format!("{}%", self.volume as u32)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .text_sm()
+                    .child(time(self.position))
+                    .child(button("back10", "−10s", PAPER).on_click(cx.listener(
+                        |this, _, _, _| this.player.send(Command::Seek(this.position - 10.)),
+                    )))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
+                    )
+                    .child(button("forward10", "+10s", PAPER).on_click(cx.listener(
+                        |this, _, _, _| this.player.send(Command::Seek(this.position + 10.)),
+                    )))
+                    .child(time(self.duration)),
+            );
         div()
             .key_context("Mousa")
             .track_focus(&self.focus)
