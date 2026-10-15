@@ -135,7 +135,7 @@ pub fn google_login() -> Result<()> {
         ("client_id", id),
         ("redirect_uri", &redirect),
         ("response_type", "code"),
-        ("scope", "https://www.googleapis.com/auth/youtube.readonly"),
+        ("scope", "https://www.googleapis.com/auth/youtube"),
         ("access_type", "offline"),
         ("prompt", "consent"),
         ("state", &state),
@@ -186,6 +186,14 @@ pub fn google_login() -> Result<()> {
         .send()?
         .error_for_status()?
         .json()?;
+    anyhow::ensure!(
+        token["scope"]
+            .as_str()
+            .unwrap_or("")
+            .split_whitespace()
+            .any(|scope| scope == "https://www.googleapis.com/auth/youtube"),
+        "Google playlist editing permission was not granted. Existing sign-in was preserved."
+    );
     store_secret(
         "google-refresh",
         token["refresh_token"]
@@ -194,7 +202,7 @@ pub fn google_login() -> Result<()> {
     )?;
     Ok(())
 }
-fn google_access() -> Result<String> {
+pub(crate) fn google_access() -> Result<String> {
     let v: Value =
         serde_json::from_slice(&std::fs::read(db::data_dir().join("google-client.json"))?)?;
     let refresh = get_secret("google-refresh").context("Sign in to Google first")?;
@@ -219,77 +227,6 @@ fn google_access() -> Result<String> {
         .as_str()
         .context("Missing access token")?
         .into())
-}
-pub fn google_playlists() -> Result<Vec<(String, Vec<Track>)>> {
-    let token = google_access()?;
-    let c = client()?;
-    let mut lists = Vec::new();
-    let mut page = String::new();
-    loop {
-        let v: Value = c
-            .get("https://www.googleapis.com/youtube/v3/playlists")
-            .bearer_auth(&token)
-            .query(&[
-                ("part", "snippet"),
-                ("mine", "true"),
-                ("maxResults", "50"),
-                ("pageToken", &page),
-            ])
-            .send()?
-            .error_for_status()?
-            .json()?;
-        for p in v["items"].as_array().context("Missing playlists")? {
-            let id = p["id"].as_str().context("Missing playlist id")?;
-            let mut tracks = Vec::new();
-            let mut next = String::new();
-            loop {
-                let v: Value = c
-                    .get("https://www.googleapis.com/youtube/v3/playlistItems")
-                    .bearer_auth(&token)
-                    .query(&[
-                        ("part", "snippet"),
-                        ("playlistId", id),
-                        ("maxResults", "50"),
-                        ("pageToken", &next),
-                    ])
-                    .send()?
-                    .error_for_status()?
-                    .json()?;
-                for item in v["items"].as_array().context("Missing entries")? {
-                    let s = &item["snippet"];
-                    if let Some(id) = s["resourceId"]["videoId"].as_str() {
-                        tracks.push(Track {
-                            id: 0,
-                            url: format!("https://www.youtube.com/watch?v={id}"),
-                            title: s["title"].as_str().unwrap_or("Unavailable").into(),
-                            artist: s["videoOwnerChannelTitle"]
-                                .as_str()
-                                .unwrap_or("")
-                                .trim_end_matches(" - Topic")
-                                .into(),
-                            duration: 0.,
-                        })
-                    }
-                }
-                next = v["nextPageToken"].as_str().unwrap_or("").into();
-                if next.is_empty() {
-                    break;
-                }
-            }
-            lists.push((
-                p["snippet"]["title"]
-                    .as_str()
-                    .unwrap_or("YouTube playlist")
-                    .into(),
-                tracks,
-            ));
-        }
-        page = v["nextPageToken"].as_str().unwrap_or("").into();
-        if page.is_empty() {
-            break;
-        }
-    }
-    Ok(lists)
 }
 fn lastfm(mut p: BTreeMap<String, String>) -> Result<Value> {
     let key = get_secret("lastfm-key").context("Set Last.fm API key and secret in Settings")?;

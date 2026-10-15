@@ -18,7 +18,7 @@ Install a local binary, icon, and desktop launcher:
 
 ## Features in this first build
 
-- Persistent local playlists: create, rename, delete, add/remove tracks, and reorder entries.
+- Local and YouTube playlists: create, rename, delete, add/remove tracks, and reorder entries. New YouTube playlists are private; the creation form also offers local-only playlists.
 - Search playlist names; indexed prefix search across track titles and artists. Multiple terms use AND semantics.
 - Sort tracks by playlist order, title, artist, or duration.
 - Playing a filtered result starts at that exact playlist entry in the full current sort order. Duplicate videos retain separate entry identities.
@@ -27,11 +27,11 @@ Install a local binary, icon, and desktop launcher:
 - libmpv playback, play/pause, previous/next, seek slider and ±10 seconds, volume, shuffle, playlist repeat.
 - Queue append/remove/jump, and restoration of queue/settings across restarts. Playback remains paused on startup.
 - Linux MPRIS metadata and playback controls.
-- Google desktop OAuth with PKCE/state validation and a loopback callback. Import all pages of account playlists as local copies.
+- Google desktop OAuth with PKCE/state validation and a loopback callback. Owned YouTube playlists appear automatically on startup and after sign-in, with background refresh every ten minutes and an optional Refresh button. Cached lists are immediately available.
 - Last.fm authorization, now-playing, and scrobbling after half the track or four minutes, for tracks longer than 30 seconds. Paused/buffering time does not count. Failed scrobbles remain in SQLite for retries.
 - Refresh tokens and Last.fm credentials stored in the operating system keyring.
 
-Playlist CRUD is local. Google import creates local copies; changes are not pushed back to YouTube, and repeated imports create additional copies. This keeps remote edits explicit for a future synchronization implementation. YouTube Music-specific collections are not assumed to be exposed by the public YouTube Data API.
+YouTube playlists are labeled in the sidebar. Their edits are saved to YouTube before local success is reported; deletion also deletes the remote playlist and asks for confirmation. A failed edit remains visible as an error. Offline browsing uses the cache, but remote edits require a connection; there is no offline write queue. Partial multi-track additions are reported with a completed count: refresh before retrying. YouTube may require manual playlist ordering for reorder operations. Local-only playlists stay local. Earlier imported copies remain local and are never silently converted or deleted. YouTube Music-specific collections and playlists merely saved from other owners are not assumed to be exposed by the public owned-playlists API.
 
 ## Keyboard controls
 
@@ -51,9 +51,9 @@ Save its downloaded JSON as:
 ~/.local/share/mousa/google-client.json
 ```
 
-Then click **Connect Google**, complete consent in the system browser, and select **Import Google Playlists**. The sign-in callback expires after three minutes. The application requests only `youtube.readonly`. Google API authorization is separate from yt-dlp playback and does not authorize yt-dlp with your Google account.
+Then click **Connect Google** and complete consent in the system browser. Your playlists appear automatically. Existing read-only users must reconnect once to approve editing. The sign-in callback expires after three minutes. The application requests the `youtube` management scope required for playlist edits; Google describes this as managing your YouTube account. Google API authorization is separate from yt-dlp playback and does not authorize yt-dlp with your Google account.
 
-The **Mousa** Desktop OAuth client is configured on this workstation, and sign-in has been completed. Its JSON is stored outside the repository with owner-only permissions; the refresh token is in the system keyring. No Google credentials are committed. The existing project is External / In production and remains unverified; Google currently displays its existing consent name, `project-352734193567`. Public app verification and consent-screen branding are separate from this working desktop sign-in setup.
+The **Mousa** Desktop OAuth client is configured on this workstation, and sign-in with playlist management permission has been completed. Its JSON is stored outside the repository with owner-only permissions; the refresh token is in the system keyring. No Google credentials are committed. The existing project is External / In production and remains unverified; Google currently displays its existing consent name, `project-352734193567`. Public app verification and consent-screen branding are separate from this working desktop sign-in setup.
 
 ## Last.fm setup
 
@@ -63,13 +63,16 @@ Create a Last.fm API application at https://www.last.fm/api/account/create. In *
 
 SQLite uses WAL, foreign keys, indexed playlist ordering/sorting, and FTS5 with escaped user terms. Selective searches force row-ID lookups from FTS results rather than scanning an entire playlist's ordering index. Database/network work runs outside the UI thread. Search input is debounced and stale results are discarded. Playback owns libmpv on its own worker. The UI and player share queue snapshots through `Arc`, and idle polling only redraws when visible state changes.
 
+Remote catalogs and playlist entries are reconciled transactionally using stable YouTube playlist and playlist-item IDs. Complete pages are fetched before replacing each cached snapshot; duplicate videos retain distinct IDs, and refreshes do not duplicate playlists. Confirmed edits are protected from stale API reads for one minute, including deletion tombstones, because YouTube list responses can briefly lag behind successful writes. Remote operations are serialized within the process to keep refreshes from overwriting in-flight edits.
+
 All metadata for the selected playlist is currently held in memory; rows are virtualized, not the underlying database result. The representative UI fixture is 5,000 entries. An optional 100,000-entry test remains as a stress probe.
 
 ## Validation
 
 ```sh
 cargo test --test library
-cargo run --example google_oauth_probe -- --check-existing
+cargo run --example google_oauth_probe -- --check-existing --require-editing
+cargo run --example google_sync_probe
 cargo test --test library -- --ignored --nocapture
 MOUSA_DATA_DIR=/tmp/mousa-playback-probe cargo run --example playback_probe
 MOUSA_DATA_DIR=/tmp/mousa-youtube-probe cargo run --example youtube_probe
@@ -77,10 +80,12 @@ MOUSA_DATA_DIR=/tmp/mousa-demo cargo run --example seed
 MOUSA_DATA_DIR=/tmp/mousa-demo cargo run --release
 ```
 
+The optional `cargo run --example google_sync_probe -- --write-roundtrip` creates a private temporary playlist, checks all edit operations, and deletes that test playlist.
+
 The playback probe uses a generated silent WAV. The YouTube probe uses a real public video with muted playback. The UI seed contains 5,000 clearly synthetic rows and refuses a nonempty library. Tests never populate the normal library.
 
 ## Current boundaries
 
-This is an initial Linux implementation. Windows/macOS packaging and native media controls are not implemented. There is no offline media download, gapless guarantee, cloud write-back, or YouTube Music recommendation feed. YouTube resolution is unofficial and may require yt-dlp updates when YouTube changes. API failures surface in the status bar; unavailable tracks can be skipped manually.
+This is an initial Linux implementation. Windows/macOS packaging and native media controls are not implemented. There is no offline media download, gapless guarantee, YouTube Music recommendation feed. YouTube resolution is unofficial and may require yt-dlp updates when YouTube changes. API failures surface in the status bar; unavailable tracks can be skipped manually.
 
 The GPUI-compatible component version is pinned; only its native input and slider widgets are used. The optional webview feature is disabled. `vendor/xattr` retains upstream licenses and a small Linux compatibility fix for the removed `libc::ENOATTR` alias; see `vendor/xattr/MOUSA-PATCH.md`.

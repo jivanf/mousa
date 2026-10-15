@@ -8,6 +8,7 @@ use mousa::{
     db::{self, Playlist, Sort, Track},
     integrations, mpris,
     player::{Command, Player},
+    sync,
 };
 use std::{
     sync::{
@@ -55,6 +56,8 @@ struct Mousa {
     field: Entity<InputState>,
     secret: Entity<InputState>,
     form: Form,
+    create_google: bool,
+    last_sync: std::time::Instant,
     queue_view: bool,
     status: String,
     tx: Sender<Reply>,
@@ -129,6 +132,8 @@ impl Mousa {
             field,
             secret,
             form: Form::None,
+            create_google: true,
+            last_sync: std::time::Instant::now(),
             queue_view: false,
             status: "Your music. Your rules.".into(),
             tx,
@@ -165,6 +170,7 @@ impl Mousa {
         app.subscriptions
             .push(cx.subscribe(&playlist_search, |_, _, _: &InputEvent, cx| cx.notify()));
         app.refresh_library();
+        app.sync_google();
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -187,6 +193,16 @@ impl Mousa {
     }
     fn refresh_library(&self) {
         self.job(|| Ok(Reply::Library(db::library()?.playlists()?)));
+    }
+    fn sync_google(&mut self) {
+        self.last_sync = std::time::Instant::now();
+        let tx = self.tx.clone();
+        self.job(move || {
+            sync::refresh(|| {
+                let _ = tx.send(Reply::Done("Refreshing YouTube playlists…".into()));
+            })?;
+            Ok(Reply::Done("Playlists up to date".into()))
+        });
     }
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
         self.generation += 1; // Invalidate an in-flight result as soon as input changes.
@@ -215,6 +231,9 @@ impl Mousa {
         cx.notify();
     }
     fn tick(&mut self, cx: &mut Context<Self>) {
+        if self.last_sync.elapsed() >= Duration::from_secs(600) {
+            self.sync_google();
+        }
         let mut changed = false;
         while let Ok(reply) = self.rx.try_recv() {
             changed = true;
@@ -245,7 +264,11 @@ impl Mousa {
                     self.refresh_tracks(cx);
                 }
                 Reply::Status(s) => self.status = s,
-                Reply::Error(e) => self.status = e,
+                Reply::Error(e) => {
+                    self.status = e;
+                    self.refresh_library();
+                    self.refresh_tracks(cx);
+                }
             }
         }
         let s = self.player.state.lock().unwrap();
@@ -305,46 +328,44 @@ impl Mousa {
         let text = self.field.read(cx).value().to_string();
         let selected = self.selected;
         let form = self.form;
+        let create_google = self.create_google;
         let secret = self.secret.read(cx).value().to_string();
         self.form = Form::None;
         self.status = "Working…".into();
-        self.job(move || {
-            let mut db = db::library()?;
-            match form {
-                Form::Create => Ok(Reply::Created(db.create(&text)?)),
-                Form::Rename => {
-                    db.rename(
-                        selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?,
-                        &text,
-                    )?;
-                    Ok(Reply::Done("Playlist renamed".into()))
-                }
-                Form::Delete => {
-                    db.delete(selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?)?;
-                    Ok(Reply::Done(
-                        "Playlist deleted; the current queue is preserved".into(),
-                    ))
-                }
-                Form::Import => {
-                    let id = selected.ok_or_else(|| anyhow::anyhow!("Create a playlist first"))?;
-                    let tracks = integrations::import_url(&text)?;
-                    let n = tracks.len();
-                    db.add(id, &tracks)?;
-                    Ok(Reply::Done(format!("Added {n} tracks")))
-                }
-                Form::Settings => {
-                    anyhow::ensure!(
-                        !text.trim().is_empty() && !secret.trim().is_empty(),
-                        "Enter both Last.fm credentials"
-                    );
-                    integrations::store_secret("lastfm-key", text.trim())?;
-                    integrations::store_secret("lastfm-secret", secret.trim())?;
-                    Ok(Reply::Done(
-                        "Last.fm credentials saved in the system keyring".into(),
-                    ))
-                }
-                _ => Ok(Reply::Done(String::new())),
+        self.job(move || match form {
+            Form::Create => Ok(Reply::Created(sync::create(&text, create_google)?)),
+            Form::Rename => {
+                sync::rename(
+                    selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?,
+                    &text,
+                )?;
+                Ok(Reply::Done("Playlist renamed".into()))
             }
+            Form::Delete => {
+                sync::delete(selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?)?;
+                Ok(Reply::Done(
+                    "Playlist deleted; the current queue is preserved".into(),
+                ))
+            }
+            Form::Import => {
+                let id = selected.ok_or_else(|| anyhow::anyhow!("Create a playlist first"))?;
+                let tracks = integrations::import_url(&text)?;
+                let n = tracks.len();
+                sync::add(id, &tracks)?;
+                Ok(Reply::Done(format!("Added {n} tracks")))
+            }
+            Form::Settings => {
+                anyhow::ensure!(
+                    !text.trim().is_empty() && !secret.trim().is_empty(),
+                    "Enter both Last.fm credentials"
+                );
+                integrations::store_secret("lastfm-key", text.trim())?;
+                integrations::store_secret("lastfm-secret", secret.trim())?;
+                Ok(Reply::Done(
+                    "Last.fm credentials saved in the system keyring".into(),
+                ))
+            }
+            _ => Ok(Reply::Done(String::new())),
         });
         cx.notify();
     }
@@ -429,7 +450,7 @@ impl Mousa {
                                     move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.job(move || {
-                                            db::library()?.move_entry(id, -1)?;
+                                            sync::move_entry(id, -1)?;
                                             Ok(Reply::Done("Track moved".into()))
                                         });
                                     },
@@ -439,7 +460,7 @@ impl Mousa {
                                         move |this, _, _, cx| {
                                             cx.stop_propagation();
                                             this.job(move || {
-                                                db::library()?.move_entry(id, 1)?;
+                                                sync::move_entry(id, 1)?;
                                                 Ok(Reply::Done("Track moved".into()))
                                             });
                                         },
@@ -463,7 +484,7 @@ impl Mousa {
                                     move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.job(move || {
-                                            db::library()?.remove(id)?;
+                                            sync::remove(id)?;
                                             Ok(Reply::Done("Track removed".into()))
                                         });
                                         cx.notify();
@@ -561,7 +582,12 @@ impl Render for Mousa {
             list = list.child(
                 button(
                     ("playlist", id as usize),
-                    format!("{}  ·  {}", p.name, p.count),
+                    format!(
+                        "{}  ·  {}{}",
+                        p.name,
+                        p.count,
+                        if p.google { " · YouTube" } else { " · Local" }
+                    ),
                     if self.selected == Some(id) && !self.queue_view {
                         PINK
                     } else {
@@ -582,10 +608,15 @@ impl Render for Mousa {
                 button("google", "CONNECT GOOGLE ↗", PAPER).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.status = "Complete Google sign-in in your browser…".into();
-                        this.job(|| {
+                        let tx = this.tx.clone();
+                        this.job(move || {
                             integrations::google_login()?;
+                            sync::refresh(|| {
+                                let _ =
+                                    tx.send(Reply::Done("Refreshing YouTube playlists…".into()));
+                            })?;
                             Ok(Reply::Done(
-                                "Google connected. Import your library below.".into(),
+                                "Google connected. Playlists up to date.".into(),
                             ))
                         });
                         cx.notify();
@@ -593,20 +624,10 @@ impl Render for Mousa {
                 )),
             )
             .child(
-                button("sync", "IMPORT GOOGLE PLAYLISTS", LIME).on_click(cx.listener(
+                button("sync", "REFRESH PLAYLISTS", LIME).on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.status = "Importing your YouTube playlists…".into();
-                        this.job(|| {
-                            let lists = integrations::google_playlists()?;
-                            let mut db = db::library()?;
-                            for (name, tracks) in lists {
-                                let id = db.create(&name)?;
-                                db.add(id, &tracks)?;
-                            }
-                            Ok(Reply::Done(
-                                "Google playlists imported as local copies".into(),
-                            ))
-                        });
+                        this.status = "Refreshing YouTube playlists…".into();
+                        this.sync_google();
                         cx.notify();
                     },
                 )),
@@ -694,7 +715,17 @@ impl Render for Mousa {
                 Form::Create => "NEW PLAYLIST",
                 Form::Rename => "RENAME PLAYLIST",
                 Form::Import => "ADD A VIDEO OR AN ENTIRE PLAYLIST",
-                Form::Delete => "DELETE THIS PLAYLIST? This cannot be undone.",
+                Form::Delete => {
+                    if self
+                        .playlists
+                        .iter()
+                        .any(|p| Some(p.id) == self.selected && p.google)
+                    {
+                        "DELETE FROM YOUTUBE? This also deletes the playlist on YouTube and cannot be undone."
+                    } else {
+                        "DELETE LOCAL PLAYLIST? This cannot be undone."
+                    }
+                }
                 Form::Settings => "LAST.FM — API KEY & SECRET",
                 Form::None => "",
             };
@@ -709,6 +740,23 @@ impl Render for Mousa {
                 .child(label);
             if self.form != Form::Delete {
                 form = form.child(Input::new(&self.field));
+            }
+            if self.form == Form::Create {
+                form = form.child(
+                    button(
+                        "playlist-source",
+                        if self.create_google {
+                            "SAVE TO YOUTUBE (PRIVATE) · Switch to local"
+                        } else {
+                            "SAVE LOCALLY · Switch to YouTube"
+                        },
+                        PAPER,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.create_google = !this.create_google;
+                        cx.notify();
+                    })),
+                );
             }
             if self.form == Form::Settings {
                 form =

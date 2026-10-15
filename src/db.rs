@@ -16,6 +16,7 @@ pub struct Playlist {
     pub id: i64,
     pub name: String,
     pub count: usize,
+    pub google: bool,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Sort {
@@ -61,12 +62,16 @@ impl Library {
         CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN INSERT INTO entry_fts(rowid,title,artist) VALUES(new.id,new.title,new.artist); END;
         CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN INSERT INTO entry_fts(entry_fts,rowid,title,artist) VALUES('delete',old.id,old.title,old.artist); END;
         CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE OF title,artist ON entries BEGIN INSERT INTO entry_fts(entry_fts,rowid,title,artist) VALUES('delete',old.id,old.title,old.artist); INSERT INTO entry_fts(rowid,title,artist) VALUES(new.id,new.title,new.artist); END;
+        CREATE TABLE IF NOT EXISTS google_playlists(playlist_id INTEGER PRIMARY KEY REFERENCES playlists(id) ON DELETE CASCADE, remote_id TEXT NOT NULL, account TEXT NOT NULL, UNIQUE(account,remote_id));
+        CREATE TABLE IF NOT EXISTS google_entries(entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE, remote_id TEXT NOT NULL UNIQUE);
+        CREATE TABLE IF NOT EXISTS google_recent(playlist_id INTEGER PRIMARY KEY REFERENCES playlists(id) ON DELETE CASCADE, changed INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS google_deleted(account TEXT NOT NULL,remote_id TEXT NOT NULL,changed INTEGER NOT NULL,PRIMARY KEY(account,remote_id));
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS scrobbles(id INTEGER PRIMARY KEY,artist TEXT NOT NULL,track TEXT NOT NULL,started INTEGER NOT NULL);")?;
         Ok(Self { conn })
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
-        Ok(self.conn.prepare("SELECT p.id,p.name,count(e.id) FROM playlists p LEFT JOIN entries e ON e.playlist_id=p.id GROUP BY p.id ORDER BY p.name COLLATE NOCASE")?.query_map([],|r|Ok(Playlist{id:r.get(0)?,name:r.get(1)?,count:r.get(2)?}))?.collect::<rusqlite::Result<_>>()?)
+        Ok(self.conn.prepare("SELECT p.id,p.name,count(e.id),EXISTS(SELECT 1 FROM google_playlists g WHERE g.playlist_id=p.id) FROM playlists p LEFT JOIN entries e ON e.playlist_id=p.id GROUP BY p.id ORDER BY p.name COLLATE NOCASE")?.query_map([],|r|Ok(Playlist{id:r.get(0)?,name:r.get(1)?,count:r.get(2)?,google:r.get(3)?}))?.collect::<rusqlite::Result<_>>()?)
     }
     pub fn create(&self, name: &str) -> Result<i64> {
         anyhow::ensure!(!name.trim().is_empty(), "Enter a playlist name");
@@ -182,6 +187,135 @@ impl Library {
             stmt.query_map(params![playlist, query], map)?
         };
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    /// Reconcile a complete catalog only after all remote pages have arrived.
+    pub fn reconcile_catalog(
+        &mut self,
+        account: &str,
+        lists: &[(String, String)],
+    ) -> Result<Vec<(i64, String)>> {
+        use rusqlite::OptionalExtension;
+        let tx = self.conn.transaction()?;
+        let mut result = Vec::new();
+        for (remote, name) in lists {
+            let deleted:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM google_deleted WHERE account=? AND remote_id=? AND changed>unixepoch()-60)",params![account,remote],|r|r.get(0))?;
+            if deleted {
+                continue;
+            }
+            let existing: Option<i64> = tx
+                .query_row(
+                    "SELECT playlist_id FROM google_playlists WHERE account=? AND remote_id=?",
+                    params![account, remote],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = match existing {
+                Some(id) => {
+                    tx.execute("UPDATE playlists SET name=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM google_recent WHERE playlist_id=playlists.id AND changed>unixepoch()-60)", params![name, id])?;
+                    id
+                }
+                None => {
+                    tx.execute("INSERT INTO playlists(name) VALUES(?)", [name])?;
+                    let id = tx.last_insert_rowid();
+                    tx.execute(
+                        "INSERT INTO google_playlists VALUES(?,?,?)",
+                        params![id, remote, account],
+                    )?;
+                    id
+                }
+            };
+            result.push((id, remote.clone()));
+        }
+        let old: Vec<(i64, String)> = tx
+            .prepare("SELECT playlist_id,remote_id FROM google_playlists WHERE account=?")?
+            .query_map([account], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, remote) in old {
+            if !lists.iter().any(|(r, _)| *r == remote) && !tx.query_row("SELECT EXISTS(SELECT 1 FROM google_recent WHERE playlist_id=? AND changed>unixepoch()-60)",[id],|r|r.get::<_,bool>(0))? {
+                tx.execute("DELETE FROM playlists WHERE id=?", [id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(result)
+    }
+    /// Keep entry IDs stable by playlist-item ID, including duplicate videos.
+    pub fn reconcile_entries(&mut self, playlist: i64, tracks: &[(String, Track)]) -> Result<()> {
+        use rusqlite::OptionalExtension;
+        let tx = self.conn.transaction()?;
+        let mut keep = std::collections::HashSet::new();
+        for (position, (remote, t)) in tracks.iter().enumerate() {
+            let existing: Option<i64> = tx.query_row("SELECT entry_id FROM google_entries g JOIN entries e ON e.id=g.entry_id WHERE remote_id=? AND playlist_id=?",params![remote,playlist],|r|r.get(0)).optional()?;
+            let id = if let Some(id) = existing {
+                tx.execute("UPDATE entries SET url=?,title=?,artist=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![t.url,t.title,t.artist,t.duration,t.duration,position,id])?;
+                id
+            } else {
+                tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position) VALUES(?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position])?;
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO google_entries VALUES(?,?)",
+                    params![id, remote],
+                )?;
+                id
+            };
+            anyhow::ensure!(
+                keep.insert(id),
+                "Duplicate remote playlist-item ID; cache left intact"
+            );
+        }
+        let old: Vec<i64> = tx
+            .prepare("SELECT id FROM entries WHERE playlist_id=?")?
+            .query_map([playlist], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for id in old {
+            if !keep.contains(&id) {
+                tx.execute("DELETE FROM entries WHERE id=?", [id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn recently_written(&self, id: i64) -> Result<bool> {
+        Ok(self.conn.query_row("SELECT EXISTS(SELECT 1 FROM google_recent WHERE playlist_id=? AND changed>unixepoch()-60)",[id],|r|r.get(0))?)
+    }
+    pub fn mark_written(&self, id: i64) -> Result<()> {
+        self.conn.execute("INSERT INTO google_recent VALUES(?,unixepoch()) ON CONFLICT(playlist_id) DO UPDATE SET changed=excluded.changed",[id])?;
+        Ok(())
+    }
+    pub fn append_google(&self, playlist: i64, remote: &str, t: &Track) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.conn.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position) SELECT ?1,?2,?3,?4,?5,coalesce(max(position),-1)+1 FROM entries WHERE playlist_id=?1",params![playlist,t.url,t.title,t.artist,t.duration])?;
+        self.conn.execute(
+            "INSERT INTO google_entries VALUES(?,?)",
+            params![self.conn.last_insert_rowid(), remote],
+        )?;
+        self.mark_written(playlist)?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn google_playlist(&self, id: i64) -> Result<Option<(String, String)>> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT remote_id,account FROM google_playlists WHERE playlist_id=?",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+    pub fn entry_playlist(&self, id: i64) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT playlist_id FROM entries WHERE id=?", [id], |r| {
+                r.get(0)
+            })?)
+    }
+    pub fn google_entry(&self, id: i64) -> Result<String> {
+        Ok(self.conn.query_row(
+            "SELECT remote_id FROM google_entries WHERE entry_id=?",
+            [id],
+            |r| r.get(0),
+        )?)
     }
     pub fn save(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(

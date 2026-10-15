@@ -124,3 +124,161 @@ fn deleted_entry_ids_are_never_reused() {
     db.add(id, &[track("New")]).unwrap();
     assert_ne!(old, db.tracks(id, "", Sort::Position).unwrap()[0].id);
 }
+
+#[test]
+fn google_refresh_preserves_identity_duplicates_and_local_playlists() {
+    let mut db = Library::open(":memory:").unwrap();
+    let local = db.create("Local").unwrap();
+    db.add(local, &[track("Offline")]).unwrap();
+    let catalog = vec![("PLone".into(), "Cloud".into())];
+    let cloud = db.reconcile_catalog("owner", &catalog).unwrap()[0].0;
+    db.reconcile_entries(
+        cloud,
+        &[
+            ("item-a".into(), track("Same")),
+            ("item-b".into(), track("Same")),
+        ],
+    )
+    .unwrap();
+    let original = db.tracks(cloud, "", Sort::Position).unwrap();
+    assert_ne!(original[0].id, original[1].id);
+    assert_eq!(db.reconcile_catalog("owner", &catalog).unwrap()[0].0, cloud);
+    db.reconcile_entries(
+        cloud,
+        &[
+            ("item-b".into(), track("Changed")),
+            ("item-a".into(), track("Same")),
+        ],
+    )
+    .unwrap();
+    let reordered = db.tracks(cloud, "", Sort::Position).unwrap();
+    assert_eq!(reordered[0].id, original[1].id);
+    assert_eq!(reordered[1].id, original[0].id);
+    assert_eq!(db.tracks(cloud, "Changed", Sort::Title).unwrap().len(), 1);
+    db.reconcile_entries(cloud, &[("item-b".into(), track("Changed"))])
+        .unwrap();
+    assert!(db.tracks(cloud, "Same", Sort::Title).unwrap().is_empty());
+    db.reconcile_catalog("owner", &[]).unwrap();
+    assert_eq!(db.playlists().unwrap().len(), 1);
+    assert_eq!(db.tracks(local, "", Sort::Position).unwrap().len(), 1);
+    assert_eq!(
+        db.conn
+            .query_row("SELECT count(*) FROM google_entries", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn google_accounts_are_isolated_and_failed_snapshot_rolls_back() {
+    let mut db = Library::open(":memory:").unwrap();
+    let one = db
+        .reconcile_catalog("one", &[("PLone".into(), "One".into())])
+        .unwrap()[0]
+        .0;
+    let two = db
+        .reconcile_catalog("two", &[("PLtwo".into(), "Two".into())])
+        .unwrap()[0]
+        .0;
+    db.reconcile_entries(one, &[("a".into(), track("Original"))])
+        .unwrap();
+    db.reconcile_entries(two, &[("b".into(), track("Other"))])
+        .unwrap();
+    assert!(
+        db.reconcile_entries(
+            one,
+            &[
+                ("a".into(), track("Changed")),
+                ("b".into(), track("Conflict"))
+            ]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        db.tracks(one, "", Sort::Position).unwrap()[0].title,
+        "Original"
+    );
+    assert!(
+        db.reconcile_entries(
+            one,
+            &[
+                ("a".into(), track("Changed")),
+                ("a".into(), track("Duplicate"))
+            ]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        db.tracks(one, "", Sort::Position).unwrap()[0].title,
+        "Original"
+    );
+    db.reconcile_catalog("one", &[]).unwrap();
+    assert_eq!(db.google_playlist(two).unwrap().unwrap().1, "two");
+    assert_eq!(db.tracks(two, "", Sort::Position).unwrap().len(), 1);
+}
+
+#[test]
+fn google_5000_track_refresh_keeps_ids() {
+    let mut db = Library::open(":memory:").unwrap();
+    let id = db
+        .reconcile_catalog("owner", &[("PLlarge".into(), "Large".into())])
+        .unwrap()[0]
+        .0;
+    let mut items: Vec<_> = (0..5000)
+        .map(|i| (format!("item-{i}"), track(&format!("Song {i:04}"))))
+        .collect();
+    db.reconcile_entries(id, &items).unwrap();
+    let before = db.tracks(id, "", Sort::Position).unwrap();
+    items.reverse();
+    db.reconcile_entries(id, &items).unwrap();
+    let after = db.tracks(id, "", Sort::Position).unwrap();
+    assert_eq!(before.len(), after.len());
+    assert_eq!(before[4999].id, after[0].id);
+    assert_eq!(
+        db.tracks(id, "4999", Sort::Position).unwrap()[0].id,
+        after[0].id
+    );
+}
+
+#[test]
+fn recently_confirmed_writes_survive_stale_google_catalog() {
+    let mut db = Library::open(":memory:").unwrap();
+    let id = db
+        .reconcile_catalog("owner", &[("PLnew".into(), "New".into())])
+        .unwrap()[0]
+        .0;
+    db.rename(id, "Renamed").unwrap();
+    db.mark_written(id).unwrap();
+    assert!(db.recently_written(id).unwrap());
+    db.reconcile_catalog("owner", &[("PLnew".into(), "Stale name".into())])
+        .unwrap();
+    assert_eq!(db.playlists().unwrap()[0].name, "Renamed");
+    db.reconcile_catalog("owner", &[]).unwrap();
+    assert_eq!(db.playlists().unwrap().len(), 1);
+    db.append_google(id, "new-item", &track("New entry"))
+        .unwrap();
+    assert_eq!(db.tracks(id, "New", Sort::Position).unwrap().len(), 1);
+    db.conn
+        .execute(
+            "INSERT INTO google_deleted VALUES('owner','PLnew',unixepoch())",
+            [],
+        )
+        .unwrap();
+    db.delete(id).unwrap();
+    db.reconcile_catalog(
+        "owner",
+        &[("PLnew".into(), "Stale deleted playlist".into())],
+    )
+    .unwrap();
+    assert!(db.playlists().unwrap().is_empty());
+    db.conn
+        .execute("UPDATE google_deleted SET changed=unixepoch()-61", [])
+        .unwrap();
+    assert_eq!(
+        db.reconcile_catalog("owner", &[("PLnew".into(), "Visible again".into())])
+            .unwrap()
+            .len(),
+        1
+    );
+}

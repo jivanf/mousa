@@ -34,6 +34,16 @@ fn main() -> anyhow::Result<()> {
         .send()?
         .error_for_status()?
         .json()?;
+    if std::env::args().any(|arg| arg == "--require-editing") {
+        anyhow::ensure!(
+            token["scope"]
+                .as_str()
+                .unwrap_or("")
+                .split_whitespace()
+                .any(|scope| scope == "https://www.googleapis.com/auth/youtube"),
+            "Reconnect Google to grant playlist editing permission"
+        );
+    }
     client
         .get("https://www.googleapis.com/youtube/v3/playlists")
         .bearer_auth(
