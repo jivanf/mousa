@@ -106,3 +106,9 @@ cargo run --example gallery -- --player-only
 
 The gallery is independent of playback, accounts, and library data.
 [Visual QA](design-qa.md) links the reference comparison and application screenshots.
+
+### Complete music titles
+
+YouTube sometimes puts literal ellipses in video titles. Mousa recovers full music names from the publisher block in auto-generated descriptions during Google sync, and from structured track metadata when available during URL import. Replacements must extend the exact title prefix; missing text is never guessed. Normal sync reuses descriptions already returned by the playlist API, with no extra per-track requests.
+
+For an existing cache, `cargo run --example repair_titles` previews the number of recoverable titles. Add `-- --apply` to update them using batched video metadata requests. This changes local title metadata only; playlist membership, ordering, and YouTube data are unchanged.

@@ -98,10 +98,11 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
             Some(Track {
                 id: 0,
                 url: format!("https://www.youtube.com/watch?v={id}"),
-                title: v["title"]
-                    .as_str()
-                    .unwrap_or("Unavailable track")
-                    .to_owned(),
+                title: crate::titles::complete(
+                    v["title"].as_str().unwrap_or("Unavailable track"),
+                    v["track"].as_str(),
+                )
+                .to_owned(),
                 artist: v["artist"]
                     .as_str()
                     .or(v["uploader"].as_str())

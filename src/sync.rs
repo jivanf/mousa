@@ -146,7 +146,7 @@ impl Google {
                 Track {
                     id: 0,
                     url: format!("https://www.youtube.com/watch?v={video}"),
-                    title: s["title"].as_str().unwrap_or("Unavailable video").into(),
+                    title: crate::titles::from_snippet(s),
                     artist: s["videoOwnerChannelTitle"]
                         .as_str()
                         .unwrap_or("")
