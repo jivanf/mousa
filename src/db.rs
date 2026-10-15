@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -49,9 +49,31 @@ pub struct Library {
 }
 impl Library {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
+        conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        anyhow::ensure!(version <= 1, "Library was created by a newer Mousa version");
+        if version == 0 {
+            Self::initialize(&mut conn)?;
+        }
+        Ok(Self { conn })
+    }
+    fn initialize(conn: &mut Connection) -> Result<()> {
+        // Serialize first-time setup within this process. Normal opens only read
+        // user_version, so playback never runs DDL alongside a background writer.
+        static INITIALIZE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = INITIALIZE.lock().unwrap_or_else(|e| e.into_inner());
+        if conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? != 0 {
+            return Ok(());
+        }
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Another process may have completed initialization while we waited.
+        if tx.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? != 0 {
+            return Ok(());
+        }
+        tx.execute_batch("
         CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY AUTOINCREMENT, playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT NOT NULL, artist TEXT NOT NULL, duration REAL NOT NULL DEFAULT 0, position INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS entries_order ON entries(playlist_id,position,id);
@@ -67,8 +89,10 @@ impl Library {
         CREATE TABLE IF NOT EXISTS google_recent(playlist_id INTEGER PRIMARY KEY REFERENCES playlists(id) ON DELETE CASCADE, changed INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS google_deleted(account TEXT NOT NULL,remote_id TEXT NOT NULL,changed INTEGER NOT NULL,PRIMARY KEY(account,remote_id));
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS scrobbles(id INTEGER PRIMARY KEY,artist TEXT NOT NULL,track TEXT NOT NULL,started INTEGER NOT NULL);")?;
-        Ok(Self { conn })
+        CREATE TABLE IF NOT EXISTS scrobbles(id INTEGER PRIMARY KEY,artist TEXT NOT NULL,track TEXT NOT NULL,started INTEGER NOT NULL);
+        PRAGMA user_version=1;")?;
+        tx.commit()?;
+        Ok(())
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         Ok(self.conn.prepare("SELECT p.id,p.name,count(e.id),EXISTS(SELECT 1 FROM google_playlists g WHERE g.playlist_id=p.id) FROM playlists p LEFT JOIN entries e ON e.playlist_id=p.id GROUP BY p.id ORDER BY p.name COLLATE NOCASE")?.query_map([],|r|Ok(Playlist{id:r.get(0)?,name:r.get(1)?,count:r.get(2)?,google:r.get(3)?}))?.collect::<rusqlite::Result<_>>()?)
@@ -97,7 +121,9 @@ impl Library {
         Ok(())
     }
     pub fn add(&mut self, playlist: i64, tracks: &[Track]) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let start: i64 = tx.query_row(
             "SELECT coalesce(max(position),-1)+1 FROM entries WHERE playlist_id=?",
             [playlist],
@@ -195,7 +221,9 @@ impl Library {
         lists: &[(String, String)],
     ) -> Result<Vec<(i64, String)>> {
         use rusqlite::OptionalExtension;
-        let tx = self.conn.transaction()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut result = Vec::new();
         for (remote, name) in lists {
             let deleted:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM google_deleted WHERE account=? AND remote_id=? AND changed>unixepoch()-60)",params![account,remote],|r|r.get(0))?;
@@ -241,7 +269,9 @@ impl Library {
     /// Keep entry IDs stable by playlist-item ID, including duplicate videos.
     pub fn reconcile_entries(&mut self, playlist: i64, tracks: &[(String, Track)]) -> Result<()> {
         use rusqlite::OptionalExtension;
-        let tx = self.conn.transaction()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut keep = std::collections::HashSet::new();
         for (position, (remote, t)) in tracks.iter().enumerate() {
             let existing: Option<i64> = tx.query_row("SELECT entry_id FROM google_entries g JOIN entries e ON e.id=g.entry_id WHERE remote_id=? AND playlist_id=?",params![remote,playlist],|r|r.get(0)).optional()?;
@@ -282,7 +312,7 @@ impl Library {
         Ok(())
     }
     pub fn append_google(&self, playlist: i64, remote: &str, t: &Track) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         self.conn.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position) SELECT ?1,?2,?3,?4,?5,coalesce(max(position),-1)+1 FROM entries WHERE playlist_id=?1",params![playlist,t.url,t.title,t.artist,t.duration])?;
         self.conn.execute(
             "INSERT INTO google_entries VALUES(?,?)",

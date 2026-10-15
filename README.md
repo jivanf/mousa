@@ -65,6 +65,8 @@ SQLite uses WAL, foreign keys, indexed playlist ordering/sorting, and FTS5 with 
 
 Google playlist refresh also fetches video lengths through [`videos.list` with `contentDetails`](https://developers.google.com/youtube/v3/docs/videos/list). Requests batch up to 50 unique video IDs, sharing results across playlists during each refresh. Existing entries gain their lengths without changing IDs; unavailable lengths display `–:–`. Duration stays at the right edge of each row while actions appear immediately to its left on hover or keyboard focus.
 
+Schema setup is versioned and runs only for a new or unversioned library. Normal connections read the schema version without rerunning setup. Read-then-write transactions reserve the writer before reading, avoiding failed snapshot upgrades during concurrent saves. Playback reads continue against committed WAL snapshots during refreshes. Periodic playback-state saves never wait for a writer; a busy save retries on the next interval without blocking audio commands.
+
 Remote catalogs and playlist entries are reconciled transactionally using stable YouTube playlist and playlist-item IDs. Complete pages are fetched before replacing each cached snapshot; duplicate videos retain distinct IDs, and refreshes do not duplicate playlists. Confirmed edits are protected from stale API reads for one minute, including deletion tombstones, because YouTube list responses can briefly lag behind successful writes. Remote operations are serialized within the process to keep refreshes from overwriting in-flight edits.
 
 All metadata for the selected playlist is currently held in memory; rows are virtualized, not the underlying database result. The representative UI fixture is 5,000 entries. An optional 100,000-entry test remains as a stress probe.
@@ -84,7 +86,7 @@ MOUSA_DATA_DIR=/tmp/mousa-demo cargo run --release
 
 The optional `cargo run --example google_sync_probe -- --write-roundtrip` creates a private temporary playlist, checks all edit operations, and deletes that test playlist.
 
-The playback probe uses a generated silent WAV. The YouTube probe uses a real public video with muted playback. The UI seed contains 5,000 clearly synthetic rows and refuses a nonempty library. Tests never populate the normal library.
+The playback probe uses a generated silent WAV and holds a database write lock while checking playback controls and eventual session-save retry. The YouTube probe uses a real public video with muted playback. The UI seed contains 5,000 clearly synthetic rows and refuses a nonempty library. Tests never populate the normal library.
 
 ## Current boundaries
 

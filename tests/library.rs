@@ -303,3 +303,147 @@ fn google_refresh_backfills_duration_without_changing_entry_identity() {
         .unwrap();
     assert_eq!(db.tracks(id, "", Sort::Position).unwrap()[0].duration, 253.);
 }
+
+#[test]
+fn opening_and_searching_during_refresh_reads_committed_playlist() {
+    use std::{sync::mpsc, time::Duration};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("concurrent.db");
+    let mut writer = Library::open(&path).unwrap();
+    let id = writer.create("Cached playlist").unwrap();
+    writer.add(id, &[track("Cached song")]).unwrap();
+    let tx = writer
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    tx.execute(
+        "UPDATE entries SET title='Refreshed song' WHERE playlist_id=?",
+        [id],
+    )
+    .unwrap();
+    let (send, receive) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let result = (|| -> anyhow::Result<_> {
+            let db = Library::open(path)?;
+            Ok((
+                db.tracks(id, "", Sort::Position)?,
+                db.tracks(id, "cached", Sort::Position)?,
+            ))
+        })();
+        send.send(result).unwrap();
+    });
+    // The writer remains uncommitted until the playback/search reader finishes.
+    let result = receive.recv_timeout(Duration::from_secs(2));
+    tx.commit().unwrap();
+    reader.join().unwrap();
+    let (playlist, search) = result
+        .expect("reads must not wait for a refresh writer")
+        .unwrap();
+    assert_eq!(playlist[0].title, "Cached song");
+    assert_eq!(search.len(), 1);
+    assert_eq!(
+        writer
+            .tracks(id, "refreshed", Sort::Position)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn competing_read_then_write_operations_wait_before_taking_a_snapshot() {
+    use std::{sync::mpsc, time::Duration};
+    for operation in ["add", "catalog", "entries", "append"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("writers.db");
+        let mut first = Library::open(&path).unwrap();
+        let id = first.create("Existing").unwrap();
+        let mut second = Library::open(&path).unwrap();
+        let tx = first
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        tx.execute("INSERT INTO settings VALUES('session','pending')", [])
+            .unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            let result = match operation {
+                "add" => second.add(id, &[track("Added")]),
+                "catalog" => second
+                    .reconcile_catalog("account", &[("remote".into(), "Remote".into())])
+                    .map(|_| ()),
+                "entries" => second.reconcile_entries(id, &[("entry".into(), track("Synced"))]),
+                "append" => second.append_google(id, "entry", &track("Appended")),
+                _ => unreachable!(),
+            };
+            done_tx.send(result).unwrap();
+        });
+        ready_rx.recv().unwrap();
+        let early = done_rx.recv_timeout(Duration::from_millis(100));
+        tx.commit().unwrap();
+        worker.join().unwrap();
+        assert!(
+            matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
+            "{operation} should wait for the writer instead of failing a read-to-write upgrade: {early:?}"
+        );
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.load("session").as_deref(), Some("pending"));
+        if operation == "catalog" {
+            assert_eq!(first.playlists().unwrap().len(), 2);
+        } else {
+            assert_eq!(first.tracks(id, "", Sort::Position).unwrap().len(), 1);
+        }
+    }
+}
+
+#[test]
+fn legacy_library_is_versioned_without_losing_entries_or_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.db");
+    let id;
+    {
+        let mut db = Library::open(&path).unwrap();
+        id = db.create("Keep me").unwrap();
+        db.add(id, &[track("Preserved")]).unwrap();
+        db.save("session", "saved queue").unwrap();
+        db.conn.execute_batch("PRAGMA user_version=0;").unwrap();
+    }
+    let db = Library::open(&path).unwrap();
+    assert_eq!(
+        db.conn
+            .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
+    assert_eq!(db.load("session").as_deref(), Some("saved queue"));
+}
+
+#[test]
+fn simultaneous_first_connections_initialize_safely() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fresh.db");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+    let workers: Vec<_> = (0..4)
+        .map(|i| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                Library::open(path)
+                    .unwrap()
+                    .create(&format!("Playlist {i}"))
+                    .unwrap();
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    assert_eq!(Library::open(path).unwrap().playlists().unwrap().len(), 4);
+}

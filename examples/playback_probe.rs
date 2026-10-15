@@ -26,7 +26,22 @@ fn main() {
     f.write_all(&len.to_le_bytes()).unwrap();
     f.write_all(&vec![0; len as usize]).unwrap();
     drop(f);
+    let mut writer = mousa::db::library().unwrap();
+    writer
+        .conn
+        .execute("DELETE FROM settings WHERE key='session'", [])
+        .unwrap();
     let p = Player::start();
+    let refresh = writer
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    refresh
+        .execute(
+            "INSERT OR REPLACE INTO settings VALUES('probe-refresh','in progress')",
+            [],
+        )
+        .unwrap();
     p.send(Command::Volume(0.));
     p.send(Command::Queue(
         vec![Track {
@@ -56,6 +71,22 @@ fn main() {
     p.send(Command::Seek(6.));
     std::thread::sleep(Duration::from_millis(500));
     assert!(p.state.lock().unwrap().position >= 5.5);
+    refresh.commit().unwrap();
+    // A failed periodic save must retry even without a new playback command.
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    loop {
+        let saved = writer
+            .load("session")
+            .and_then(|json| serde_json::from_str::<mousa::player::Snapshot>(&json).ok());
+        if saved.is_some_and(|s| s.paused && s.position >= 5.5) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Session save did not retry after the refresh released its lock"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     p.send(Command::Stop);
-    println!("Pause, seek, stop: passed");
+    println!("Playback, pause and seek during a database write; session-save retry; stop: passed");
 }

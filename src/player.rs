@@ -344,10 +344,15 @@ impl Player {
                 }
                 if persisted.elapsed() > Duration::from_secs(3) && saved_revision != s.revision {
                     let snapshot = s.clone();
-                    saved_revision = s.revision;
                     drop(s);
                     if let (Ok(json), Ok(db)) = (serde_json::to_string(&snapshot), db::library()) {
-                        let _ = db.save("session", &json);
+                        // A cache refresh must not stall the audio command loop.
+                        // If a writer owns the database, retry this revision later.
+                        if db.conn.busy_timeout(Duration::ZERO).is_ok()
+                            && db.save("session", &json).is_ok()
+                        {
+                            saved_revision = snapshot.revision;
+                        }
                     }
                     persisted = Instant::now();
                 }
