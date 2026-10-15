@@ -1,3 +1,5 @@
+![Mousa logo](assets/mousa.svg)
+
 # Mousa
 
 A native Linux music player for YouTube, with fast playlist browsing, a customizable queue, and a neobrutalist interface.
