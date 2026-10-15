@@ -66,7 +66,7 @@ components:
   player-breakpoint:
     width: 1200px
   player-inset:
-    padding: 32px
+    padding: 16px
   time-label:
     width: 48px
   icon:
@@ -307,8 +307,9 @@ Playing row is tertiary. Selected row is inverted.
 **Text input.** Field fill, 3px ink border, 36px high, placeholder in
 secondary, focus ring on focus.
 
-**Player bar.** Neutral, a complete 3px outline, 8px offset shadow, 32px
-outer side/bottom inset and 24px inner padding, matching the supplied visual.
+**Player bar.** Neutral, a complete 3px outline, 8px offset shadow, 16px
+outer side inset aligned with the sidebar controls, 32px bottom inset, and
+24px inner padding.
 Three zones as described in Layout. Center zone is 512px at widths of at least
 1200px and 432px below that breakpoint; volume is 224px. Track info wraps.
 Clicking track info opens the queue at the current track. Mute restores the

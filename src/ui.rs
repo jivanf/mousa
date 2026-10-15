@@ -229,7 +229,7 @@ pub fn player_panel(
     compact: bool,
 ) -> Div {
     div()
-        .mx(space::xxl())
+        .mx(space::lg())
         .mb(space::xxl())
         .mt(space::sm())
         .p(space::xl())
