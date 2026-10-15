@@ -49,7 +49,6 @@ struct Mousa {
     playlists: Vec<Playlist>,
     tracks: Arc<Vec<Track>>,
     selected: Option<i64>,
-    sort: Sort,
     seek: Entity<SliderState>,
     search: Entity<InputState>,
     playlist_search: Entity<InputState>,
@@ -60,6 +59,7 @@ struct Mousa {
     last_sync: std::time::Instant,
     queue_view: bool,
     status: String,
+    error: Option<String>,
     tx: Sender<Reply>,
     rx: Receiver<Reply>,
     generation: u64,
@@ -125,7 +125,6 @@ impl Mousa {
             playlists: vec![],
             tracks: Arc::new(vec![]),
             selected: None,
-            sort: Sort::Position,
             seek: seek.clone(),
             search: search.clone(),
             playlist_search: playlist_search.clone(),
@@ -136,6 +135,7 @@ impl Mousa {
             last_sync: std::time::Instant::now(),
             queue_view: false,
             status: "Your music. Your rules.".into(),
+            error: None,
             tx,
             rx,
             generation: 0,
@@ -217,12 +217,11 @@ impl Mousa {
         self.generation += 1;
         let generation = self.generation;
         let query = self.search.read(cx).value().to_string();
-        let sort = self.sort;
         if let Some(id) = self.selected {
             self.job(move || {
                 Ok(Reply::Tracks(
                     generation,
-                    db::library()?.tracks(id, &query, sort)?,
+                    db::library()?.tracks(id, &query, Sort::Position)?,
                 ))
             });
         } else {
@@ -265,6 +264,7 @@ impl Mousa {
                 }
                 Reply::Status(s) => self.status = s,
                 Reply::Error(e) => {
+                    self.error = Some(e.clone());
                     self.status = e;
                     self.refresh_library();
                     self.refresh_tracks(cx);
@@ -301,6 +301,7 @@ impl Mousa {
         self.repeat = s.repeat;
         self.queue_index = s.index;
         if !s.error.is_empty() && self.status != s.error {
+            self.error = Some(s.error.clone());
             self.status = s.error.clone();
             changed = true;
         }
@@ -372,9 +373,8 @@ impl Mousa {
     fn play(&mut self, id: i64, cx: &mut Context<Self>) {
         if let Some(playlist) = self.selected {
             let player = self.player.clone();
-            let sort = self.sort;
             self.job(move || {
-                let tracks = db::library()?.tracks(playlist, "", sort)?;
+                let tracks = db::library()?.tracks(playlist, "", Sort::Position)?;
                 let index = tracks
                     .iter()
                     .position(|t| t.id == id)
@@ -392,8 +392,7 @@ impl Mousa {
             self.tracks.clone()
         };
         let count = tracks.len();
-        let can_move =
-            !queue && self.sort == Sort::Position && self.search.read(cx).value().is_empty();
+        let can_move = !queue && self.search.read(cx).value().is_empty();
         let active = self.playing_id;
         uniform_list(
             if queue { "queue-list" } else { "track-list" },
@@ -542,7 +541,6 @@ impl Render for Mousa {
                     .font_weight(FontWeight::EXTRA_BOLD)
                     .child("MOUSA"),
             )
-            .child(div().text_xs().child("LOUD DESIGN. FAST MUSIC."))
             .child(
                 button("library", "YOUR LIBRARY", PAPER).on_click(cx.listener(|this, _, _, cx| {
                     this.queue_view = false;
@@ -642,12 +640,6 @@ impl Render for Mousa {
             .gap_2()
             .child(div().flex_1().child(Input::new(&self.search)))
             .child(
-                button("sort", self.sort.label(), PAPER).on_click(cx.listener(|this, _, _, cx| {
-                    this.sort = this.sort.next();
-                    this.refresh_tracks(cx);
-                })),
-            )
-            .child(
                 button("import", "+ ADD YOUTUBE", LIME)
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Import, w, cx))),
             );
@@ -659,28 +651,6 @@ impl Render for Mousa {
             .flex()
             .flex_col()
             .gap_4()
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .child("A LITTLE LESS WAITING. A LOT MORE LISTENING."),
-                    )
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .bg(rgb(PINK))
-                            .border_2()
-                            .border_color(rgb(INK))
-                            .text_xs()
-                            .child("LOCAL FIRST"),
-                    ),
-            )
             .child(
                 div()
                     .flex()
@@ -707,6 +677,27 @@ impl Render for Mousa {
                     .text_sm()
                     .child(format!("{n} tracks  /  built to keep up")),
             );
+        if let Some(error) = self.error.clone() {
+            content = content.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .p_3()
+                    .border_2()
+                    .border_color(rgb(INK))
+                    .bg(rgb(PINK))
+                    .child(div().flex_1().child(error))
+                    .child(
+                        button("dismiss-error", "DISMISS", PAPER).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.error = None;
+                                cx.notify();
+                            },
+                        )),
+                    ),
+            );
+        }
         if !self.queue_view {
             content = content.child(toolbar);
         }
@@ -955,15 +946,6 @@ impl Render for Mousa {
                     .flex()
                     .child(sidebar)
                     .child(content),
-            )
-            .child(
-                div()
-                    .px_4()
-                    .py_1()
-                    .border_t_1()
-                    .border_color(rgb(INK))
-                    .text_xs()
-                    .child(self.status.clone()),
             )
             .child(player)
     }

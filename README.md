@@ -20,8 +20,8 @@ Install a local binary, icon, and desktop launcher:
 
 - Local and YouTube playlists: create, rename, delete, add/remove tracks, and reorder entries. New YouTube playlists are private; the creation form also offers local-only playlists.
 - Search playlist names; indexed prefix search across track titles and artists. Multiple terms use AND semantics.
-- Sort tracks by playlist order, title, artist, or duration.
-- Playing a filtered result starts at that exact playlist entry in the full current sort order. Duplicate videos retain separate entry identities.
+- Tracks always follow the saved playlist order; use the reorder arrows to change it.
+- Playing a filtered result starts at that exact playlist entry in the full saved playlist order. Duplicate videos retain separate entry identities.
 - Virtualized track and queue lists; only visible rows are rendered.
 - YouTube video and playlist URL imports through yt-dlp.
 - libmpv playback, play/pause, previous/next, seek slider and ±10 seconds, volume, shuffle, playlist repeat.
@@ -86,6 +86,6 @@ The playback probe uses a generated silent WAV. The YouTube probe uses a real pu
 
 ## Current boundaries
 
-This is an initial Linux implementation. Windows/macOS packaging and native media controls are not implemented. There is no offline media download, gapless guarantee, YouTube Music recommendation feed. YouTube resolution is unofficial and may require yt-dlp updates when YouTube changes. API failures surface in the status bar; unavailable tracks can be skipped manually.
+This is an initial Linux implementation. Windows/macOS packaging and native media controls are not implemented. There is no offline media download, gapless guarantee, YouTube Music recommendation feed. YouTube resolution is unofficial and may require yt-dlp updates when YouTube changes. API failures appear in a dismissible error message; unavailable tracks can be skipped manually.
 
 The GPUI-compatible component version is pinned; only its native input and slider widgets are used. The optional webview feature is disabled. `vendor/xattr` retains upstream licenses and a small Linux compatibility fix for the removed `libc::ENOATTR` alias; see `vendor/xattr/MOUSA-PATCH.md`.
