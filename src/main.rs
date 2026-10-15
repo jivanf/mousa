@@ -536,12 +536,6 @@ impl Render for Mousa {
             .flex_col()
             .gap_4()
             .child(
-                div()
-                    .text_3xl()
-                    .font_weight(FontWeight::EXTRA_BOLD)
-                    .child("MOUSA"),
-            )
-            .child(
                 button("library", "YOUR LIBRARY", PAPER).on_click(cx.listener(|this, _, _, cx| {
                     this.queue_view = false;
                     cx.notify();
