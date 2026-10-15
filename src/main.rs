@@ -1,14 +1,17 @@
 use gpui::{prelude::*, *};
-use gpui_component::slider::{Slider, SliderEvent, SliderState};
 use gpui_component::{
     Root,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use mousa::{
     db::{self, Playlist, Sort, Track},
     integrations, mpris,
     player::{Command, Player},
     sync,
+};
+use mousa::{
+    theme::{border, color, font, layout, shadow, size as control_size, space, text},
+    ui::{self, Bar, BarChange, button, icon_button, step_button},
 };
 use std::{
     sync::{
@@ -20,13 +23,19 @@ use std::{
 
 actions!(
     mousa,
-    [TogglePlayback, NextTrack, PreviousTrack, FocusSearch]
+    [
+        TogglePlayback,
+        NextTrack,
+        PreviousTrack,
+        FocusSearch,
+        SeekBack,
+        SeekForward,
+        ToggleShuffle,
+        ToggleRepeat,
+        ToggleMute
+    ]
 );
 
-const INK: u32 = 0x191919;
-const PAPER: u32 = 0xf5f1e8;
-const LIME: u32 = 0xd4fb55;
-const PINK: u32 = 0xff9ac1;
 enum Reply {
     Library(Vec<Playlist>),
     Tracks(u64, Vec<Track>),
@@ -49,8 +58,8 @@ struct Mousa {
     playlists: Vec<Playlist>,
     tracks: Arc<Vec<Track>>,
     selected: Option<i64>,
-    seek: Entity<SliderState>,
-    volume_slider: Entity<SliderState>,
+    seek: Entity<Bar>,
+    volume_slider: Entity<Bar>,
     track_list: ListState,
     queue_list: ListState,
     search: Entity<InputState>,
@@ -74,6 +83,7 @@ struct Mousa {
     position: f64,
     duration: f64,
     volume: f64,
+    audible_volume: f64,
     paused: bool,
     shuffle: bool,
     repeat: bool,
@@ -81,27 +91,6 @@ struct Mousa {
     revision: u64,
     queue: Arc<Vec<Track>>,
     queue_index: usize,
-}
-fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, color: u32) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px_3()
-        .py_2()
-        .border_2()
-        .border_color(rgb(INK))
-        .shadow(vec![BoxShadow {
-            color: rgb(INK).into(),
-            offset: point(px(3.), px(3.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.),
-        }])
-        .bg(rgb(color))
-        .text_color(rgb(INK))
-        .text_sm()
-        .font_weight(FontWeight::BOLD)
-        .cursor_pointer()
-        .hover(|s| s.bg(rgb(0xffffff)))
-        .child(label.into())
 }
 fn time(n: f64) -> String {
     let s = n.max(0.) as u64;
@@ -112,8 +101,9 @@ impl Mousa {
         let player = Player::start();
         mpris::start(player.clone());
         let (tx, rx) = mpsc::channel();
-        let volume_slider = cx.new(|_| SliderState::new().min(0.).max(100.).step(1.));
-        let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
+        let volume_slider =
+            cx.new(|cx| Bar::new("Volume · Arrow keys adjust; Home mutes", 0.05, cx));
+        let seek = cx.new(|cx| Bar::new("Seek · Arrow keys adjust; Home / End jump", 0.01, cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search this playlist…"));
         let playlist_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a playlist…"));
@@ -131,8 +121,8 @@ impl Mousa {
             selected: None,
             seek: seek.clone(),
             volume_slider: volume_slider.clone(),
-            track_list: ListState::new(0, ListAlignment::Top, px(200.)),
-            queue_list: ListState::new(0, ListAlignment::Top, px(200.)),
+            track_list: ListState::new(0, ListAlignment::Top, layout::list_overscan()),
+            queue_list: ListState::new(0, ListAlignment::Top, layout::list_overscan()),
             search: search.clone(),
             playlist_search: playlist_search.clone(),
             field,
@@ -154,6 +144,7 @@ impl Mousa {
             position: 0.,
             duration: 0.,
             volume: 70.,
+            audible_volume: 70.,
             paused: true,
             shuffle: false,
             repeat: false,
@@ -164,14 +155,14 @@ impl Mousa {
         };
         app.subscriptions
             .push(cx.subscribe(&volume_slider, |this, _, event, _| {
-                let SliderEvent::Change(value) = event;
-                this.player.send(Command::Volume(value.start() as f64));
+                let BarChange(value) = event;
+                this.player.send(Command::Volume(*value as f64 * 100.));
             }));
         app.subscriptions
             .push(cx.subscribe(&seek, |this, _, event, _| {
-                let SliderEvent::Change(value) = event;
+                let BarChange(value) = event;
                 this.player
-                    .send(Command::Seek(value.start() as f64 * this.duration));
+                    .send(Command::Seek(*value as f64 * this.duration));
             }));
         app.subscriptions
             .push(cx.subscribe(&search, |this, _, event, cx| {
@@ -327,6 +318,15 @@ impl Mousa {
             cx.notify();
         }
     }
+    fn toggle_mute(&mut self) {
+        if self.volume > 0. {
+            self.audible_volume = self.volume;
+            self.player.send(Command::Volume(0.));
+        } else {
+            self.player
+                .send(Command::Volume(self.audible_volume.max(1.)));
+        }
+    }
     fn show_form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
         self.form = form;
         let value = if form == Form::Rename {
@@ -338,8 +338,18 @@ impl Mousa {
         } else {
             String::new()
         };
-        self.field
-            .update(cx, |s, cx| s.set_value(value, window, cx));
+        self.field.update(cx, |s, cx| {
+            s.set_placeholder(
+                match form {
+                    Form::Settings => "Last.fm API key",
+                    Form::Import => "YouTube video or playlist URL",
+                    _ => "Playlist name",
+                },
+                window,
+                cx,
+            );
+            s.set_value(value, window, cx);
+        });
         cx.notify();
     }
     fn submit(&mut self, cx: &mut Context<Self>) {
@@ -430,24 +440,7 @@ impl Mousa {
                 } else {
                     Some(id) == active
                 };
-                div()
-                    .id(("track", i))
-                    .min_h(px(62.))
-                    .py_3()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .border_b_1()
-                    .border_color(rgb(INK))
-                    .bg(rgb(if is_active {
-                        LIME
-                    } else if i.is_multiple_of(2) {
-                        PAPER
-                    } else {
-                        0xfffcf5
-                    }))
+                ui::track_row(i, is_active)
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if queue {
@@ -456,7 +449,13 @@ impl Mousa {
                             this.play(id, cx);
                         }
                     }))
-                    .child(div().w(px(35.)).text_sm().child(format!("{:02}", i + 1)))
+                    .child(
+                        div()
+                            .w(layout::row_index())
+                            .font_family(font::MONO)
+                            .text_size(text::secondary())
+                            .child(format!("{:02}", i + 1)),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -469,52 +468,87 @@ impl Mousa {
                                     .font_weight(FontWeight::BOLD)
                                     .child(title),
                             )
-                            .child(div().truncate().text_sm().child(artist)),
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(text::secondary())
+                                    .text_color(color::muted())
+                                    .child(artist),
+                            ),
                     )
-                    .child(div().text_sm().child(duration))
+                    .child(
+                        div()
+                            .font_family(font::MONO)
+                            .text_size(text::label())
+                            .child(duration),
+                    )
                     .when(can_move, |d| {
-                        d.child(button(("up", i), "↑", PAPER).on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.job(move || {
-                                    sync::move_entry(id, -1)?;
-                                    Ok(Reply::Done("Track moved".into()))
-                                });
-                            },
-                        )))
-                        .child(button(("down", i), "↓", PAPER).on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.job(move || {
-                                    sync::move_entry(id, 1)?;
-                                    Ok(Reply::Done("Track moved".into()))
-                                });
-                            },
-                        )))
+                        d.child(
+                            icon_button(("up", i), "arrow-up", "Move up", false, false, true)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.job(move || {
+                                        sync::move_entry(id, -1)?;
+                                        Ok(Reply::Done("Track moved".into()))
+                                    });
+                                })),
+                        )
+                        .child(
+                            icon_button(("down", i), "arrow-down", "Move down", false, false, true)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.job(move || {
+                                        sync::move_entry(id, 1)?;
+                                        Ok(Reply::Done("Track moved".into()))
+                                    });
+                                })),
+                        )
                     })
                     .child(
-                        button(("enqueue", i), if queue { "×" } else { "+ Queue" }, PAPER)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                if queue {
-                                    this.player.send(Command::Remove(i));
-                                } else {
-                                    this.player.send(Command::Append(track.clone()));
-                                }
-                                cx.notify();
-                            })),
+                        icon_button(
+                            ("enqueue", i),
+                            if queue { "x" } else { "playlist-add" },
+                            if queue {
+                                "Remove from queue"
+                            } else {
+                                "Add to queue"
+                            },
+                            false,
+                            false,
+                            true,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            if queue {
+                                this.player.send(Command::Remove(i));
+                            } else {
+                                this.player.send(Command::Append(track.clone()));
+                            }
+                            cx.notify();
+                        })),
                     )
                     .when(!queue, |d| {
-                        d.child(button(("remove", i), "×", PAPER).on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.job(move || {
-                                    sync::remove(id)?;
-                                    Ok(Reply::Done("Track removed".into()))
-                                });
-                                cx.notify();
-                            },
-                        )))
+                        d.child(
+                            icon_button(
+                                ("remove", i),
+                                "x",
+                                "Remove from playlist",
+                                false,
+                                false,
+                                true,
+                            )
+                            .bg(color::pink())
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.job(move || {
+                                        sync::remove(id)?;
+                                        Ok(Reply::Done("Track removed".into()))
+                                    });
+                                    cx.notify();
+                                },
+                            )),
+                        )
                     })
                     .into_any_element()
             }),
@@ -530,14 +564,10 @@ impl Render for Mousa {
         } else {
             0.
         };
-        if (self.seek.read(cx).value().start() - progress).abs() > 0.001 {
-            self.seek
-                .update(cx, |s, cx| s.set_value(progress, window, cx));
-        }
-        if (self.volume_slider.read(cx).value().start() - self.volume as f32).abs() > 0.5 {
-            self.volume_slider
-                .update(cx, |s, cx| s.set_value(self.volume as f32, window, cx));
-        }
+        self.seek
+            .update(cx, |s, cx| s.sync(progress, self.duration <= 0., cx));
+        self.volume_slider
+            .update(cx, |s, cx| s.sync(self.volume as f32 / 100., false, cx));
         let filter = self.playlist_search.read(cx).value().to_lowercase();
         let title = if self.queue_view {
             "Up next".into()
@@ -554,36 +584,42 @@ impl Render for Mousa {
             self.tracks.len()
         };
         let mut sidebar = div()
-            .w(px(260.))
+            .w(control_size::sidebar())
             .flex_shrink_0()
             .h_full()
-            .border_r_2()
-            .border_color(rgb(INK))
-            .bg(rgb(LIME))
-            .p_5()
+            .border_r(border::strong())
+            .border_color(color::ink())
+            .bg(color::canvas())
+            .p(space::lg())
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(space::lg())
             .child(
-                button("library", "YOUR LIBRARY", PAPER).on_click(cx.listener(|this, _, _, cx| {
-                    this.queue_view = false;
-                    cx.notify();
-                })),
+                button("library", "YOUR LIBRARY", color::surface()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.queue_view = false;
+                        cx.notify();
+                    },
+                )),
             )
             .child(
                 button(
                     "queue",
                     format!("QUEUE  /  {}", self.queue.len()),
-                    if self.queue_view { PINK } else { LIME },
+                    if self.queue_view {
+                        color::ink()
+                    } else {
+                        color::surface()
+                    },
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.queue_view = true;
                     cx.notify();
                 })),
             )
-            .child(Input::new(&self.playlist_search))
+            .child(ui::input(&self.playlist_search, cx))
             .child(
-                button("new", "+ NEW PLAYLIST", PAPER)
+                button("new", "+ NEW PLAYLIST", color::surface())
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Create, w, cx))),
             );
         let mut list = div()
@@ -593,7 +629,7 @@ impl Render for Mousa {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .gap_2();
+            .gap(space::sm());
         for p in self
             .playlists
             .iter()
@@ -601,19 +637,12 @@ impl Render for Mousa {
         {
             let id = p.id;
             list = list.child(
-                button(
-                    ("playlist", id as usize),
-                    format!(
-                        "{}  ·  {}{}",
-                        p.name,
-                        p.count,
-                        if p.google { " · YouTube" } else { " · Local" }
-                    ),
-                    if self.selected == Some(id) && !self.queue_view {
-                        PINK
-                    } else {
-                        LIME
-                    },
+                ui::playlist_item(
+                    id,
+                    p.name.clone(),
+                    p.count,
+                    if p.google { "YouTube" } else { "Local" },
+                    self.selected == Some(id) && !self.queue_view,
                 )
                 .on_click(cx.listener(move |this, _, w, cx| {
                     this.selected = Some(id);
@@ -626,7 +655,7 @@ impl Render for Mousa {
         sidebar = sidebar
             .child(list)
             .child(
-                button("google", "CONNECT GOOGLE ↗", PAPER).on_click(cx.listener(
+                button("google", "CONNECT GOOGLE", color::surface()).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.status = "Complete Google sign-in in your browser…".into();
                         let tx = this.tx.clone();
@@ -645,7 +674,7 @@ impl Render for Mousa {
                 )),
             )
             .child(
-                button("sync", "REFRESH PLAYLISTS", LIME).on_click(cx.listener(
+                button("sync", "REFRESH PLAYLISTS", color::surface()).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.status = "Refreshing YouTube playlists…".into();
                         this.sync_google();
@@ -654,50 +683,52 @@ impl Render for Mousa {
                 )),
             )
             .child(
-                button("settings", "LAST.FM / SETTINGS", PAPER)
+                button("settings", "LAST.FM / SETTINGS", color::surface())
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Settings, w, cx))),
             );
         let toolbar = div()
             .flex()
             .items_center()
-            .gap_2()
-            .child(div().flex_1().child(Input::new(&self.search)))
+            .gap(space::sm())
+            .child(div().flex_1().child(ui::input(&self.search, cx)))
             .child(
-                button("import", "+ ADD YOUTUBE", LIME)
+                button("import", "ADD YOUTUBE", color::surface())
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Import, w, cx))),
             );
         let mut content = div()
             .flex_1()
             .min_w_0()
             .h_full()
-            .p_6()
+            .p(space::xl())
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(space::lg())
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap(space::md())
                     .child(
                         div()
                             .flex_1()
-                            .text_3xl()
-                            .font_weight(FontWeight::EXTRA_BOLD)
+                            .text_size(text::page_title())
+                            .font_weight(FontWeight::MEDIUM)
                             .child(title),
                     )
                     .when(!self.queue_view && self.selected.is_some(), |d| {
-                        d.child(button("rename", "RENAME", PAPER).on_click(
+                        d.child(button("rename", "RENAME", color::surface()).on_click(
                             cx.listener(|this, _, w, cx| this.show_form(Form::Rename, w, cx)),
                         ))
-                        .child(button("delete", "DELETE", PINK).on_click(
-                            cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
-                        ))
+                        .child(
+                            button("delete", "DELETE", color::pink()).on_click(
+                                cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
+                            ),
+                        )
                     }),
             )
             .child(
                 div()
-                    .text_sm()
+                    .text_size(text::secondary())
                     .child(format!("{n} tracks  /  built to keep up")),
             );
         if let Some(error) = self.error.clone() {
@@ -705,14 +736,14 @@ impl Render for Mousa {
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
-                    .p_3()
-                    .border_2()
-                    .border_color(rgb(INK))
-                    .bg(rgb(PINK))
+                    .gap(space::md())
+                    .p(space::md())
+                    .border(border::strong())
+                    .border_color(color::ink())
+                    .bg(color::surface())
                     .child(div().flex_1().child(error))
                     .child(
-                        button("dismiss-error", "DISMISS", PAPER).on_click(cx.listener(
+                        button("dismiss-error", "DISMISS", color::surface()).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.error = None;
                                 cx.notify();
@@ -744,16 +775,16 @@ impl Render for Mousa {
                 Form::None => "",
             };
             let mut form = div()
-                .p_4()
-                .border_2()
-                .border_color(rgb(INK))
-                .bg(rgb(PINK))
+                .p(space::lg())
+                .border(border::strong())
+                .border_color(color::ink())
+                .bg(color::surface())
                 .flex()
                 .flex_col()
-                .gap_3()
+                .gap(space::md())
                 .child(label);
             if self.form != Form::Delete {
-                form = form.child(Input::new(&self.field));
+                form = form.child(ui::input(&self.field, cx));
             }
             if self.form == Form::Create {
                 form = form.child(
@@ -764,7 +795,7 @@ impl Render for Mousa {
                         } else {
                             "SAVE LOCALLY · Switch to YouTube"
                         },
-                        PAPER,
+                        color::surface(),
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.create_google = !this.create_google;
@@ -773,12 +804,12 @@ impl Render for Mousa {
                 );
             }
             if self.form == Form::Settings {
-                form =
-                    form.child(Input::new(&self.secret)).child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(button("lf-auth", "1. AUTHORIZE ↗", PAPER).on_click(
+                form = form.child(ui::input(&self.secret, cx)).child(
+                    div()
+                        .flex()
+                        .gap(space::sm())
+                        .child(
+                            button("lf-auth", "1. AUTHORIZE", color::surface()).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.job(|| {
                                         integrations::lastfm_begin()?;
@@ -788,22 +819,23 @@ impl Render for Mousa {
                                     });
                                     cx.notify();
                                 }),
-                            ))
-                            .child(button("lf-finish", "2. FINISH", LIME).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.job(|| {
-                                        integrations::lastfm_finish()?;
-                                        Ok(Reply::Done("Last.fm connected".into()))
-                                    });
-                                    cx.notify();
-                                },
-                            ))),
-                    );
+                            ),
+                        )
+                        .child(button("lf-finish", "2. FINISH", color::surface()).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.job(|| {
+                                    integrations::lastfm_finish()?;
+                                    Ok(Reply::Done("Last.fm connected".into()))
+                                });
+                                cx.notify();
+                            }),
+                        )),
+                );
             }
             form = form.child(
                 div()
                     .flex()
-                    .gap_2()
+                    .gap(space::sm())
                     .child(
                         button(
                             "save",
@@ -812,16 +844,22 @@ impl Render for Mousa {
                             } else {
                                 "SAVE"
                             },
-                            LIME,
+                            if self.form == Form::Delete {
+                                color::pink()
+                            } else {
+                                color::surface()
+                            },
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
                     )
-                    .child(button("cancel", "CANCEL", PAPER).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.form = Form::None;
-                            cx.notify();
-                        },
-                    ))),
+                    .child(
+                        button("cancel", "CANCEL", color::surface()).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.form = Form::None;
+                                cx.notify();
+                            },
+                        )),
+                    ),
             );
             content = content.child(form);
         }
@@ -829,23 +867,26 @@ impl Render for Mousa {
             div()
                 .flex_1()
                 .min_h_0()
-                .border_2()
-                .border_color(rgb(INK))
+                .border(border::strong())
+                .border_color(color::ink())
                 .when(n == 0, |d| {
                     d.flex()
                         .flex_col()
                         .items_center()
                         .justify_center()
-                        .gap_4()
-                        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(
-                            if self.queue_view {
-                                "The queue is yours to fill."
-                            } else if !self.search.read(cx).value().is_empty() {
-                                "No matching tracks."
-                            } else {
-                                "Start with something you love."
-                            },
-                        ))
+                        .gap(space::lg())
+                        .child(
+                            div()
+                                .text_size(text::track_title())
+                                .font_weight(FontWeight::BOLD)
+                                .child(if self.queue_view {
+                                    "The queue is yours to fill."
+                                } else if !self.search.read(cx).value().is_empty() {
+                                    "No matching tracks."
+                                } else {
+                                    "Start with something you love."
+                                }),
+                        )
                         .child(if !self.search.read(cx).value().is_empty() {
                             "Try a different title or artist."
                         } else {
@@ -857,121 +898,168 @@ impl Render for Mousa {
         let controls = div()
             .flex()
             .items_center()
-            .gap_2()
+            .justify_center()
+            .gap(space::md())
             .child(
-                button("prev", "|◀", PAPER)
-                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
-            )
-            .child(
-                button("play", if self.paused { "▶" } else { "Ⅱ" }, LIME)
-                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Toggle))),
-            )
-            .child(
-                button("next", "▶|", PAPER)
-                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
-            )
-            .child(
-                button(
+                icon_button(
                     "shuffle",
-                    "SHUFFLE",
-                    if self.shuffle { PINK } else { PAPER },
+                    "arrows-shuffle",
+                    "Shuffle (Ctrl+S)",
+                    self.shuffle,
+                    false,
+                    false,
                 )
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Shuffle))),
             )
             .child(
-                button("repeat", "REPEAT", if self.repeat { PINK } else { PAPER })
-                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Repeat))),
+                icon_button(
+                    "prev",
+                    "player-skip-back",
+                    "Previous track (Ctrl+Left)",
+                    false,
+                    false,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
+            )
+            .child(step_button("back10", "−10").on_click(
+                cx.listener(|this, _, _, _| this.player.send(Command::Seek(this.position - 10.))),
+            ))
+            .child(
+                icon_button(
+                    "play",
+                    if self.paused {
+                        "player-play"
+                    } else {
+                        "player-pause"
+                    },
+                    "Play / pause (Ctrl+Space)",
+                    false,
+                    true,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Toggle))),
+            )
+            .child(step_button("forward10", "+10").on_click(
+                cx.listener(|this, _, _, _| this.player.send(Command::Seek(this.position + 10.))),
+            ))
+            .child(
+                icon_button(
+                    "next",
+                    "player-skip-forward",
+                    "Next track (Ctrl+Right)",
+                    false,
+                    false,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
+            )
+            .child(
+                icon_button(
+                    "repeat",
+                    "repeat",
+                    "Repeat playlist (Ctrl+R)",
+                    self.repeat,
+                    false,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Repeat))),
             );
-        let player = div()
-            .border_t_2()
-            .border_color(rgb(INK))
-            .bg(rgb(0xffffff))
-            .p_4()
-            .flex()
-            .flex_col()
-            .gap_2()
+        let info = div()
+            .id("now-playing-open-queue")
+            .tab_index(0)
+            .focus(|s| s.bg(color::canvas()).shadow(vec![shadow::focus_ring()]))
+            .cursor_pointer()
+            .tooltip(|w, cx| {
+                gpui_component::tooltip::Tooltip::new("Open queue at the playing track")
+                    .build(w, cx)
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                let state = this.player.state.lock().unwrap();
+                if !Arc::ptr_eq(&this.queue, &state.queue) {
+                    this.queue_list.reset(state.queue.len());
+                }
+                this.queue = state.queue.clone();
+                this.queue_index = state.index;
+                drop(state);
+                this.queue_view = true;
+                this.form = Form::None;
+                if !this.queue.is_empty() {
+                    this.queue_list.scroll_to(ListOffset {
+                        item_ix: this.queue_index,
+                        offset_in_item: layout::zero(),
+                    });
+                }
+                cx.notify();
+            }))
+            .child(ui::caps("NOW PLAYING").mb(space::sm()))
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .child(
-                        div()
-                            .id("now-playing-open-queue")
-                            .flex_1()
-                            .min_w_0()
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let state = this.player.state.lock().unwrap();
-                                if !Arc::ptr_eq(&this.queue, &state.queue) {
-                                    this.queue_list.reset(state.queue.len());
-                                }
-                                this.queue = state.queue.clone();
-                                this.queue_index = state.index;
-                                drop(state);
-                                this.queue_view = true;
-                                this.form = Form::None;
-                                if !this.queue.is_empty() {
-                                    this.queue_list.scroll_to(ListOffset {
-                                        item_ix: this.queue_index,
-                                        offset_in_item: px(0.),
-                                    });
-                                }
-                                cx.notify();
-                            }))
-                            .child(
-                                div()
-                                    .whitespace_normal()
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(self.current_title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .whitespace_normal()
-                                    .text_sm()
-                                    .child(self.current_artist.clone()),
-                            ),
-                    )
-                    .child(controls.flex_shrink_0())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .justify_end()
-                            .items_center()
-                            .gap_3()
-                            .child(div().w(px(150.)).child(Slider::new(&self.volume_slider)))
-                            .child(
-                                div()
-                                    .w(px(42.))
-                                    .text_sm()
-                                    .child(format!("{}%", self.volume as u32)),
-                            ),
-                    ),
+                    .whitespace_normal()
+                    .text_size(text::track_title())
+                    .font_weight(FontWeight::BOLD)
+                    .child(self.current_title.clone()),
             )
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .text_sm()
-                    .child(time(self.position))
-                    .child(button("back10", "−10s", PAPER).on_click(cx.listener(
-                        |this, _, _, _| this.player.send(Command::Seek(this.position - 10.)),
-                    )))
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
-                    )
-                    .child(button("forward10", "+10s", PAPER).on_click(cx.listener(
-                        |this, _, _, _| this.player.send(Command::Seek(this.position + 10.)),
-                    )))
+                    .whitespace_normal()
+                    .text_size(text::body())
+                    .text_color(color::muted())
+                    .mt(space::sm())
+                    .child(self.current_artist.clone()),
+            );
+        let timeline = div()
+            .flex()
+            .items_center()
+            .gap(space::sm())
+            .font_family(font::MONO)
+            .font_weight(FontWeight::BOLD)
+            .child(div().w(layout::time_label()).child(time(self.position)))
+            .child(div().flex_1().child(self.seek.clone()))
+            .child(
+                div()
+                    .w(layout::time_label())
+                    .text_right()
                     .child(time(self.duration)),
             );
+        let volume = div()
+            .w(layout::player_volume())
+            .flex()
+            .items_center()
+            .gap(space::sm())
+            .child(
+                icon_button(
+                    "mute",
+                    if self.volume == 0. {
+                        "volume-off"
+                    } else {
+                        "volume"
+                    },
+                    "Mute / restore volume (Ctrl+M)",
+                    self.volume == 0.,
+                    false,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.toggle_mute())),
+            )
+            .child(div().flex_1().min_w_0().child(self.volume_slider.clone()))
+            .child(
+                div()
+                    .w(layout::time_label())
+                    .font_family(font::MONO)
+                    .font_weight(FontWeight::BOLD)
+                    .child(format!("{}%", self.volume as u32)),
+            );
+        let player = ui::player_panel(
+            info,
+            controls,
+            timeline,
+            volume,
+            window.viewport_size().width < layout::player_breakpoint(),
+        );
         div()
             .key_context("Mousa")
+            .tab_group()
             .track_focus(&self.focus)
             .on_action(
                 cx.listener(|this, _: &TogglePlayback, _, _| this.player.send(Command::Toggle)),
@@ -983,10 +1071,25 @@ impl Render for Mousa {
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
                 this.search.read(cx).focus_handle(cx).focus(window)
             }))
+            .on_action(cx.listener(|this, _: &SeekBack, _, _| {
+                this.player.send(Command::Seek(this.position - 10.))
+            }))
+            .on_action(cx.listener(|this, _: &SeekForward, _, _| {
+                this.player.send(Command::Seek(this.position + 10.))
+            }))
+            .on_action(
+                cx.listener(|this, _: &ToggleShuffle, _, _| this.player.send(Command::Shuffle)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ToggleRepeat, _, _| this.player.send(Command::Repeat)),
+            )
+            .on_action(cx.listener(|this, _: &ToggleMute, _, _| this.toggle_mute()))
             .size_full()
-            .bg(rgb(PAPER))
-            .text_color(rgb(INK))
-            .font_family("DM Sans")
+            .bg(color::canvas())
+            .text_color(color::ink())
+            .font_family(font::SANS)
+            .text_size(text::body())
+            .font_weight(FontWeight::MEDIUM)
             .flex()
             .flex_col()
             .child(
@@ -1001,19 +1104,18 @@ impl Render for Mousa {
     }
 }
 fn main() {
-    Application::new().run(|cx| {
-        cx.text_system()
-            .add_fonts(vec![std::borrow::Cow::Borrowed(
-                include_bytes!("../assets/fonts/DMSans.ttf").as_slice(),
-            )])
-            .expect("load bundled DM Sans font");
-        gpui_component::init(cx);
-        gpui_component::Theme::global_mut(cx).font_family = "DM Sans".into();
+    Application::new().with_assets(ui::Assets).run(|cx| {
+        ui::init(cx);
         cx.bind_keys([
             KeyBinding::new("ctrl-space", TogglePlayback, Some("Mousa")),
             KeyBinding::new("ctrl-right", NextTrack, Some("Mousa")),
             KeyBinding::new("ctrl-left", PreviousTrack, Some("Mousa")),
             KeyBinding::new("ctrl-f", FocusSearch, Some("Mousa")),
+            KeyBinding::new("ctrl-j", SeekBack, Some("Mousa")),
+            KeyBinding::new("ctrl-l", SeekForward, Some("Mousa")),
+            KeyBinding::new("ctrl-s", ToggleShuffle, Some("Mousa")),
+            KeyBinding::new("ctrl-r", ToggleRepeat, Some("Mousa")),
+            KeyBinding::new("ctrl-m", ToggleMute, Some("Mousa")),
         ]);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
@@ -1025,10 +1127,10 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(1280.), px(840.)),
+                    size(layout::viewport_width(), layout::viewport_height()),
                     cx,
                 ))),
-                window_min_size: Some(size(px(1050.), px(650.))),
+                window_min_size: Some(size(layout::min_width(), layout::min_height())),
                 app_id: Some("mousa".into()),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Mousa".into()),

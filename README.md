@@ -88,4 +88,19 @@ The playback probe uses a generated silent WAV. The YouTube probe uses a real pu
 
 This is an initial Linux implementation. Windows/macOS packaging and native media controls are not implemented. There is no offline media download, gapless guarantee, YouTube Music recommendation feed. YouTube resolution is unofficial and may require yt-dlp updates when YouTube changes. API failures appear in a dismissible error message; unavailable tracks can be skipped manually.
 
-The GPUI-compatible component version is pinned; only its native input and slider widgets are used. The optional webview feature is disabled. `vendor/xattr` retains upstream licenses and a small Linux compatibility fix for the removed `libc::ENOATTR` alias; see `vendor/xattr/MOUSA-PATCH.md`.
+The GPUI-compatible component version is pinned; its native input widget is used; seek and volume use the shared Mousa bar component. The optional webview feature is disabled. `vendor/xattr` retains upstream licenses and a small Linux compatibility fix for the removed `libc::ENOATTR` alias; see `vendor/xattr/MOUSA-PATCH.md`.
+
+## Design system
+
+[DESIGN.md](DESIGN.md) records the accepted designer specification and review adjustments.
+[src/theme.rs](src/theme.rs) defines native tokens; [src/ui.rs](src/ui.rs) owns shared components, fonts, and icons.
+Space Grotesk, Space Mono, and Tabler icons are bundled with their licenses.
+
+```sh
+npx @google/design.md lint DESIGN.md
+cargo run --example gallery
+cargo run --example gallery -- --player-only
+```
+
+The gallery is independent of playback, accounts, and library data.
+[Visual QA](design-qa.md) links the reference comparison and application screenshots.
