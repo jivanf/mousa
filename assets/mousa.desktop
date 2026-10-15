@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Mousa
+Comment=A fast, native YouTube music player
+Exec=mousa
+Icon=mousa
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=YouTube;Music;Playlist;
+StartupWMClass=mousa

@@ -1,0 +1,9 @@
+/target
+.env
+*client_secret*.json
+credentials*.json
+*.db
+*.db-shm
+*.db-wal
+
+google-client.json

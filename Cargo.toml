@@ -1,0 +1,37 @@
+[package]
+name = "mousa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+gpui = "=0.2.2"
+gpui-component = { version = "=0.5.1", default-features = false }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+libmpv2 = { version = "6", default-features = false }
+zbus = "5"
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+sha2 = "0.10"
+md5 = "0.7"
+base64 = "0.22"
+rand = "0.9"
+url = "2"
+webbrowser = "1"
+directories = "6"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+debug = 0
+
+# GPUI's font-kit dependency uses xattr 0.2; modern libc removed Linux ENOATTR.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
