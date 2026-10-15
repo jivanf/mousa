@@ -53,7 +53,7 @@ Save its downloaded JSON as:
 
 Then click **Connect Google**, complete consent in the system browser, and select **Import Google Playlists**. The sign-in callback expires after three minutes. The application requests only `youtube.readonly`. Google API authorization is separate from yt-dlp playback and does not authorize yt-dlp with your Google account.
 
-No Google credentials are committed. An OAuth client has not yet been created/configured for this build.
+The **Mousa** Desktop OAuth client is configured on this workstation, and sign-in has been completed. Its JSON is stored outside the repository with owner-only permissions; the refresh token is in the system keyring. No Google credentials are committed. The existing project is External / In production and remains unverified; Google currently displays its existing consent name, `project-352734193567`. Public app verification and consent-screen branding are separate from this working desktop sign-in setup.
 
 ## Last.fm setup
 
@@ -69,6 +69,7 @@ All metadata for the selected playlist is currently held in memory; rows are vir
 
 ```sh
 cargo test --test library
+cargo run --example google_oauth_probe -- --check-existing
 cargo test --test library -- --ignored --nocapture
 MOUSA_DATA_DIR=/tmp/mousa-playback-probe cargo run --example playback_probe
 MOUSA_DATA_DIR=/tmp/mousa-youtube-probe cargo run --example youtube_probe
