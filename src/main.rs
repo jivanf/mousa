@@ -458,7 +458,10 @@ impl Mousa {
                             .w(layout::row_index())
                             .font_family(font::MONO)
                             .text_size(text::secondary())
-                            .child(format!("{:02}", i + 1)),
+                            .child(format!(
+                                "{:02}",
+                                if queue { i + 1 } else { t.playlist_index }
+                            )),
                     )
                     .child(
                         div()

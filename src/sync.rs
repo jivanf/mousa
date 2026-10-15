@@ -145,6 +145,7 @@ impl Google {
                     .into(),
                 Track {
                     id: 0,
+                    playlist_index: 0,
                     url: format!("https://www.youtube.com/watch?v={video}"),
                     title: crate::titles::from_snippet(s),
                     artist: s["videoOwnerChannelTitle"]

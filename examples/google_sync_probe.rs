@@ -16,6 +16,7 @@ fn main() -> anyhow::Result<()> {
             sync::rename(id, "Mousa temporary integration test (renamed)")?;
             let t = Track {
                 id: 0,
+                playlist_index: 0,
                 url: "https://www.youtube.com/watch?v=jNQXAC9IVRw".into(),
                 title: "Me at the zoo".into(),
                 artist: "jawed".into(),

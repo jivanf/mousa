@@ -46,6 +46,7 @@ fn main() {
     p.send(Command::Queue(
         vec![Track {
             id: 1,
+            playlist_index: 0,
             url: path.to_string_lossy().into(),
             title: "Silent playback probe".into(),
             artist: "Mousa QA".into(),

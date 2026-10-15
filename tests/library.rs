@@ -2,6 +2,7 @@ use mousa::db::{Library, Sort, Track};
 fn track(title: &str) -> Track {
     Track {
         id: 0,
+        playlist_index: 0,
         url: "https://www.youtube.com/watch?v=test".into(),
         title: title.into(),
         artist: "Test artist".into(),
@@ -446,4 +447,39 @@ fn simultaneous_first_connections_initialize_safely() {
         worker.join().unwrap();
     }
     assert_eq!(Library::open(path).unwrap().playlists().unwrap().len(), 4);
+}
+
+#[test]
+fn search_preserves_playlist_indexes_after_reorder_and_deletion() {
+    let mut db = Library::open(":memory:").unwrap();
+    let id = db.create("Indexes").unwrap();
+    db.add(
+        id,
+        &[
+            track("Other"),
+            track("Match Zulu"),
+            track("Gap"),
+            track("Match Alpha"),
+        ],
+    )
+    .unwrap();
+    let all = db.tracks(id, "", Sort::Position).unwrap();
+    let indexes = |rows: Vec<Track>| rows.iter().map(|t| t.playlist_index).collect::<Vec<_>>();
+    assert_eq!(
+        indexes(db.tracks(id, "match", Sort::Position).unwrap()),
+        vec![2, 4]
+    );
+    assert_eq!(
+        indexes(db.tracks(id, "match", Sort::Title).unwrap()),
+        vec![4, 2]
+    );
+    db.remove(all[2].id).unwrap();
+    assert_eq!(
+        indexes(db.tracks(id, "match", Sort::Position).unwrap()),
+        vec![2, 3]
+    );
+    db.move_entry(all[3].id, -1).unwrap();
+    let found = db.tracks(id, "alpha", Sort::Position).unwrap();
+    assert_eq!(found[0].id, all[3].id);
+    assert_eq!(found[0].playlist_index, 2);
 }

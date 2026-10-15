@@ -6,6 +6,9 @@ use std::path::Path;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Track {
     pub id: i64,
+    /// One-based position in the complete playlist, independent of search and sort.
+    #[serde(default)]
+    pub playlist_index: usize,
     pub url: String,
     pub title: String,
     pub artist: String,
@@ -194,13 +197,22 @@ impl Library {
         } else {
             "entries e NOT INDEXED"
         };
+        // Rank the full playlist before filtering, in the same read snapshot.
+        // The ordering index covers this ID-only pass, including deletion gaps.
         let sql = format!(
-            "SELECT e.id,e.url,e.title,e.artist,e.duration FROM {source} WHERE e.playlist_id=?1{filter} ORDER BY {order}"
+            "WITH playlist_indexes AS (
+                SELECT id,row_number() OVER (ORDER BY position,id) AS ordinal
+                FROM entries WHERE playlist_id=?1
+             )
+             SELECT e.id,e.url,e.title,e.artist,e.duration,p.ordinal
+             FROM {source} JOIN playlist_indexes p ON p.id=e.id
+             WHERE e.playlist_id=?1{filter} ORDER BY {order}"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let map = |r: &rusqlite::Row| {
             Ok(Track {
                 id: r.get(0)?,
+                playlist_index: r.get(5)?,
                 url: r.get(1)?,
                 title: r.get(2)?,
                 artist: r.get(3)?,

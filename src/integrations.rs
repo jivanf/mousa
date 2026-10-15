@@ -97,6 +97,7 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
             let id = v["id"].as_str()?;
             Some(Track {
                 id: 0,
+                playlist_index: 0,
                 url: format!("https://www.youtube.com/watch?v={id}"),
                 title: crate::titles::complete(
                     v["title"].as_str().unwrap_or("Unavailable track"),
@@ -311,6 +312,7 @@ pub fn flush_scrobbles() -> Result<()> {
         lastfm_track(
             &Track {
                 id: 0,
+                playlist_index: 0,
                 url: String::new(),
                 title,
                 artist,
