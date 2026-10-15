@@ -411,6 +411,7 @@ impl Mousa {
 
         let can_move = !queue && self.search.read(cx).value().is_empty();
         let active = self.playing_id;
+        let active_queue_index = self.queue_index;
         list(
             if queue {
                 self.queue_list.clone()
@@ -424,6 +425,11 @@ impl Mousa {
                 let artist = t.artist.clone();
                 let duration = time(t.duration);
                 let track = t.clone();
+                let is_active = if queue {
+                    i == active_queue_index
+                } else {
+                    Some(id) == active
+                };
                 div()
                     .id(("track", i))
                     .min_h(px(62.))
@@ -435,7 +441,7 @@ impl Mousa {
                     .px_4()
                     .border_b_1()
                     .border_color(rgb(INK))
-                    .bg(rgb(if Some(id) == active {
+                    .bg(rgb(if is_active {
                         LIME
                     } else if i.is_multiple_of(2) {
                         PAPER
@@ -891,8 +897,28 @@ impl Render for Mousa {
                     .gap_4()
                     .child(
                         div()
+                            .id("now-playing-open-queue")
                             .flex_1()
                             .min_w_0()
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let state = this.player.state.lock().unwrap();
+                                if !Arc::ptr_eq(&this.queue, &state.queue) {
+                                    this.queue_list.reset(state.queue.len());
+                                }
+                                this.queue = state.queue.clone();
+                                this.queue_index = state.index;
+                                drop(state);
+                                this.queue_view = true;
+                                this.form = Form::None;
+                                if !this.queue.is_empty() {
+                                    this.queue_list.scroll_to(ListOffset {
+                                        item_ix: this.queue_index,
+                                        offset_in_item: px(0.),
+                                    });
+                                }
+                                cx.notify();
+                            }))
                             .child(
                                 div()
                                     .whitespace_normal()
