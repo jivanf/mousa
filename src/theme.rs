@@ -255,6 +255,6 @@ pub mod landing {
         px(100.)
     }
     pub fn title() -> Pixels {
-        px(36.)
+        px(56.)
     }
 }
