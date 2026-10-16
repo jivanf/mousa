@@ -810,12 +810,19 @@ impl Render for Mousa {
             .flex_col()
             .gap(space::lg())
             .child(
-                button("library", "YOUR LIBRARY", color::surface()).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.queue_view = false;
-                        cx.notify();
+                button(
+                    "library",
+                    "YOUR LIBRARY",
+                    if !self.queue_view {
+                        color::ink()
+                    } else {
+                        color::surface()
                     },
-                )),
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.queue_view = false;
+                    cx.notify();
+                })),
             )
             .child(
                 button(
