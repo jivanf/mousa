@@ -243,7 +243,7 @@ values.
 
 Control sizes: row actions 32px, default controls and inputs 36px, transport
 buttons 44px, hero 72px, bar track 22px, bar thumb 28px, track row minimum 56px,
-sidebar 260px.
+sidebar 280px.
 
 Player bar, docked at the bottom, three zones: track info (left), transport
 and timeline (center), volume (right). The timeline sits directly under the

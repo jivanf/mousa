@@ -188,7 +188,7 @@ pub mod size {
         px(56.)
     } // track row height
     pub fn sidebar() -> Pixels {
-        px(260.)
+        px(280.)
     }
 }
 
