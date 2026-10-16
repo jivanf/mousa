@@ -12,6 +12,7 @@ A native Linux music player for YouTube, with fast playlist browsing, a customiz
 - Add tracks or entire playlists from YouTube URLs.
 - Play/pause, previous/next, seeking, volume, shuffle, and repeat.
 - Manage your queue and restore it across restarts. Playback starts paused.
+- Resume the last playlist or queue view, including per-playlist searches and scroll positions.
 - Connect Google to see your owned YouTube playlists automatically.
 - Browse cached playlists offline; YouTube playback and edits require a connection.
 - Use Linux desktop media controls through MPRIS.
@@ -89,3 +90,5 @@ Opened or playing playlists are checked for freshness every ten minutes. Their c
 A playlist visited at least three times (visits separated by ten minutes), most recently within seven days, qualifies for opportunistic background refresh once daily. One candidate is considered per scheduler pass. Automatic API work shares a local budget of 2,000 estimated units per Pacific calendar day, reserving capacity for opening playlists, manual refreshes, and edits. This local estimate does not measure other installations using the same Google project.
 
 Video durations persist for seven days; missing/unavailable metadata is retried after six hours. Successful batches survive later request failures. The quota-exhausted state persists until midnight America/Los_Angeles, including daylight-saving changes. While paused, cached data remains usable; YouTube edits require the quota to recover. Per-endpoint estimated usage is recorded locally, without credentials or request bodies.
+
+On normal exit, Mousa saves browsing context and window size, position, and maximized state. Window placement follows desktop/compositor support; unavailable display positions fall back to centering. Menus, forms, unsaved form input, errors, and pending account actions reopen closed. If the saved playlist is missing, Mousa returns to the available library.

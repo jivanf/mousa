@@ -54,6 +54,11 @@ enum Form {
     Delete,
 }
 struct Mousa {
+    view_state: mousa::view_state::ViewState,
+    sidebar_scroll: ScrollHandle,
+    tracks_ready: bool,
+    library_ready: bool,
+    queue_ready: bool,
     player: Player,
     playlists: Vec<Playlist>,
     tracks: Arc<Vec<Track>>,
@@ -100,7 +105,11 @@ fn time(n: f64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 impl Mousa {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        saved: mousa::view_state::ViewState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let player = Player::start();
         mpris::start(player.clone());
         let (tx, rx) = mpsc::channel();
@@ -112,11 +121,32 @@ impl Mousa {
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a playlist…"));
         let field =
             cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name or YouTube URL"));
+        search.update(cx, |s, cx| {
+            s.set_value(
+                saved
+                    .playlist
+                    .and_then(|id| saved.playlists.get(&id))
+                    .map(|p| p.query.clone())
+                    .unwrap_or_default(),
+                window,
+                cx,
+            )
+        });
+        playlist_search.update(cx, |s, cx| {
+            s.set_value(saved.library_query.clone(), window, cx)
+        });
+        let sidebar_scroll = ScrollHandle::new();
+        sidebar_scroll.set_offset(point(px(0.), px(saved.library_scroll.min(0.))));
         let mut app = Self {
+            sidebar_scroll,
+            view_state: saved.clone(),
+            tracks_ready: false,
+            library_ready: false,
+            queue_ready: false,
             player,
             playlists: vec![],
             tracks: Arc::new(vec![]),
-            selected: None,
+            selected: saved.playlist,
             seek: seek.clone(),
             volume_slider: volume_slider.clone(),
             track_list: ListState::new(0, ListAlignment::Top, layout::list_overscan()),
@@ -135,7 +165,7 @@ impl Mousa {
             create_google: true,
             last_sync: std::time::Instant::now(),
             freshness: String::new(),
-            queue_view: false,
+            queue_view: saved.queue,
             status: "Your music. Your rules.".into(),
             error: None,
             tx,
@@ -172,21 +202,36 @@ impl Mousa {
         app.subscriptions
             .push(cx.subscribe(&search, |this, _, event, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.tracks_ready = false;
+                    if let Some(id) = this.selected {
+                        let query = this.search.read(cx).value().to_string();
+                        let position = this.view_state.playlists.entry(id).or_default();
+                        if position.query != query {
+                            *position = mousa::view_state::BrowsePosition {
+                                query,
+                                ..Default::default()
+                            };
+                        }
+                    }
                     this.schedule_search(cx)
                 }
             }));
         app.subscriptions
             .push(cx.subscribe(&playlist_search, |_, _, _: &InputEvent, cx| cx.notify()));
         app.refresh_library();
+        app.refresh_tracks(cx);
         if app.google_name.is_some() {
             app.sync_google();
         }
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(200))
                     .await;
-                if this.update(cx, |this, cx| this.tick(cx)).is_err() {
+                if this
+                    .update_in(cx, |this, window, cx| this.tick(window, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -307,7 +352,34 @@ impl Mousa {
         }
         cx.notify();
     }
-    fn tick(&mut self, cx: &mut Context<Self>) {
+    fn remember_view(&mut self, cx: &App) {
+        if self.library_ready {
+            self.view_state.library_scroll = f32::from(self.sidebar_scroll.offset().y);
+        }
+        self.view_state.playlist = self.selected;
+        self.view_state.queue = self.queue_view;
+        self.view_state.library_query = self.playlist_search.read(cx).value().to_string();
+        if self.tracks_ready
+            && let Some(id) = self.selected
+        {
+            let offset = self.track_list.logical_scroll_top();
+            self.view_state.playlists.insert(
+                id,
+                mousa::view_state::BrowsePosition {
+                    query: self.search.read(cx).value().to_string(),
+                    item: offset.item_ix,
+                    offset: f32::from(offset.offset_in_item),
+                },
+            );
+        }
+        if self.queue_ready {
+            let offset = self.queue_list.logical_scroll_top();
+            self.view_state.queue_position.item = offset.item_ix;
+            self.view_state.queue_position.offset = f32::from(offset.offset_in_item);
+        }
+    }
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember_view(cx);
         if self.google_name.is_some() && self.last_sync.elapsed() >= Duration::from_secs(600) {
             self.sync_google();
         }
@@ -339,18 +411,41 @@ impl Mousa {
                     }
                 }
                 Reply::Library(p) => {
+                    if !self.library_ready {
+                        self.sidebar_scroll
+                            .set_offset(point(px(0.), px(self.view_state.library_scroll.min(0.))));
+                        self.library_ready = true;
+                    }
                     self.playlists = p;
                     if self.selected.is_none()
                         || !self.playlists.iter().any(|p| Some(p.id) == self.selected)
                     {
+                        self.tracks_ready = false;
+                        self.search.update(cx, |s, cx| s.set_value("", window, cx));
                         self.selected = self.playlists.first().map(|p| p.id);
+                        if let Some(id) = self.selected {
+                            self.view_state.playlists.remove(&id);
+                        }
                         self.refresh_tracks(cx);
                         self.sync_selected(false, true);
                     }
                 }
                 Reply::Tracks(g, t, freshness) => {
                     if g == self.generation {
+                        let offset = self
+                            .view_state
+                            .playlists
+                            .get(&self.selected.unwrap_or_default())
+                            .cloned()
+                            .unwrap_or_default();
                         self.track_list.reset(t.len());
+                        if !t.is_empty() {
+                            self.track_list.scroll_to(ListOffset {
+                                item_ix: offset.item.min(t.len() - 1),
+                                offset_in_item: px(offset.offset.max(0.)),
+                            });
+                        }
+                        self.tracks_ready = true;
                         self.tracks = Arc::new(t);
                         self.freshness = freshness;
                     }
@@ -361,6 +456,10 @@ impl Mousa {
                     self.refresh_tracks(cx);
                 }
                 Reply::Created(id) => {
+                    self.remember_view(cx);
+                    self.tracks_ready = false;
+                    self.queue_view = false;
+                    self.search.update(cx, |s, cx| s.set_value("", window, cx));
                     self.selected = Some(id);
                     self.status = "Playlist created".into();
                     self.refresh_library();
@@ -384,7 +483,15 @@ impl Mousa {
         if self.revision != s.revision {
             self.revision = s.revision;
             if !Arc::ptr_eq(&self.queue, &s.queue) {
+                let offset = &self.view_state.queue_position;
                 self.queue_list.reset(s.queue.len());
+                if !s.queue.is_empty() {
+                    self.queue_list.scroll_to(ListOffset {
+                        item_ix: offset.item.min(s.queue.len() - 1),
+                        offset_in_item: px(offset.offset.max(0.)),
+                    });
+                }
+                self.queue_ready = true;
             }
             self.queue = s.queue.clone();
             changed = true;
@@ -655,6 +762,13 @@ impl Mousa {
 }
 impl Render for Mousa {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let window_bounds = window.window_bounds();
+        let bounds = window_bounds.get_bounds();
+        self.view_state.maximized = matches!(window_bounds, WindowBounds::Maximized(_));
+        self.view_state.window_origin =
+            Some([f32::from(bounds.origin.x), f32::from(bounds.origin.y)]);
+        self.view_state.window_size =
+            Some([f32::from(bounds.size.width), f32::from(bounds.size.height)]);
         if self.google_name.is_none() {
             let sign_in = ui::google_sign_in(self.account_busy)
                 .on_click(cx.listener(|this, _, _, cx| this.account_action(true, cx)));
@@ -725,6 +839,7 @@ impl Render for Mousa {
             );
         let mut list = div()
             .id("playlists")
+            .track_scroll(&self.sidebar_scroll)
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
@@ -746,9 +861,19 @@ impl Render for Mousa {
                     self.selected == Some(id) && !self.queue_view,
                 )
                 .on_click(cx.listener(move |this, _, w, cx| {
+                    this.remember_view(cx);
+                    this.tracks_ready = false;
                     this.selected = Some(id);
                     this.queue_view = false;
-                    this.search.update(cx, |s, cx| s.set_value("", w, cx));
+                    let position = this
+                        .view_state
+                        .playlists
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default();
+                    this.search
+                        .update(cx, |s, cx| s.set_value(position.query.clone(), w, cx));
+                    this.view_state.playlists.insert(id, position);
                     this.freshness.clear();
                     this.refresh_tracks(cx);
                     this.sync_selected(false, true);
@@ -1186,17 +1311,52 @@ fn main() {
         ]);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
-                cx.quit();
+                // Leave the platform close callback before quitting (X11 holds a borrow).
+                cx.spawn(async |cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(1))
+                        .await;
+                    let _ = cx.update(|cx| cx.quit());
+                })
+                .detach();
             }
         })
         .detach();
+        let saved = mousa::view_state::ViewState::load();
+        let saved_size = saved.window_size.filter(|s| {
+            s.iter()
+                .all(|v| v.is_finite() && *v >= 100. && *v <= 10000.)
+        });
+        let window_size = saved_size
+            .map(|s| {
+                size(
+                    px(s[0]).max(layout::min_width()),
+                    px(s[1]).max(layout::min_height()),
+                )
+            })
+            .unwrap_or_else(|| size(layout::viewport_width(), layout::viewport_height()));
+        let mut bounds = Bounds::centered(None, window_size, cx);
+        if let Some(origin) = saved
+            .window_origin
+            .filter(|o| o.iter().all(|v| v.is_finite()))
+        {
+            let origin = point(px(origin[0]), px(origin[1]));
+            if cx
+                .displays()
+                .iter()
+                .any(|display| display.bounds().contains(&origin))
+            {
+                bounds.origin = origin;
+            }
+        }
+        let window_bounds = if saved.maximized {
+            WindowBounds::Maximized(bounds)
+        } else {
+            WindowBounds::Windowed(bounds)
+        };
         cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(layout::viewport_width(), layout::viewport_height()),
-                    cx,
-                ))),
+                window_bounds: Some(window_bounds),
                 window_min_size: Some(size(layout::min_width(), layout::min_height())),
                 app_id: Some("mousa".into()),
                 titlebar: Some(TitlebarOptions {
@@ -1205,14 +1365,20 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |window, cx| {
+            move |window, cx| {
                 window.set_window_title("Mousa");
-                let view = cx.new(|cx| Mousa::new(window, cx));
+                let view = cx.new(|cx| Mousa::new(saved, window, cx));
                 view.read(cx).focus.focus(window);
                 let player = view.read(cx).player.clone();
+                let saved_view = view.clone();
                 cx.on_app_quit(move |cx| {
+                    let browsing = saved_view.update(cx, |v, cx| {
+                        v.remember_view(cx);
+                        v.view_state.clone()
+                    });
                     let snapshot = player.state.lock().unwrap().clone();
                     cx.background_executor().spawn(async move {
+                        let _ = browsing.save();
                         if let (Ok(json), Ok(db)) =
                             (serde_json::to_string(&snapshot), db::library())
                         {

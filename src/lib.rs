@@ -7,3 +7,4 @@ pub mod sync_policy;
 pub mod theme;
 pub mod titles;
 pub mod ui;
+pub mod view_state;
