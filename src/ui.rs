@@ -504,6 +504,20 @@ pub fn disabled_button(label: &str) -> Div {
         .child(label.to_owned())
 }
 
+/// Shared provider badge for the landing page and sidebar accounts.
+fn provider_badge(provider: &'static str) -> Div {
+    div()
+        .size(size::transport())
+        .flex_shrink_0()
+        .border(border::strong())
+        .border_color(color::ink())
+        .bg(color::white())
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(img(format!("icons/{provider}.svg")).size(layout::icon()))
+}
+
 /// Provider identity remains visible when the action changes to Sign out.
 pub fn account_button(
     id: &'static str,
@@ -519,14 +533,12 @@ pub fn account_button(
     });
     button(id, "", color::surface())
         .group(id)
+        .h(size::row())
+        .px(space::sm())
         .justify_start()
         .min_w_0()
         .when(connected && !busy, |d| d.hover(|s| s.bg(color::pink())))
-        .child(
-            img(format!("icons/{provider}.svg"))
-                .size(layout::icon())
-                .flex_shrink_0(),
-        )
+        .child(provider_badge(provider))
         .child(
             div()
                 .relative()
@@ -563,17 +575,7 @@ pub fn google_sign_in(busy: bool) -> Stateful<Div> {
         .h(size::row())
         .w_full()
         .px(space::sm())
-        .child(
-            div()
-                .size(size::transport())
-                .border(border::strong())
-                .border_color(color::ink())
-                .bg(color::white())
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(img("icons/google.svg").size(layout::icon())),
-        )
+        .child(provider_badge("google"))
         .child(div().flex_1().text_center().child(if busy {
             "WAITING FOR GOOGLE…"
         } else {
@@ -613,8 +615,10 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                         .bg(color::lime())
                         .shadow(shadow::md())
                         .child(
-                            img(ImageSource::Resource(Resource::Embedded("mousa.svg".into())))
-                                .size_full(),
+                            img(ImageSource::Resource(Resource::Embedded(
+                                "mousa.svg".into(),
+                            )))
+                            .size_full(),
                         ),
                 )
                 .child(
