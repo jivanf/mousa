@@ -233,9 +233,6 @@ pub fn player_panel(
                 .flex_col()
                 .gap(space::lg())
                 .id("player-controls")
-                .occlude()
-                .cursor_default()
-                .on_click(|_, _, cx| cx.stop_propagation())
                 .child(controls)
                 .child(timeline),
         )
@@ -246,14 +243,7 @@ pub fn player_panel(
                 .min_w_0()
                 .flex()
                 .justify_end()
-                .child(
-                    div()
-                        .id("player-volume-controls")
-                        .occlude()
-                        .cursor_default()
-                        .on_click(|_, _, cx| cx.stop_propagation())
-                        .child(volume),
-                ),
+                .child(div().id("player-volume-controls").child(volume)),
         )
 }
 #[derive(Clone)]
@@ -313,6 +303,7 @@ impl Render for Bar {
         let label = self.label;
         div()
             .id("bar")
+            .occlude()
             .when(!self.disabled, |d| d.track_focus(&self.focus).tab_index(0))
             .relative()
             .w_full()

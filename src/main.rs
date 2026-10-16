@@ -1162,6 +1162,7 @@ impl Render for Mousa {
                     false,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Shuffle))),
             )
             .child(
@@ -1173,9 +1174,10 @@ impl Render for Mousa {
                     false,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
             )
-            .child(step_button("back10", "−10").on_click(
+            .child(step_button("back10", "−10").occlude().on_click(
                 cx.listener(|this, _, _, _| this.player.send(Command::Seek(this.position - 10.))),
             ))
             .child(
@@ -1191,9 +1193,10 @@ impl Render for Mousa {
                     true,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Toggle))),
             )
-            .child(step_button("forward10", "+10").on_click(
+            .child(step_button("forward10", "+10").occlude().on_click(
                 cx.listener(|this, _, _, _| this.player.send(Command::Seek(this.position + 10.))),
             ))
             .child(
@@ -1205,6 +1208,7 @@ impl Render for Mousa {
                     false,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
             )
             .child(
@@ -1216,6 +1220,7 @@ impl Render for Mousa {
                     false,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Repeat))),
             );
         let info = div()
@@ -1267,6 +1272,7 @@ impl Render for Mousa {
                     false,
                     false,
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, _, _| this.toggle_mute())),
             )
             .child(div().flex_1().min_w_0().child(self.volume_slider.clone()))
