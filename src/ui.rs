@@ -612,7 +612,10 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                         .border_color(color::ink())
                         .bg(color::lime())
                         .shadow(shadow::md())
-                        .child(img("mousa.svg").size_full()),
+                        .child(
+                            img(ImageSource::Resource(Resource::Embedded("mousa.svg".into())))
+                                .size_full(),
+                        ),
                 )
                 .child(
                     div()
