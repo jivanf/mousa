@@ -625,12 +625,14 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                         .child(
                             div()
                                 .text_size(landing::title())
+                                .line_height(relative(1.))
                                 .font_weight(FontWeight::BOLD)
                                 .child("Mousa"),
                         )
                         .child(
                             div()
-                                .text_size(text::track_title())
+                                .text_size(text::label())
+                                .line_height(relative(1.5))
                                 .text_color(color::muted())
                                 .child("Just a fast music client."),
                         ),
