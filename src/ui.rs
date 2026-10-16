@@ -256,10 +256,27 @@ pub fn player_panel(
                 .flex()
                 .flex_col()
                 .gap(space::lg())
+                .id("player-controls")
+                .cursor_default()
+                .on_click(|_, _, cx| cx.stop_propagation())
                 .child(controls)
                 .child(timeline),
         )
-        .child(div().flex_1().min_w_0().flex().justify_end().child(volume))
+        .child(
+            div()
+                .id("player-volume")
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .justify_end()
+                .child(
+                    div()
+                        .id("player-volume-controls")
+                        .cursor_default()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(volume),
+                ),
+        )
 }
 #[derive(Clone)]
 pub struct BarChange(pub f32);

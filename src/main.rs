@@ -992,32 +992,6 @@ impl Render for Mousa {
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Repeat))),
             );
         let info = div()
-            .id("now-playing-open-queue")
-            .tab_index(0)
-            .focus(|s| s.bg(color::canvas()).shadow(vec![shadow::focus_ring()]))
-            .cursor_pointer()
-            .tooltip(|w, cx| {
-                gpui_component::tooltip::Tooltip::new("Open queue at the playing track")
-                    .build(w, cx)
-            })
-            .on_click(cx.listener(|this, _, _, cx| {
-                let state = this.player.state.lock().unwrap();
-                if !Arc::ptr_eq(&this.queue, &state.queue) {
-                    this.queue_list.reset(state.queue.len());
-                }
-                this.queue = state.queue.clone();
-                this.queue_index = state.index;
-                drop(state);
-                this.queue_view = true;
-                this.form = Form::None;
-                if !this.queue.is_empty() {
-                    this.queue_list.scroll_to(ListOffset {
-                        item_ix: this.queue_index,
-                        offset_in_item: layout::zero(),
-                    });
-                }
-                cx.notify();
-            }))
             .child(ui::caps("NOW PLAYING").mb(space::sm()))
             .child(
                 div()
@@ -1082,7 +1056,34 @@ impl Render for Mousa {
             timeline,
             volume,
             window.viewport_size().width < layout::player_breakpoint(),
-        );
+        )
+        .id("now-playing-open-queue")
+        .tab_index(0)
+        .focus(|s| s.shadow(vec![shadow::focus_ring()]))
+        .cursor_pointer()
+        .hover(|s| s.bg(color::white()))
+        .active(|s| s.bg(color::canvas()))
+        .tooltip(|w, cx| {
+            gpui_component::tooltip::Tooltip::new("Open queue at the playing track").build(w, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| {
+            let state = this.player.state.lock().unwrap();
+            if !Arc::ptr_eq(&this.queue, &state.queue) {
+                this.queue_list.reset(state.queue.len());
+            }
+            this.queue = state.queue.clone();
+            this.queue_index = state.index;
+            drop(state);
+            this.queue_view = true;
+            this.form = Form::None;
+            if !this.queue.is_empty() {
+                this.queue_list.scroll_to(ListOffset {
+                    item_ix: this.queue_index,
+                    offset_in_item: layout::zero(),
+                });
+            }
+            cx.notify();
+        }));
         div()
             .key_context("Mousa")
             .tab_group()
