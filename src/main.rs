@@ -1235,9 +1235,6 @@ impl Render for Mousa {
         .cursor_pointer()
         .hover(|s| s.bg(color::white()))
         .active(|s| s.bg(color::canvas()))
-        .tooltip(|w, cx| {
-            gpui_component::tooltip::Tooltip::new("Open queue at the playing track").build(w, cx)
-        })
         .on_click(cx.listener(|this, _, _, cx| {
             let state = this.player.state.lock().unwrap();
             if !Arc::ptr_eq(&this.queue, &state.queue) {

@@ -154,20 +154,14 @@ pub fn icon_button(
                 .group_hover("track-row", |s| s.opacity(1.))
                 .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
         })
-        .tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
+        .when(row, |d| {
+            d.tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
+        })
 }
 pub fn step_button(id: &'static str, label: &'static str) -> Stateful<Div> {
     button(id, label, color::surface())
         .size(size::transport())
         .px(layout::zero())
-        .tooltip(move |w, cx| {
-            Tooltip::new(if label == "−10" {
-                "Back 10 seconds (Ctrl+J)"
-            } else {
-                "Forward 10 seconds (Ctrl+L)"
-            })
-            .build(w, cx)
-        })
 }
 pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
     div()
@@ -575,14 +569,6 @@ pub fn account_button(
                     )
                 }),
         )
-        .tooltip(move |w, cx| {
-            Tooltip::new(if connected {
-                disconnect_label
-            } else {
-                "Connect Last.fm"
-            })
-            .build(w, cx)
-        })
 }
 pub fn google_sign_in(busy: bool) -> Stateful<Div> {
     button("google-sign-in", "", color::lime())
