@@ -183,7 +183,13 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
         )
 }
 pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
-    let text = StyledText::new(name.clone());
+    let label_style = TextStyle {
+        font_family: font::SANS.into(),
+        font_weight: FontWeight::MEDIUM,
+        color: if on { color::lime() } else { color::ink() },
+        ..Default::default()
+    };
+    let text = StyledText::new(name.clone()).with_runs(vec![label_style.to_run(name.len())]);
     let text_layout = text.layout().clone();
     let label =
         InteractiveText::new(("playlist-name", id as usize), text).tooltip(move |_, window, cx| {
@@ -208,6 +214,7 @@ pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
             // text at its intrinsic width before flex layout constrains this label.
             .text_ellipsis()
             .line_clamp(1)
+            .font_family(font::SANS)
             .font_weight(FontWeight::MEDIUM)
             .child(label),
     )
