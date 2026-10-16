@@ -251,6 +251,7 @@ pub fn player_panel(
                 .flex_col()
                 .gap(space::lg())
                 .id("player-controls")
+                .occlude()
                 .cursor_default()
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .child(controls)
@@ -266,6 +267,7 @@ pub fn player_panel(
                 .child(
                     div()
                         .id("player-volume-controls")
+                        .occlude()
                         .cursor_default()
                         .on_click(|_, _, cx| cx.stop_propagation())
                         .child(volume),
