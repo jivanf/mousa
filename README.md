@@ -71,7 +71,7 @@ Keep the downloaded client file and account credentials private; do not commit t
 
 ## Connect Last.fm
 
-Choose **Connect Last.fm**, then approve Mousa in your browser. Mousa completes the desktop token exchange automatically and stores the session in the system keyring. Sign-in times out after three minutes and can be retried. The sidebar then displays your Last.fm username; hover to reveal **Sign out**. Signing out deletes the saved session and queued scrobbles. To revoke Mousa's grant on Last.fm itself, remove it from [Last.fm application settings](https://www.last.fm/settings/applications).
+Choose **Connect Last.fm**, then approve Mousa in your browser. Mousa completes the desktop token exchange automatically and stores the session in the system keyring. Sign-in times out after three minutes and can be retried. The sidebar then displays your Last.fm username; hover to reveal **Disconnect**. Disconnecting deletes the saved session and queued scrobbles. To revoke Mousa's grant on Last.fm itself, remove it from [Last.fm application settings](https://www.last.fm/settings/applications).
 
 For application maintainers: [desktop authentication](https://www.last.fm/api/desktopauth) requires a registered application key and shared secret. Provision these once for the installation in `~/.local/share/mousa/lastfm-client.json` with fields `api_key` and `shared_secret`, and restrict the file to its owner (`chmod 600`). These are application credentials, not fields users enter to connect their accounts. Legacy application credentials already stored in the keyring remain supported. Do not commit credentials.
 

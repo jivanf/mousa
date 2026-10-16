@@ -518,7 +518,7 @@ fn provider_badge(provider: &'static str) -> Div {
         .child(img(format!("icons/{provider}.svg")).size(layout::icon()))
 }
 
-/// Provider identity remains visible when the action changes to Sign out.
+/// Provider identity remains visible when the account action is revealed.
 pub fn account_button(
     id: &'static str,
     provider: &'static str,
@@ -526,6 +526,11 @@ pub fn account_button(
     busy: bool,
 ) -> Stateful<Div> {
     let connected = name.is_some();
+    let disconnect_label = if provider == "lastfm" {
+        "Disconnect"
+    } else {
+        "Sign out"
+    };
     let label = name.unwrap_or(if busy {
         "Connecting…"
     } else {
@@ -557,13 +562,13 @@ pub fn account_button(
                             .inset_0()
                             .opacity(0.)
                             .group_hover(id, |s| s.opacity(1.))
-                            .child("Sign out"),
+                            .child(disconnect_label),
                     )
                 }),
         )
         .tooltip(move |w, cx| {
             Tooltip::new(if connected {
-                "Sign out"
+                disconnect_label
             } else {
                 "Connect Last.fm"
             })
