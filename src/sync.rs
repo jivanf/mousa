@@ -178,11 +178,7 @@ impl Google {
                     playlist_index: 0,
                     url: format!("https://www.youtube.com/watch?v={video}"),
                     title: crate::titles::from_snippet(s),
-                    artist: s["videoOwnerChannelTitle"]
-                        .as_str()
-                        .unwrap_or("")
-                        .trim_end_matches(" - Topic")
-                        .into(),
+                    artist: crate::artists::resolve(s),
                     duration: durations.get(video).copied().unwrap_or(0.),
                 },
             ));

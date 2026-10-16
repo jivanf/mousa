@@ -11,6 +11,7 @@ pub struct Track {
     pub playlist_index: usize,
     pub url: String,
     pub title: String,
+    /// Complete artist credit, resolved centrally by `artists::resolve`.
     pub artist: String,
     pub duration: f64,
 }

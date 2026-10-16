@@ -107,13 +107,7 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
                     v["track"].as_str(),
                 )
                 .to_owned(),
-                artist: v["artist"]
-                    .as_str()
-                    .or(v["uploader"].as_str())
-                    .or(v["channel"].as_str())
-                    .unwrap_or("")
-                    .trim_end_matches(" - Topic")
-                    .to_owned(),
+                artist: crate::artists::resolve(&v),
                 duration: v["duration"].as_f64().unwrap_or(0.),
             })
         })

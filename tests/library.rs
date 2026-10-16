@@ -483,3 +483,32 @@ fn search_preserves_playlist_indexes_after_reorder_and_deletion() {
     assert_eq!(found[0].id, all[3].id);
     assert_eq!(found[0].playlist_index, 2);
 }
+
+#[test]
+fn full_artist_credit_survives_storage_search_and_queue_serialization() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("artists.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Music").unwrap();
+    let mut song = track("Cantata");
+    song.artist = mousa::artists::resolve(&serde_json::json!({
+        "artists": ["Orchestra", "Karl Richter", "Choir", "Johann Sebastian Bach"],
+        "album": "Album must not be credited"
+    }));
+    db.add(playlist, &[song.clone()]).unwrap();
+    drop(db);
+    let db = Library::open(&path).unwrap();
+    for query in ["Orchestra", "Richter", "Choir", "Bach"] {
+        let found = db.tracks(playlist, query, Sort::Artist).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].artist, song.artist);
+        let saved = serde_json::to_string(&found[0]).unwrap();
+        let restored: Track = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.artist, song.artist);
+    }
+    assert!(
+        db.tracks(playlist, "Album", Sort::Artist)
+            .unwrap()
+            .is_empty()
+    );
+}

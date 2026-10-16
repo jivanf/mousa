@@ -117,7 +117,10 @@ impl Controls {
             );
             m.insert(
                 "xesam:artist".into(),
-                OwnedValue::try_from(zbus::zvariant::Value::from(vec![t.artist.clone()])).unwrap(),
+                OwnedValue::try_from(zbus::zvariant::Value::from(crate::artists::names(
+                    &t.artist,
+                )))
+                .unwrap(),
             );
             m.insert(
                 "mpris:length".into(),
