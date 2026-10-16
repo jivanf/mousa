@@ -328,7 +328,7 @@ impl Bar {
     }
 }
 impl Render for Bar {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let weak = entity.downgrade();
         let value = self.value;
@@ -414,7 +414,16 @@ impl Render for Bar {
                             .shadow(if self.disabled { vec![] } else { shadow::sm() }),
                     ),
             )
-            .focus(|s| s.shadow(vec![shadow::focus_ring()]))
+            // A shadow fills the transparent hit area; draw only its outline.
+            .when(self.focus.is_focused(window), |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .size_full()
+                        .border(border::strong())
+                        .border_color(color::ink()),
+                )
+            })
             .child(
                 canvas(
                     move |bounds, _, cx| entity.update(cx, |bar, _| bar.bounds = bounds),
