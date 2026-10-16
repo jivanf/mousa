@@ -183,6 +183,13 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
         )
 }
 pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
+    let text = StyledText::new(name.clone());
+    let text_layout = text.layout().clone();
+    let label =
+        InteractiveText::new(("playlist-name", id as usize), text).tooltip(move |_, window, cx| {
+            // Compare the rendered text, including any ellipsis, with the full name.
+            (text_layout.text() != name).then(|| Tooltip::new(name.clone()).build(window, cx))
+        });
     button(
         ("playlist", id as usize),
         "",
@@ -191,13 +198,15 @@ pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
     .shadow(vec![])
     .mr(layout::zero())
     .mb(layout::zero())
+    .min_w_0()
     .font_family(font::SANS)
     .child(
         div()
-            .w_full()
+            .flex_1()
+            .min_w_0()
             .truncate()
             .font_weight(FontWeight::MEDIUM)
-            .child(name),
+            .child(label),
     )
 }
 pub fn player_panel(
