@@ -204,7 +204,10 @@ pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
         div()
             .flex_1()
             .min_w_0()
-            .truncate()
+            // Keep width-sensitive text measurement enabled: GPUI caches nowrap
+            // text at its intrinsic width before flex layout constrains this label.
+            .text_ellipsis()
+            .line_clamp(1)
             .font_weight(FontWeight::MEDIUM)
             .child(label),
     )
