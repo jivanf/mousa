@@ -71,6 +71,7 @@ struct Mousa {
     form: Form,
     create_google: bool,
     last_sync: std::time::Instant,
+    freshness: String,
     queue_view: bool,
     status: String,
     error: Option<String>,
@@ -133,6 +134,7 @@ impl Mousa {
             form: Form::None,
             create_google: true,
             last_sync: std::time::Instant::now(),
+            freshness: String::new(),
             queue_view: false,
             status: "Your music. Your rules.".into(),
             error: None,
@@ -228,6 +230,9 @@ impl Mousa {
                 })
                 .map(Some)
             };
+            if google && result.is_ok() {
+                db::library()?.save("youtube-catalog-checked", "0")?;
+            }
             Ok(Reply::Account(google, result.map_err(|e| format!("{e:#}"))))
         });
         cx.notify();
@@ -245,12 +250,28 @@ impl Mousa {
     fn sync_google(&mut self) {
         self.last_sync = std::time::Instant::now();
         let tx = self.tx.clone();
+        let selected = self.selected;
         self.job(move || {
             sync::refresh(|| {
                 let _ = tx.send(Reply::Done("Refreshing YouTube playlists…".into()));
             })?;
-            Ok(Reply::Done("Playlists up to date".into()))
+            if let Some(id) = selected {
+                sync::refresh_playlist(id, false, false)?;
+            }
+            sync::refresh_background(selected)?;
+            Ok(Reply::Done("Cached playlists ready".into()))
         });
+    }
+    fn sync_selected(&self, force: bool, opened: bool) {
+        if self.google_name.is_none() {
+            return;
+        }
+        if let Some(id) = self.selected {
+            self.job(move || {
+                sync::refresh_playlist(id, force, opened)?;
+                Ok(Reply::Done("Playlist ready".into()))
+            });
+        }
     }
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
         self.generation += 1; // Invalidate an in-flight result as soon as input changes.
@@ -270,6 +291,7 @@ impl Mousa {
                 Ok(Reply::Tracks(
                     generation,
                     db::library()?.tracks(id, &query, Sort::Position)?,
+                    mousa::sync_policy::freshness(&db::library()?, id, integrations::now())?,
                 ))
             });
         } else {
@@ -316,12 +338,14 @@ impl Mousa {
                     {
                         self.selected = self.playlists.first().map(|p| p.id);
                         self.refresh_tracks(cx);
+                        self.sync_selected(false, true);
                     }
                 }
-                Reply::Tracks(g, t) => {
+                Reply::Tracks(g, t, freshness) => {
                     if g == self.generation {
                         self.track_list.reset(t.len());
                         self.tracks = Arc::new(t);
+                        self.freshness = freshness;
                     }
                 }
                 Reply::Done(s) => {
@@ -718,7 +742,9 @@ impl Render for Mousa {
                     this.selected = Some(id);
                     this.queue_view = false;
                     this.search.update(cx, |s, cx| s.set_value("", w, cx));
+                    this.freshness.clear();
                     this.refresh_tracks(cx);
+                    this.sync_selected(false, true);
                 })),
             );
         }
@@ -747,6 +773,10 @@ impl Render for Mousa {
             .items_center()
             .gap(space::sm())
             .child(div().flex_1().child(ui::input(&self.search, cx)))
+            .child(
+                button("refresh-current", "REFRESH", color::surface())
+                    .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
+            )
             .child(
                 button("import", "ADD YOUTUBE", color::surface())
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Import, w, cx))),
@@ -782,11 +812,13 @@ impl Render for Mousa {
                         )
                     }),
             )
-            .child(
-                div()
-                    .text_size(text::secondary())
-                    .child(format!("{n} tracks")),
-            );
+            .child(div().text_size(text::secondary()).child(
+                if self.queue_view || self.freshness.is_empty() {
+                    format!("{n} tracks")
+                } else {
+                    format!("{n} cached tracks · {}", self.freshness)
+                },
+            ));
         if let Some(error) = self.error.clone() {
             content = content.child(
                 div()
@@ -796,7 +828,7 @@ impl Render for Mousa {
                     .p(space::md())
                     .border(border::strong())
                     .border_color(color::ink())
-                    .bg(color::surface())
+                    .bg(color::pink())
                     .child(div().flex_1().child(error))
                     .child(
                         button("dismiss-error", "DISMISS", color::surface()).on_click(cx.listener(
