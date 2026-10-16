@@ -204,7 +204,7 @@ look only. Do not port its markup.
   the player bar.
 - **Canvas (#E6DFD0):** window and panel background, including the sidebar.
 - **Field (#FFFFFF):** inputs, bar tracks, thumbs, and the hover fill.
-- **Danger (#FF8FC7), pink:** destructive actions only (Delete, Remove).
+- **Danger (#FF8FC7), pink:** destructive actions (Delete, Remove) and error banner backgrounds.
   This replaces the original prototype pink.
 - **On-primary (#C8F560):** text and icons on an ink fill.
 

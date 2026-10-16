@@ -30,7 +30,7 @@ pub mod color {
     } // playing / primary action
     pub fn pink() -> Hsla {
         rgb(0xFF8FC7).into()
-    } // destructive only; accepted designer palette
+    } // destructive actions and error banners; accepted designer palette
     pub fn white() -> Hsla {
         rgb(0xFFFFFF).into()
     } // input fields, bar tracks
