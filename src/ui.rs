@@ -183,19 +183,42 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
         )
 }
 pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
-    let label_style = TextStyle {
-        font_family: font::SANS.into(),
-        font_weight: FontWeight::MEDIUM,
-        color: if on { color::lime() } else { color::ink() },
-        ..Default::default()
-    };
-    let text = StyledText::new(name.clone()).with_runs(vec![label_style.to_run(name.len())]);
-    let text_layout = text.layout().clone();
-    let label =
-        InteractiveText::new(("playlist-name", id as usize), text).tooltip(move |_, window, cx| {
-            // Compare the rendered text, including any ellipsis, with the full name.
-            (text_layout.text() != name).then(|| Tooltip::new(name.clone()).build(window, cx))
-        });
+    // Wait for the final available width before laying out text. GPUI's
+    // intrinsic-size passes mutate truncated font runs, which can leave later
+    // passes rendering the remainder of the name with the fallback font.
+    let label = canvas(
+        move |bounds, window, cx| {
+            let text = StyledText::new(name.clone());
+            let text_layout = text.layout().clone();
+            let mut label = div()
+                .w(bounds.size.width)
+                .truncate()
+                .child(
+                    InteractiveText::new(("playlist-name", id as usize), text).tooltip(
+                        move |_, window, cx| {
+                            (text_layout.text() != name)
+                                .then(|| Tooltip::new(name.clone()).build(window, cx))
+                        },
+                    ),
+                )
+                .into_any_element();
+            let measured =
+                label.layout_as_root(bounds.size.map(AvailableSpace::Definite), window, cx);
+            label.prepaint_at(
+                point(
+                    bounds.left(),
+                    bounds.top() + (bounds.size.height - measured.height) / 2.,
+                ),
+                window,
+                cx,
+            );
+            label
+        },
+        |_, mut label, window, cx| label.paint(window, cx),
+    )
+    .flex_1()
+    .min_w_0()
+    .h_full();
     button(
         ("playlist", id as usize),
         "",
@@ -206,18 +229,8 @@ pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
     .mb(layout::zero())
     .min_w_0()
     .font_family(font::SANS)
-    .child(
-        div()
-            .flex_1()
-            .min_w_0()
-            // Keep width-sensitive text measurement enabled: GPUI caches nowrap
-            // text at its intrinsic width before flex layout constrains this label.
-            .text_ellipsis()
-            .line_clamp(1)
-            .font_family(font::SANS)
-            .font_weight(FontWeight::MEDIUM)
-            .child(label),
-    )
+    .font_weight(FontWeight::MEDIUM)
+    .child(label)
 }
 pub fn player_panel(
     info: impl IntoElement,
