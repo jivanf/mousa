@@ -921,8 +921,6 @@ impl Render for Mousa {
                 ui::playlist_item(
                     id,
                     p.name.clone(),
-                    p.count,
-                    if p.google { "YouTube" } else { "Local" },
                     self.selected == Some(id) && !self.queue_view,
                 )
                 .on_click(cx.listener(move |this, _, w, cx| {

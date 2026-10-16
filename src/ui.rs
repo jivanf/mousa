@@ -182,27 +182,15 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
                 .rounded_none(),
         )
 }
-pub fn playlist_item(
-    id: i64,
-    name: String,
-    count: usize,
-    source: &'static str,
-    on: bool,
-) -> Stateful<Div> {
+pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
     button(
         ("playlist", id as usize),
         "",
         if on { color::ink() } else { color::surface() },
     )
-    .h_auto()
-    .min_h(size::row())
-    .py(space::sm())
     .shadow(vec![])
     .mr(layout::zero())
     .mb(layout::zero())
-    .flex_col()
-    .items_start()
-    .gap(space::xs())
     .font_family(font::SANS)
     .child(
         div()
@@ -210,12 +198,6 @@ pub fn playlist_item(
             .truncate()
             .font_weight(FontWeight::MEDIUM)
             .child(name),
-    )
-    .child(
-        div()
-            .font_family(font::MONO)
-            .text_size(text::label())
-            .child(format!("{count} · {source}")),
     )
 }
 pub fn player_panel(
