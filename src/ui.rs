@@ -605,11 +605,14 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                 .flex_col()
                 .gap(space::xxl())
                 .child(
-                    img("mousa.svg")
+                    div()
                         .size(landing::logo())
+                        .flex_shrink_0()
                         .border(border::strong())
                         .border_color(color::ink())
-                        .shadow(shadow::md()),
+                        .bg(color::lime())
+                        .shadow(shadow::md())
+                        .child(img("mousa.svg").size_full()),
                 )
                 .child(
                     div()
