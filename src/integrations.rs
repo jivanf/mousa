@@ -116,7 +116,7 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
         })
         .collect())
 }
-pub fn google_login() -> Result<()> {
+pub fn google_login() -> Result<String> {
     let path = db::data_dir().join("google-client.json");
     let v: Value = serde_json::from_slice(
         &std::fs::read(&path)
@@ -137,7 +137,10 @@ pub fn google_login() -> Result<()> {
         ("client_id", id),
         ("redirect_uri", &redirect),
         ("response_type", "code"),
-        ("scope", "https://www.googleapis.com/auth/youtube"),
+        (
+            "scope",
+            "openid profile https://www.googleapis.com/auth/youtube",
+        ),
         ("access_type", "offline"),
         ("prompt", "consent"),
         ("state", &state),
@@ -196,13 +199,28 @@ pub fn google_login() -> Result<()> {
             .any(|scope| scope == "https://www.googleapis.com/auth/youtube"),
         "Google playlist editing permission was not granted. Existing sign-in was preserved."
     );
+    let profile: Value = client()?
+        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .bearer_auth(
+            token["access_token"]
+                .as_str()
+                .context("Missing access token")?,
+        )
+        .send()?
+        .error_for_status()?
+        .json()?;
+    let name = profile["name"]
+        .as_str()
+        .filter(|n| !n.trim().is_empty())
+        .context("Google did not return your full name. Please grant profile access.")?;
+    store_secret("google-name", name)?;
     store_secret(
         "google-refresh",
         token["refresh_token"]
             .as_str()
             .context("Google did not provide a refresh token")?,
     )?;
-    Ok(())
+    Ok(name.to_owned())
 }
 pub(crate) fn google_access() -> Result<String> {
     let v: Value =
@@ -230,20 +248,51 @@ pub(crate) fn google_access() -> Result<String> {
         .context("Missing access token")?
         .into())
 }
-fn lastfm(mut p: BTreeMap<String, String>) -> Result<Value> {
-    let key = get_secret("lastfm-key").context("Set Last.fm API key and secret in Settings")?;
-    let secret = get_secret("lastfm-secret")?;
+/// App credentials belong to the distributor, never to the connection form.
+fn lastfm_credentials() -> Result<(String, String)> {
+    let path = db::data_dir().join("lastfm-client.json");
+    if path.exists() {
+        let config: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        return Ok((
+            config["api_key"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .context("Missing Last.fm application key")?
+                .into(),
+            config["shared_secret"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .context("Missing Last.fm application secret")?
+                .into(),
+        ));
+    }
+    // Preserve installations configured before browser sign-in was introduced.
+    Ok((get_secret("lastfm-key").context("Last.fm is not configured for this installation. Add lastfm-client.json with the application's api_key and shared_secret.")?,
+        get_secret("lastfm-secret")?))
+}
+fn lastfm_response(mut p: BTreeMap<String, String>) -> Result<Value> {
+    let (key, secret) = lastfm_credentials()?;
     p.insert("api_key".into(), key);
-    let mut signature = p.iter().map(|(k, v)| format!("{k}{v}")).collect::<String>();
-    signature.push_str(&secret);
-    p.insert("api_sig".into(), format!("{:x}", md5::compute(signature)));
+    let signature = lastfm_signature(&p, &secret);
+    p.insert("api_sig".into(), signature);
     p.insert("format".into(), "json".into());
-    let v: Value = client()?
+    Ok(client()?
         .post("https://ws.audioscrobbler.com/2.0/")
         .form(&p)
         .send()?
         .error_for_status()?
-        .json()?;
+        .json()?)
+}
+fn lastfm_signature(p: &BTreeMap<String, String>, secret: &str) -> String {
+    let mut value = p
+        .iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "format" | "callback" | "api_sig"))
+        .map(|(k, v)| format!("{k}{v}"))
+        .collect::<String>();
+    value.push_str(secret);
+    format!("{:x}", md5::compute(value))
+}
+fn check_lastfm(v: Value) -> Result<Value> {
     anyhow::ensure!(
         v.get("error").is_none(),
         "Last.fm: {}",
@@ -251,32 +300,80 @@ fn lastfm(mut p: BTreeMap<String, String>) -> Result<Value> {
     );
     Ok(v)
 }
-pub fn lastfm_begin() -> Result<()> {
+fn lastfm(p: BTreeMap<String, String>) -> Result<Value> {
+    check_lastfm(lastfm_response(p)?)
+}
+pub fn lastfm_login() -> Result<String> {
     let v = lastfm(BTreeMap::from([("method".into(), "auth.getToken".into())]))?;
     let token = v["token"].as_str().context("Missing Last.fm token")?;
-    store_secret("lastfm-token", token)?;
-    let mut u = url::Url::parse("https://www.last.fm/api/auth/")?;
-    u.query_pairs_mut().extend_pairs([
-        ("api_key", get_secret("lastfm-key")?.as_str()),
+    let mut url = url::Url::parse("https://www.last.fm/api/auth/")?;
+    url.query_pairs_mut().extend_pairs([
+        ("api_key", lastfm_credentials()?.0.as_str()),
         ("token", token),
     ]);
-    webbrowser::open(u.as_str())?;
-    Ok(())
-}
-pub fn lastfm_finish() -> Result<()> {
-    let v = lastfm(BTreeMap::from([
-        ("method".into(), "auth.getSession".into()),
-        ("token".into(), get_secret("lastfm-token")?),
-    ]))?;
-    store_secret(
-        "lastfm-session",
-        v["session"]["key"]
+    webbrowser::open(url.as_str())?;
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "Last.fm sign-in timed out. Try connecting again."
+        );
+        let v = lastfm_response(BTreeMap::from([
+            ("method".into(), "auth.getSession".into()),
+            ("token".into(), token.into()),
+        ]))?;
+        if v["error"].as_u64() == Some(14) {
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
+        let v = check_lastfm(v)?;
+        let name = v["session"]["name"]
             .as_str()
-            .context("Approve Mousa on Last.fm first")?,
+            .context("Missing Last.fm username")?;
+        let key = v["session"]["key"]
+            .as_str()
+            .context("Missing Last.fm session")?;
+        let _guard = LASTFM_LOCK.lock().unwrap();
+        db::library()?.conn.execute("DELETE FROM scrobbles", [])?;
+        store_secret("lastfm-name", name)?;
+        store_secret("lastfm-session", key)?;
+        return Ok(name.into());
+    }
+}
+fn delete_secret(name: &str) -> Result<()> {
+    match secret(name)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+pub fn google_logout() -> Result<()> {
+    delete_secret("google-name")?;
+    delete_secret("google-refresh")
+}
+static LASTFM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub fn lastfm_logout() -> Result<()> {
+    let _guard = LASTFM_LOCK.lock().unwrap();
+    db::library()?.conn.execute("DELETE FROM scrobbles", [])?;
+    delete_secret("lastfm-name")?;
+    delete_secret("lastfm-token")?;
+    delete_secret("lastfm-session")
+}
+pub fn queue_scrobble(t: &Track, started: i64) -> Result<()> {
+    let _guard = LASTFM_LOCK.lock().unwrap();
+    if t.artist.is_empty() || get_secret("lastfm-session").is_err() {
+        return Ok(());
+    }
+    db::library()?.conn.execute(
+        "INSERT INTO scrobbles(artist,track,started) VALUES(?,?,?)",
+        rusqlite::params![t.artist, t.title, started],
     )?;
     Ok(())
 }
 pub fn lastfm_track(t: &Track, started: Option<i64>) -> Result<()> {
+    let _guard = LASTFM_LOCK.lock().unwrap();
+    lastfm_track_inner(t, started)
+}
+fn lastfm_track_inner(t: &Track, started: Option<i64>) -> Result<()> {
     let mut p = BTreeMap::from([
         (
             "method".into(),
@@ -309,7 +406,17 @@ pub fn flush_scrobbles() -> Result<()> {
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
     for (id, artist, title, started) in rows {
-        lastfm_track(
+        let _guard = LASTFM_LOCK.lock().unwrap();
+        // A disconnect may have cleared this batch while a previous request ran.
+        let pending: bool = db.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM scrobbles WHERE id=?)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if !pending {
+            continue;
+        }
+        lastfm_track_inner(
             &Track {
                 id: 0,
                 playlist_index: 0,
@@ -323,4 +430,38 @@ pub fn flush_scrobbles() -> Result<()> {
         db.conn.execute("DELETE FROM scrobbles WHERE id=?", [id])?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    #[test]
+    fn desktop_signature_sorts_parameters_and_excludes_transport_fields() {
+        let mut p = BTreeMap::from([
+            ("token".into(), "token-value".into()),
+            ("method".into(), "auth.getSession".into()),
+            ("api_key".into(), "app-key".into()),
+        ]);
+        let expected = format!(
+            "{:x}",
+            md5::compute("api_keyapp-keymethodauth.getSessiontokentoken-valuesecret")
+        );
+        assert_eq!(lastfm_signature(&p, "secret"), expected);
+        p.insert("format".into(), "json".into());
+        p.insert("callback".into(), "callback".into());
+        p.insert("api_sig".into(), "old-signature".into());
+        assert_eq!(lastfm_signature(&p, "secret"), expected);
+    }
+    #[test]
+    fn api_failures_are_not_successful_sessions() {
+        for code in [4, 9, 10, 14, 15, 26, 29] {
+            let error =
+                check_lastfm(serde_json::json!({"error":code,"message":"Rejected"})).unwrap_err();
+            assert_eq!(error.to_string(), "Last.fm: Rejected");
+        }
+        assert!(
+            check_lastfm(serde_json::json!({"session":{"name":"listener","key":"session"}}))
+                .is_ok()
+        );
+    }
 }

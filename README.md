@@ -60,15 +60,19 @@ Save the downloaded client JSON at:
 ~/.local/share/mousa/google-client.json
 ```
 
-Choose **Connect Google** in Mousa and complete authorization in your browser. Your owned playlists will appear automatically and refresh periodically. Use **Refresh Playlists** to refresh them manually.
+Choose **Sign in with Google** on the landing page and complete authorization in your browser. Your owned playlists appear automatically and refresh every ten minutes. A Google account is required to enter the library.
 
-Mousa requests permission to manage YouTube playlists so you can edit them. If you previously granted read-only access, reconnect to enable editing. Google authorization is separate from video playback and does not sign yt-dlp into your account.
+The sidebar displays your full Google profile name. Hover the account button to reveal **Sign out**; signing out removes the local Google credentials, stops playback, and returns to the landing page. Cached playlists remain on this device. Existing installations need to sign in once more to grant profile access.
+
+Mousa requests your basic Google profile and permission to manage YouTube playlists so you can edit them. If you previously granted read-only access, reconnect to enable editing. Google authorization is separate from video playback and does not sign yt-dlp into your account.
 
 Keep the downloaded client file and account credentials private; do not commit them to a repository.
 
 ## Connect Last.fm
 
-Create a [Last.fm API application](https://www.last.fm/api/account/create). In **Last.fm / Settings**, enter the API key and secret and save. Reopen settings, choose **Authorize**, approve access in your browser, then choose **Finish**.
+Choose **Connect Last.fm**, then approve Mousa in your browser. Mousa completes the desktop token exchange automatically and stores the session in the system keyring. Sign-in times out after three minutes and can be retried. The sidebar then displays your Last.fm username; hover to reveal **Sign out**. Signing out deletes the saved session and queued scrobbles. To revoke Mousa's grant on Last.fm itself, remove it from [Last.fm application settings](https://www.last.fm/settings/applications).
+
+For application maintainers: [desktop authentication](https://www.last.fm/api/desktopauth) requires a registered application key and shared secret. Provision these once for the installation in `~/.local/share/mousa/lastfm-client.json` with fields `api_key` and `shared_secret`, and restrict the file to its owner (`chmod 600`). These are application credentials, not fields users enter to connect their accounts. Legacy application credentials already stored in the keyring remain supported. Do not commit credentials.
 
 Scrobbling starts after authorization. Video metadata may differ from Last.fm's artist and track names.
 

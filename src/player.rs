@@ -114,6 +114,15 @@ impl Player {
                 let mut load = false;
                 if let Ok(cmd) = cmd {
                     s.error.clear();
+                    if (integrations::get_secret("google-refresh").is_err()
+                        || integrations::get_secret("google-name").is_err())
+                        && !matches!(
+                            cmd,
+                            Command::Stop | Command::Volume(_) | Command::Pause(true)
+                        )
+                    {
+                        continue;
+                    }
                     match cmd {
                         Command::Queue(q, i) => {
                             resume_at = 0.;
@@ -328,18 +337,8 @@ impl Player {
                 {
                     scrobbled = true;
                     std::thread::spawn(move || {
-                        if t.artist.is_empty()
-                            || integrations::get_secret("lastfm-session").is_err()
-                        {
-                            return;
-                        }
-                        if let Ok(db) = db::library() {
-                            let _ = db.conn.execute(
-                                "INSERT INTO scrobbles(artist,track,started) VALUES(?,?,?)",
-                                rusqlite::params![t.artist, t.title, started],
-                            );
-                            let _ = integrations::flush_scrobbles();
-                        }
+                        let _ = integrations::queue_scrobble(&t, started);
+                        let _ = integrations::flush_scrobbles();
                     });
                 }
                 if persisted.elapsed() > Duration::from_secs(3) && saved_revision != s.revision {

@@ -50,6 +50,44 @@ impl Gallery {
 }
 impl Render for Gallery {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::env::args().any(|a| a == "--landing") {
+            return ui::landing(ui::google_sign_in(false), None).into_any_element();
+        }
+        if std::env::args().any(|a| a == "--accounts") {
+            return div()
+                .size_full()
+                .bg(color::canvas())
+                .p(space::xxl())
+                .font_family(font::SANS)
+                .flex()
+                .flex_col()
+                .gap(space::xl())
+                .child(ui::account_button(
+                    "google-preview",
+                    "google",
+                    Some("Alex Morgan"),
+                    false,
+                ))
+                .child(ui::account_button(
+                    "lastfm-preview",
+                    "lastfm",
+                    Some("alexmusic"),
+                    false,
+                ))
+                .child(ui::account_button(
+                    "lastfm-disconnected",
+                    "lastfm",
+                    None,
+                    false,
+                ))
+                .child(ui::account_button(
+                    "account-busy",
+                    "google",
+                    Some("Alex Morgan"),
+                    true,
+                ))
+                .into_any_element();
+        }
         let _ = &self.subscriptions;
         let controls = div()
             .flex()
@@ -311,6 +349,7 @@ impl Render for Gallery {
             root = root.child(div().flex_1());
         }
         root.child(ui::player_panel(info, controls, timeline, volume, false))
+            .into_any_element()
     }
 }
 fn main() {

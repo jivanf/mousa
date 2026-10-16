@@ -11,6 +11,9 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {
         let bytes: &'static [u8] = match path {
+            "mousa.svg" => include_bytes!("../assets/mousa.svg"),
+            "icons/google.svg" => include_bytes!("../assets/icons/google.svg"),
+            "icons/lastfm.svg" => include_bytes!("../assets/icons/lastfm.svg"),
             "icons/arrows-shuffle.svg" => include_bytes!("../assets/icons/arrows-shuffle.svg"),
             "icons/playlist-add.svg" => include_bytes!("../assets/icons/playlist-add.svg"),
             "icons/player-skip-forward.svg" => {
@@ -482,4 +485,153 @@ pub fn disabled_button(label: &str) -> Div {
         .flex()
         .items_center()
         .child(label.to_owned())
+}
+
+/// Provider identity remains visible when the action changes to Sign out.
+pub fn account_button(
+    id: &'static str,
+    provider: &'static str,
+    name: Option<&str>,
+    busy: bool,
+) -> Stateful<Div> {
+    let connected = name.is_some();
+    let label = name.unwrap_or(if busy {
+        "Connecting…"
+    } else {
+        "Connect Last.fm"
+    });
+    button(id, "", color::surface())
+        .group(id)
+        .justify_start()
+        .min_w_0()
+        .when(connected && !busy, |d| d.hover(|s| s.bg(color::pink())))
+        .child(
+            img(format!("icons/{provider}.svg"))
+                .size(layout::icon())
+                .flex_shrink_0(),
+        )
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .truncate()
+                        .child(label.to_owned())
+                        .when(connected && !busy, |d| d.group_hover(id, |s| s.opacity(0.))),
+                )
+                .when(connected && !busy, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .opacity(0.)
+                            .group_hover(id, |s| s.opacity(1.))
+                            .child("Sign out"),
+                    )
+                }),
+        )
+        .tooltip(move |w, cx| {
+            Tooltip::new(if connected {
+                "Sign out"
+            } else {
+                "Connect Last.fm"
+            })
+            .build(w, cx)
+        })
+}
+pub fn google_sign_in(busy: bool) -> Stateful<Div> {
+    button("google-sign-in", "", color::lime())
+        .h(size::row())
+        .w_full()
+        .px(space::sm())
+        .child(
+            div()
+                .size(size::transport())
+                .border(border::strong())
+                .border_color(color::ink())
+                .bg(color::white())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(img("icons/google.svg").size(layout::icon())),
+        )
+        .child(div().flex_1().text_center().child(if busy {
+            "WAITING FOR GOOGLE…"
+        } else {
+            "SIGN IN WITH GOOGLE"
+        }))
+}
+pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
+    use crate::theme::landing;
+    div()
+        .size_full()
+        .bg(color::canvas())
+        .text_color(color::ink())
+        .font_family(font::SANS)
+        .font_weight(FontWeight::MEDIUM)
+        .text_size(text::body())
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(space::xxl())
+        .child(
+            div()
+                .w(landing::width())
+                .p(landing::padding())
+                .border(border::strong())
+                .border_color(color::ink())
+                .bg(color::surface())
+                .shadow(shadow::lg())
+                .flex()
+                .flex_col()
+                .gap(space::xxl())
+                .child(
+                    img("mousa.svg")
+                        .size(landing::logo())
+                        .border(border::strong())
+                        .border_color(color::ink())
+                        .shadow(shadow::md()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space::xs())
+                        .child(
+                            div()
+                                .text_size(landing::title())
+                                .font_weight(FontWeight::BOLD)
+                                .child("Mousa"),
+                        )
+                        .child(
+                            div()
+                                .text_size(text::track_title())
+                                .text_color(color::muted())
+                                .child("Just a fast music client."),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space::sm())
+                        .child(sign_in)
+                        .child(
+                            div()
+                                .text_size(text::secondary())
+                                .text_color(color::muted())
+                                .child("Sign-in opens in your browser."),
+                        ),
+                )
+                .when_some(error, |d, error| {
+                    d.child(
+                        div()
+                            .p(space::md())
+                            .bg(color::pink())
+                            .child(error.to_owned()),
+                    )
+                }),
+        )
 }

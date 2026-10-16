@@ -14,6 +14,10 @@ colors:
   on-tertiary: "#111111"
   on-danger: "#111111"
 typography:
+  landing-title:
+    fontFamily: Space Grotesk
+    fontSize: 56px
+    fontWeight: 700
   page-title:
     fontFamily: Space Grotesk
     fontSize: 28px
@@ -57,6 +61,12 @@ x-shadows:
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
 components:
+  landing-card:
+    width: 520px
+    padding: 48px
+    typography: "{typography.landing-title}"
+  landing-logo:
+    size: 100px
   player-center:
     width: 512px
   player-center-compact:
@@ -364,3 +374,20 @@ handling; all icon actions also have descriptive tooltips.
 3. Run the gallery and compare against this file, not against memory.
 4. Commit gallery screenshots to `docs/` so reviewers can see the result
    without running the app.
+
+
+## Account and landing screens
+
+The landing card is 520px wide with 48px padding, a 100px logo, a 56px bold
+Mousa title, and the tagline “Just a fast music client.” Its centered canvas,
+surface fill, 3px border, and large hard shadow follow the desktop reference.
+The Google sign-in action is 56px tall and uses the primary fill.
+
+Provider brand icons retain their original colors. Connected account buttons
+show Google's full profile name or Last.fm's username. Hover preserves the
+icon, replaces the text with “Sign out”, and uses the danger background.
+Disconnected Last.fm shows “Connect Last.fm”. The playlist refresh button is
+removed; the existing periodic sync remains.
+
+Preview these shared components with `cargo run --example gallery -- --landing`
+or `cargo run --example gallery -- --accounts`.

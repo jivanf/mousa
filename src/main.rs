@@ -43,6 +43,7 @@ enum Reply {
     Status(String),
     Created(i64),
     Error(String),
+    Account(bool, Result<Option<String>, String>),
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Form {
@@ -51,7 +52,6 @@ enum Form {
     Rename,
     Import,
     Delete,
-    Settings,
 }
 struct Mousa {
     player: Player,
@@ -65,7 +65,9 @@ struct Mousa {
     search: Entity<InputState>,
     playlist_search: Entity<InputState>,
     field: Entity<InputState>,
-    secret: Entity<InputState>,
+    google_name: Option<String>,
+    lastfm_name: Option<String>,
+    account_busy: bool,
     form: Form,
     create_google: bool,
     last_sync: std::time::Instant,
@@ -109,11 +111,6 @@ impl Mousa {
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a playlist…"));
         let field =
             cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name or YouTube URL"));
-        let secret = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Last.fm API secret")
-                .masked(true)
-        });
         let mut app = Self {
             player,
             playlists: vec![],
@@ -126,7 +123,13 @@ impl Mousa {
             search: search.clone(),
             playlist_search: playlist_search.clone(),
             field,
-            secret,
+            google_name: integrations::get_secret("google-refresh")
+                .ok()
+                .and_then(|_| integrations::get_secret("google-name").ok()),
+            lastfm_name: integrations::get_secret("lastfm-session")
+                .ok()
+                .and_then(|_| integrations::get_secret("lastfm-name").ok()),
+            account_busy: false,
             form: Form::None,
             create_google: true,
             last_sync: std::time::Instant::now(),
@@ -173,7 +176,9 @@ impl Mousa {
         app.subscriptions
             .push(cx.subscribe(&playlist_search, |_, _, _: &InputEvent, cx| cx.notify()));
         app.refresh_library();
-        app.sync_google();
+        if app.google_name.is_some() {
+            app.sync_google();
+        }
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -186,6 +191,46 @@ impl Mousa {
         })
         .detach();
         app
+    }
+    fn account_action(&mut self, google: bool, cx: &mut Context<Self>) {
+        if self.account_busy {
+            return;
+        }
+        let connected = if google {
+            self.google_name.is_some()
+        } else {
+            self.lastfm_name.is_some()
+        };
+        self.account_busy = true;
+        self.error = None;
+        self.status = if connected {
+            "Signing out…"
+        } else {
+            "Complete sign-in in your browser…"
+        }
+        .into();
+        if google && connected {
+            self.player.send(Command::Stop);
+        }
+        self.job(move || {
+            let result = if connected {
+                (if google {
+                    integrations::google_logout()
+                } else {
+                    integrations::lastfm_logout()
+                })
+                .map(|_| None)
+            } else {
+                (if google {
+                    integrations::google_login()
+                } else {
+                    integrations::lastfm_login()
+                })
+                .map(Some)
+            };
+            Ok(Reply::Account(google, result.map_err(|e| format!("{e:#}"))))
+        });
+        cx.notify();
     }
     fn job(&self, f: impl FnOnce() -> anyhow::Result<Reply> + Send + 'static) {
         let tx = self.tx.clone();
@@ -234,13 +279,36 @@ impl Mousa {
         cx.notify();
     }
     fn tick(&mut self, cx: &mut Context<Self>) {
-        if self.last_sync.elapsed() >= Duration::from_secs(600) {
+        if self.google_name.is_some() && self.last_sync.elapsed() >= Duration::from_secs(600) {
             self.sync_google();
         }
         let mut changed = false;
         while let Ok(reply) = self.rx.try_recv() {
             changed = true;
             match reply {
+                Reply::Account(google, result) => {
+                    self.account_busy = false;
+                    match result {
+                        Ok(name) => {
+                            if google {
+                                self.google_name = name;
+                                self.form = Form::None;
+                                if self.google_name.is_some() {
+                                    self.sync_google();
+                                } else {
+                                    self.player.send(Command::Stop);
+                                }
+                            } else {
+                                self.lastfm_name = name;
+                            }
+                            self.error = None;
+                            self.status = "Account updated".into();
+                        }
+                        Err(e) => {
+                            self.error = Some(e);
+                        }
+                    }
+                }
                 Reply::Library(p) => {
                     self.playlists = p;
                     if self.selected.is_none()
@@ -341,7 +409,6 @@ impl Mousa {
         self.field.update(cx, |s, cx| {
             s.set_placeholder(
                 match form {
-                    Form::Settings => "Last.fm API key",
                     Form::Import => "YouTube video or playlist URL",
                     _ => "Playlist name",
                 },
@@ -357,7 +424,6 @@ impl Mousa {
         let selected = self.selected;
         let form = self.form;
         let create_google = self.create_google;
-        let secret = self.secret.read(cx).value().to_string();
         self.form = Form::None;
         self.status = "Working…".into();
         self.job(move || match form {
@@ -381,17 +447,6 @@ impl Mousa {
                 let n = tracks.len();
                 sync::add(id, &tracks)?;
                 Ok(Reply::Done(format!("Added {n} tracks")))
-            }
-            Form::Settings => {
-                anyhow::ensure!(
-                    !text.trim().is_empty() && !secret.trim().is_empty(),
-                    "Enter both Last.fm credentials"
-                );
-                integrations::store_secret("lastfm-key", text.trim())?;
-                integrations::store_secret("lastfm-secret", secret.trim())?;
-                Ok(Reply::Done(
-                    "Last.fm credentials saved in the system keyring".into(),
-                ))
             }
             _ => Ok(Reply::Done(String::new())),
         });
@@ -569,6 +624,11 @@ impl Mousa {
 }
 impl Render for Mousa {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.google_name.is_none() {
+            let sign_in = ui::google_sign_in(self.account_busy)
+                .on_click(cx.listener(|this, _, _, cx| this.account_action(true, cx)));
+            return ui::landing(sign_in, self.error.as_deref()).into_any_element();
+        }
         let progress = if self.duration > 0. {
             (self.position / self.duration).clamp(0., 1.) as f32
         } else {
@@ -665,36 +725,22 @@ impl Render for Mousa {
         sidebar = sidebar
             .child(list)
             .child(
-                button("google", "CONNECT GOOGLE", color::surface()).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.status = "Complete Google sign-in in your browser…".into();
-                        let tx = this.tx.clone();
-                        this.job(move || {
-                            integrations::google_login()?;
-                            sync::refresh(|| {
-                                let _ =
-                                    tx.send(Reply::Done("Refreshing YouTube playlists…".into()));
-                            })?;
-                            Ok(Reply::Done(
-                                "Google connected. Playlists up to date.".into(),
-                            ))
-                        });
-                        cx.notify();
-                    },
-                )),
+                ui::account_button(
+                    "google",
+                    "google",
+                    self.google_name.as_deref(),
+                    self.account_busy,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.account_action(true, cx))),
             )
             .child(
-                button("sync", "REFRESH PLAYLISTS", color::surface()).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.status = "Refreshing YouTube playlists…".into();
-                        this.sync_google();
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                button("settings", "LAST.FM / SETTINGS", color::surface())
-                    .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Settings, w, cx))),
+                ui::account_button(
+                    "lastfm",
+                    "lastfm",
+                    self.lastfm_name.as_deref(),
+                    self.account_busy,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.account_action(false, cx))),
             );
         let toolbar = div()
             .flex()
@@ -781,7 +827,6 @@ impl Render for Mousa {
                         "DELETE LOCAL PLAYLIST? This cannot be undone."
                     }
                 }
-                Form::Settings => "LAST.FM — API KEY & SECRET",
                 Form::None => "",
             };
             let mut form = div()
@@ -811,35 +856,6 @@ impl Render for Mousa {
                         this.create_google = !this.create_google;
                         cx.notify();
                     })),
-                );
-            }
-            if self.form == Form::Settings {
-                form = form.child(ui::input(&self.secret, cx)).child(
-                    div()
-                        .flex()
-                        .gap(space::sm())
-                        .child(
-                            button("lf-auth", "1. AUTHORIZE", color::surface()).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.job(|| {
-                                        integrations::lastfm_begin()?;
-                                        Ok(Reply::Done(
-                                            "Approve Mousa on Last.fm, then click Finish".into(),
-                                        ))
-                                    });
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(button("lf-finish", "2. FINISH", color::surface()).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.job(|| {
-                                    integrations::lastfm_finish()?;
-                                    Ok(Reply::Done("Last.fm connected".into()))
-                                });
-                                cx.notify();
-                            }),
-                        )),
                 );
             }
             form = form.child(
@@ -1111,6 +1127,7 @@ impl Render for Mousa {
                     .child(content),
             )
             .child(player)
+            .into_any_element()
     }
 }
 fn main() {

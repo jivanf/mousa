@@ -241,3 +241,20 @@ pub mod layout {
         px(200.)
     }
 }
+
+// Landing page proportions from the supplied desktop reference.
+pub mod landing {
+    use super::*;
+    pub fn width() -> Pixels {
+        px(520.)
+    }
+    pub fn padding() -> Pixels {
+        px(48.)
+    }
+    pub fn logo() -> Pixels {
+        px(100.)
+    }
+    pub fn title() -> Pixels {
+        px(56.)
+    }
+}
