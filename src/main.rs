@@ -411,6 +411,7 @@ impl Mousa {
                     }
                 }
                 Reply::Library(p) => {
+                    self.player.refresh_metadata();
                     if !self.library_ready {
                         self.sidebar_scroll
                             .set_offset(point(px(0.), px(self.view_state.library_scroll.min(0.))));

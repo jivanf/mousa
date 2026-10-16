@@ -2,6 +2,7 @@ pub mod db;
 pub mod integrations;
 pub mod mpris;
 pub mod player;
+mod queue_metadata;
 pub mod sync;
 pub mod sync_policy;
 pub mod theme;

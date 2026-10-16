@@ -49,6 +49,7 @@ pub enum Command {
     Remove(usize),
     Jump(usize),
     Stop,
+    Metadata(Vec<(Track, Track)>),
 }
 #[derive(Clone)]
 pub struct Player {
@@ -113,17 +114,25 @@ impl Player {
                 let mut s = output.lock().unwrap();
                 let mut load = false;
                 if let Ok(cmd) = cmd {
-                    s.error.clear();
+                    if !matches!(cmd, Command::Metadata(_)) {
+                        s.error.clear();
+                    }
                     if (integrations::get_secret("google-refresh").is_err()
                         || integrations::get_secret("google-name").is_err())
                         && !matches!(
                             cmd,
-                            Command::Stop | Command::Volume(_) | Command::Pause(true)
+                            Command::Stop
+                                | Command::Volume(_)
+                                | Command::Pause(true)
+                                | Command::Metadata(_)
                         )
                     {
                         continue;
                     }
                     match cmd {
+                        Command::Metadata(updates) => {
+                            crate::queue_metadata::apply(&mut s, updates);
+                        }
                         Command::Queue(q, i) => {
                             resume_at = 0.;
                             if i < q.len() {
@@ -357,7 +366,24 @@ impl Player {
                 }
             }
         });
-        Self { tx, state }
+        let player = Self { tx, state };
+        player.refresh_metadata();
+        player
+    }
+    /// Resolve cached metadata off the UI and playback threads.
+    pub fn refresh_metadata(&self) {
+        let queue = self.state.lock().unwrap().queue.clone();
+        if queue.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            if let Ok(updates) = crate::queue_metadata::read(&queue)
+                && !updates.is_empty()
+            {
+                let _ = tx.send(Command::Metadata(updates));
+            }
+        });
     }
     pub fn send(&self, c: Command) {
         let _ = self.tx.send(c);
