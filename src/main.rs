@@ -38,7 +38,7 @@ actions!(
 
 enum Reply {
     Library(Vec<Playlist>),
-    Tracks(u64, Vec<Track>),
+    Tracks(u64, Vec<Track>, String),
     Done(String),
     Status(String),
     Created(i64),
@@ -251,11 +251,18 @@ impl Mousa {
         self.last_sync = std::time::Instant::now();
         let tx = self.tx.clone();
         let selected = self.selected;
+        let playing = self.playing_id;
         self.job(move || {
             sync::refresh(|| {
                 let _ = tx.send(Reply::Done("Refreshing YouTube playlists…".into()));
             })?;
             if let Some(id) = selected {
+                sync::refresh_playlist(id, false, false)?;
+            }
+            if let Some(entry) = playing
+                && let Ok(id) = db::library()?.entry_playlist(entry)
+                && Some(id) != selected
+            {
                 sync::refresh_playlist(id, false, false)?;
             }
             sync::refresh_background(selected)?;

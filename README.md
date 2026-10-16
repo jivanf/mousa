@@ -79,3 +79,13 @@ Scrobbling starts after authorization. Video metadata may differ from Last.fm's 
 ## Limitations
 
 Mousa currently supports Linux. Offline downloads, gapless playback guarantees, and YouTube Music recommendations are not available. YouTube playback may require yt-dlp updates when YouTube changes. Playlist edits require a connection and are not queued offline.
+
+## YouTube refresh policy
+
+The library catalog refreshes at most hourly. Playlist contents load when first opened; unused playlists are never downloaded just to support search, which is playlist-specific. Cached tracks remain immediately available while refreshes run.
+
+Opened or playing playlists are checked for freshness every ten minutes. Their content refresh interval starts at one hour, doubles after unchanged snapshots, and caps at 24 hours. A detected change resets it to one hour. Restarts preserve freshness. The **Refresh** button bypasses this interval for the selected playlist; duplicate requests within five seconds are coalesced.
+
+A playlist visited at least three times (visits separated by ten minutes), most recently within seven days, qualifies for opportunistic background refresh once daily. One candidate is considered per scheduler pass. Automatic API work shares a local budget of 2,000 estimated units per Pacific calendar day, reserving capacity for opening playlists, manual refreshes, and edits. This local estimate does not measure other installations using the same Google project.
+
+Video durations persist for seven days; missing/unavailable metadata is retried after six hours. Successful batches survive later request failures. The quota-exhausted state persists until midnight America/Los_Angeles, including daylight-saving changes. While paused, cached data remains usable; YouTube edits require the quota to recover. Per-endpoint estimated usage is recorded locally, without credentials or request bodies.

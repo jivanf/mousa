@@ -1,7 +1,7 @@
 //! Remote-first edits: never report an edit saved before YouTube accepts it.
 use crate::{
     db::{self, Library, Sort, Track},
-    integrations,
+    integrations, sync_policy as policy,
 };
 use anyhow::{Context, Result, bail, ensure};
 use reqwest::{Method, blocking::Client};
@@ -14,17 +14,50 @@ use std::{
 
 static OPERATIONS: Mutex<()> = Mutex::new(());
 const API: &str = "https://www.googleapis.com/youtube/v3";
+fn decode_response(response: reqwest::blocking::Response, quota_db: &Library) -> Result<Value> {
+    let status = response.status();
+    let text = response.text()?;
+    let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    decode_value(status, value, quota_db)
+}
+fn decode_value(status: reqwest::StatusCode, value: Value, quota_db: &Library) -> Result<Value> {
+    if !status.is_success() {
+        let reason = value["error"]["errors"][0]["reason"].as_str().unwrap_or("");
+        if reason == "quotaExceeded" || reason == "dailyLimitExceeded" {
+            policy::pause(quota_db, integrations::now())?;
+            bail!(
+                "YouTube’s daily quota is exhausted. Sync and YouTube edits will resume after midnight Pacific time. Cached playlists remain available."
+            );
+        }
+        if reason == "insufficientPermissions" {
+            bail!("Reconnect Google to grant playlist editing permission");
+        }
+        bail!(
+            "YouTube {status}: {}",
+            value["error"]["message"]
+                .as_str()
+                .unwrap_or("Request failed")
+        );
+    }
+    Ok(value)
+}
+
 struct Google {
     client: Client,
     token: String,
     account: String,
+    background: bool,
 }
 impl Google {
     fn connect() -> Result<Self> {
+        Self::connect_with_budget(false)
+    }
+    fn connect_with_budget(background: bool) -> Result<Self> {
         let mut g = Self {
             client: Client::builder().timeout(Duration::from_secs(30)).build()?,
             token: integrations::google_access()?,
             account: String::new(),
+            background,
         };
         let v = g.request(
             Method::GET,
@@ -45,6 +78,15 @@ impl Google {
         query: &[(&str, &str)],
         body: Option<Value>,
     ) -> Result<Value> {
+        let quota_db = db::library()?;
+        policy::init(&quota_db)?;
+        policy::reserve(
+            &quota_db,
+            integrations::now(),
+            &format!("{} {resource}", method),
+            if method == Method::GET { 1 } else { 50 },
+            self.background,
+        )?;
         let mut request = self
             .client
             .request(method, format!("{API}/{resource}"))
@@ -54,22 +96,7 @@ impl Google {
             request = request.json(&body);
         }
         let response=request.send().context("YouTube is unreachable. Cached playlists are still available; edits were not confirmed.")?;
-        let status = response.status();
-        let text = response.text()?;
-        let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        if !status.is_success() {
-            let reason = value["error"]["errors"][0]["reason"].as_str().unwrap_or("");
-            if reason == "insufficientPermissions" {
-                bail!("Reconnect Google to grant playlist editing permission");
-            }
-            bail!(
-                "YouTube {status}: {}",
-                value["error"]["message"]
-                    .as_str()
-                    .unwrap_or("Request failed")
-            );
-        }
-        Ok(value)
+        decode_response(response, &quota_db)
     }
     fn pages(&self, resource: &str, query: &[(&str, &str)]) -> Result<Vec<Value>> {
         let mut result = Vec::new();
@@ -115,6 +142,9 @@ impl Google {
         if db.recently_written(id)? {
             return Ok(());
         }
+        policy::init(db)?;
+        let now = integrations::now();
+        policy::attempted(db, id, now)?;
         let items = self.pages(
             "playlistItems",
             &[("part", "snippet"), ("playlistId", remote)],
@@ -124,7 +154,7 @@ impl Google {
             .filter_map(|item| item["snippet"]["resourceId"]["videoId"].as_str())
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        fetch_durations(&videos, durations, |ids| {
+        persistent_durations(db, &videos, durations, now, |ids| {
             self.request(
                 Method::GET,
                 "videos",
@@ -157,19 +187,38 @@ impl Google {
                 },
             ));
         }
-        db.reconcile_entries(id, &tracks)
+        use sha2::{Digest, Sha256};
+        let fingerprint = format!("{:x}", Sha256::digest(serde_json::to_vec(&tracks)?));
+        db.reconcile_entries(id, &tracks)?;
+        policy::completed(db, id, integrations::now(), &fingerprint)
     }
 }
-/// Progress is emitted after the catalog, then after each complete playlist.
-/// Existing cache remains immediately usable while this runs off the UI thread.
-pub fn refresh(mut progress: impl FnMut()) -> Result<()> {
+/// Catalog only: never download contents of unopened playlists.
+pub fn refresh(progress: impl FnMut()) -> Result<()> {
+    refresh_catalog(false, progress)
+}
+pub fn refresh_catalog(force: bool, mut progress: impl FnMut()) -> Result<()> {
     let Ok(_guard) = OPERATIONS.try_lock() else {
         return Ok(());
     };
     if integrations::get_secret("google-refresh").is_err() {
         return Ok(());
     }
-    let g = Google::connect()?;
+    let mut db = db::library()?;
+    policy::init(&db)?;
+    let now = integrations::now();
+    let checked = db
+        .load("youtube-catalog-checked")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    if !force
+        && (now - checked < policy::HOUR
+            || policy::paused(&db, now)
+            || !policy::background_available(&db, now)?)
+    {
+        return Ok(());
+    }
+    let g = Google::connect_with_budget(!force)?;
     let lists = g.pages("playlists", &[("part", "snippet"), ("mine", "true")])?;
     let catalog: Vec<_> = lists
         .iter()
@@ -183,23 +232,45 @@ pub fn refresh(mut progress: impl FnMut()) -> Result<()> {
             ))
         })
         .collect::<Result<_>>()?;
-    let mut db = db::library()?;
-    let ids = db.reconcile_catalog(&g.account, &catalog)?;
+    db.reconcile_catalog(&g.account, &catalog)?;
+    db.save("youtube-catalog-checked", &now.to_string())?;
     progress();
-    let mut failures = Vec::new();
-    let mut durations = HashMap::new();
-    for (id, remote) in ids {
-        if let Err(e) = g.refresh(&mut db, id, &remote, &mut durations) {
-            failures.push(e.to_string());
-        } else {
-            progress();
-        }
+    Ok(())
+}
+/// User visits are recorded independently of whether another sync owns the lock.
+pub fn refresh_playlist(id: i64, force: bool, opened: bool) -> Result<()> {
+    let mut db = db::library()?;
+    policy::init(&db)?;
+    let Some((remote, account)) = db.google_playlist(id)? else {
+        return Ok(());
+    };
+    let now = integrations::now();
+    if opened {
+        policy::opened(&db, id, now)?;
     }
-    ensure!(
-        failures.is_empty(),
-        "Some playlists could not refresh: {}",
-        failures.join("; ")
-    );
+    let _guard = OPERATIONS.lock().unwrap();
+    let now = integrations::now();
+    if (!force && policy::paused(&db, now)) || !policy::due(&db, id, now, force)? {
+        return Ok(());
+    }
+    if !force && !opened && !policy::background_available(&db, now)? {
+        return Ok(());
+    }
+    policy::attempted(&db, id, now)?;
+    let g = Google::connect_with_budget(!force && !opened)?;
+    g.check(&account)?;
+    g.refresh(&mut db, id, &remote, &mut HashMap::new())
+}
+/// One previously used playlist per pass; never a full-library sweep.
+pub fn refresh_background(active: Option<i64>) -> Result<()> {
+    let db = db::library()?;
+    policy::init(&db)?;
+    if policy::paused(&db, integrations::now()) {
+        return Ok(());
+    }
+    if let Some(id) = policy::candidate(&db, integrations::now(), active)? {
+        refresh_playlist(id, false, false)?;
+    }
     Ok(())
 }
 pub fn create(name: &str, google: bool) -> Result<i64> {
@@ -263,6 +334,8 @@ pub fn rename(id: i64, name: &str) -> Result<()> {
                 snippet[key] = value.clone();
             }
         }
+        policy::init(&db)?;
+        policy::reserve(&db, integrations::now(), "PUT playlists", 50, false)?;
         let response = g
             .client
             .put(format!("{API}/playlists"))
@@ -274,11 +347,7 @@ pub fn rename(id: i64, name: &str) -> Result<()> {
             )
             .json(&json!({"id":remote,"snippet":snippet}))
             .send()?;
-        ensure!(
-            response.status().is_success(),
-            "YouTube rename failed ({}). Refresh and retry; no local rename was applied.",
-            response.status()
-        );
+        decode_response(response, &db)?;
     }
     db.rename(id, name)?;
     if db.google_playlist(id)?.is_some() {
@@ -381,9 +450,43 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     Ok(())
 }
 
+/// Persist each successful metadata batch, even if a later batch fails.
+fn persistent_durations(
+    db: &Library,
+    videos: &[String],
+    cache: &mut HashMap<String, f64>,
+    now: i64,
+    mut fetch: impl FnMut(&str) -> Result<Value>,
+) -> Result<()> {
+    for row in db.conn.prepare("SELECT video,duration FROM youtube_metadata WHERE fetched>? AND (duration>0 OR fetched>?)")?.query_map(rusqlite::params![now-7*policy::DAY,now-6*policy::HOUR],|r|Ok((r.get::<_,String>(0)?,r.get::<_,f64>(1)?)))? {
+        let (id,duration)=row?;cache.insert(id,duration);
+    }
+    fetch_durations(videos, cache, |ids| {
+        let response = fetch(ids)?;
+        let items = response["items"]
+            .as_array()
+            .context("YouTube returned no video details")?;
+        let resolved: HashMap<_, _> = items
+            .iter()
+            .filter_map(|item| {
+                Some((
+                    item["id"].as_str()?,
+                    youtube_duration(item["contentDetails"]["duration"].as_str()?)?,
+                ))
+            })
+            .collect();
+        let tx = db.conn.unchecked_transaction()?;
+        for id in ids.split(',') {
+            tx.execute("INSERT INTO youtube_metadata VALUES(?,?,?) ON CONFLICT(video) DO UPDATE SET duration=excluded.duration,fetched=excluded.fetched",rusqlite::params![id,resolved.get(id).copied().unwrap_or(0.),now])?;
+        }
+        tx.commit()?;
+        Ok(response)
+    })
+}
+
 /// Video durations are absent from playlistItems; resolve unique IDs in batches.
-/// Cache includes unavailable IDs for this refresh only, so duplicates and other
-/// playlists do not repeat requests, while later refreshes can retry missing data.
+/// In-memory deduplication supplements persistent metadata caching. Missing IDs
+/// are cached for six hours; known durations for seven days.
 fn fetch_durations(
     videos: &[String],
     cache: &mut HashMap<String, f64>,
@@ -462,6 +565,68 @@ fn youtube_duration(value: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod duration_tests {
+    #[test]
+    fn quota_error_is_readable_and_persistently_stops_requests() {
+        let db = crate::db::Library::open(":memory:").unwrap();
+        super::policy::init(&db).unwrap();
+        let error=super::decode_value(reqwest::StatusCode::FORBIDDEN,serde_json::json!({"error":{"message":"exceeded <a href='quota'>quota</a>","errors":[{"reason":"quotaExceeded"}]}}),&db).unwrap_err().to_string();
+        assert!(error.contains("midnight Pacific"));
+        assert!(!error.contains("<a"));
+        assert!(super::policy::paused(&db, crate::integrations::now()));
+    }
+
+    #[test]
+    fn metadata_survives_restart_and_retries_only_expired_unknowns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let db = crate::db::Library::open(&path).unwrap();
+        super::policy::init(&db).unwrap();
+        let videos = vec!["known".to_string(), "unknown".to_string()];
+        let now = 10 * super::policy::DAY;
+        super::persistent_durations(&db,&videos,&mut std::collections::HashMap::new(),now, |_|Ok(serde_json::json!({"items":[{"id":"known","contentDetails":{"duration":"PT3M"}}]}))).unwrap();
+        drop(db);
+        let db = crate::db::Library::open(&path).unwrap();
+        super::policy::init(&db).unwrap();
+        super::persistent_durations(
+            &db,
+            &videos,
+            &mut std::collections::HashMap::new(),
+            now + 1,
+            |_| panic!("cached across restart"),
+        )
+        .unwrap();
+        super::persistent_durations(
+            &db,
+            &videos,
+            &mut std::collections::HashMap::new(),
+            now + 6 * super::policy::HOUR,
+            |ids| {
+                assert_eq!(ids, "unknown");
+                Ok(serde_json::json!({"items":[]}))
+            },
+        )
+        .unwrap();
+        assert!(
+            super::persistent_durations(
+                &db,
+                &["failed".into()],
+                &mut std::collections::HashMap::new(),
+                now,
+                |_| anyhow::bail!("network failed")
+            )
+            .is_err()
+        );
+        let n: i64 = db
+            .conn
+            .query_row(
+                "SELECT count(*) FROM youtube_metadata WHERE video='failed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
     use super::*;
 
     #[test]
