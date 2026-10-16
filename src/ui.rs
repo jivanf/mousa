@@ -621,7 +621,7 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(space::sm())
+                        .gap(space::md())
                         .child(
                             div()
                                 .text_size(landing::title())

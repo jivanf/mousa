@@ -380,7 +380,7 @@ handling; all icon actions also have descriptive tooltips.
 
 The landing card is 520px wide with 48px padding, a 100px logo, a 56px bold
 Mousa title with a 56px line height, and the 18px tagline “Just a fast music client.”
-The tagline uses an 18px line height, separated from the title by the sm (8px) gap. Its centered canvas,
+The tagline uses an 18px line height, separated from the title by the md (12px) gap. Its centered canvas,
 surface fill, 3px border, and large hard shadow follow the desktop reference.
 The Google sign-in action is 56px tall and uses the primary fill.
 
