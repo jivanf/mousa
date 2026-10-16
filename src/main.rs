@@ -39,6 +39,7 @@ actions!(
 enum Reply {
     Library(Vec<Playlist>),
     Tracks(u64, Vec<Track>, String),
+    OpenQueueTrack(u64, i64, usize),
     Done(String),
     Status(String),
     Created(i64),
@@ -431,6 +432,27 @@ impl Mousa {
                         self.sync_selected(false, true);
                     }
                 }
+                Reply::OpenQueueTrack(g, playlist, index) => {
+                    if g == self.generation && self.queue_view {
+                        self.remember_view(cx);
+                        self.tracks_ready = false;
+                        self.selected = Some(playlist);
+                        self.queue_view = false;
+                        self.form = Form::None;
+                        self.search.update(cx, |s, cx| s.set_value("", window, cx));
+                        self.view_state.playlists.insert(
+                            playlist,
+                            mousa::view_state::BrowsePosition {
+                                query: String::new(),
+                                item: index,
+                                offset: 0.,
+                            },
+                        );
+                        self.freshness.clear();
+                        self.refresh_tracks(cx);
+                        self.sync_selected(false, true);
+                    }
+                }
                 Reply::Tracks(g, t, freshness) => {
                     if g == self.generation {
                         let offset = self
@@ -722,6 +744,41 @@ impl Mousa {
                             cx.notify();
                         })),
                     )
+                    .when(queue && id > 0, |d| {
+                        let url = t.url.clone();
+                        d.child(
+                            icon_button(
+                                ("open-playlist", i),
+                                "external-link",
+                                "Open track in playlist",
+                                false,
+                                false,
+                                true,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    let generation = this.generation;
+                                    let url = url.clone();
+                                    this.job(move || {
+                                        let library = db::library()?;
+                                        let playlist = library.entry_playlist(id)?;
+                                        let tracks =
+                                            library.tracks(playlist, "", Sort::Position)?;
+                                        let index = tracks
+                                            .iter()
+                                            .position(|track| track.id == id && track.url == url)
+                                            .ok_or_else(|| {
+                                                anyhow::anyhow!(
+                                                    "Track is no longer in its playlist"
+                                                )
+                                            })?;
+                                        Ok(Reply::OpenQueueTrack(generation, playlist, index))
+                                    });
+                                },
+                            )),
+                        )
+                    })
                     .when(!queue, |d| {
                         d.child(
                             icon_button(
