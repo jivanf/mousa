@@ -17,3 +17,5 @@ secrets/
 *.key
 *.p12
 *.pfx
+
+lastfm-client*.json

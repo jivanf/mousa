@@ -12,7 +12,10 @@ use std::{
 };
 
 fn client() -> Result<Client> {
-    Ok(Client::builder().timeout(Duration::from_secs(30)).build()?)
+    Ok(Client::builder()
+        .user_agent(concat!("Mousa/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .build()?)
 }
 fn secret(name: &str) -> Result<keyring::Entry> {
     Ok(keyring::Entry::new("app.mousa", name)?)
@@ -276,12 +279,22 @@ fn lastfm_response(mut p: BTreeMap<String, String>) -> Result<Value> {
     let signature = lastfm_signature(&p, &secret);
     p.insert("api_sig".into(), signature);
     p.insert("format".into(), "json".into());
-    Ok(client()?
+    let response = client()?
         .post("https://ws.audioscrobbler.com/2.0/")
         .form(&p)
-        .send()?
-        .error_for_status()?
-        .json()?)
+        .send()?;
+    let status = response.status();
+    let value: Value = response.json()?;
+    lastfm_payload(status, value)
+}
+fn lastfm_payload(status: reqwest::StatusCode, value: Value) -> Result<Value> {
+    // Last.fm uses HTTP 403 for error 14 while browser approval is pending.
+    // Preserve API errors so the desktop flow can distinguish waiting from failure.
+    anyhow::ensure!(
+        status.is_success() || value.get("error").is_some(),
+        "Last.fm request failed ({status})"
+    );
+    Ok(value)
 }
 fn lastfm_signature(p: &BTreeMap<String, String>, secret: &str) -> String {
     let mut value = p
@@ -451,6 +464,20 @@ mod auth_tests {
         p.insert("callback".into(), "callback".into());
         p.insert("api_sig".into(), "old-signature".into());
         assert_eq!(lastfm_signature(&p, "secret"), expected);
+    }
+    #[test]
+    fn pending_authorization_survives_http_forbidden() {
+        let pending = serde_json::json!({"error":14,"message":"Unauthorized Token"});
+        let value = lastfm_payload(reqwest::StatusCode::FORBIDDEN, pending).unwrap();
+        assert_eq!(value["error"].as_u64(), Some(14));
+        assert!(check_lastfm(value).is_err());
+        assert!(
+            lastfm_payload(
+                reqwest::StatusCode::BAD_GATEWAY,
+                serde_json::json!({"message":"Gateway failed"})
+            )
+            .is_err()
+        );
     }
     #[test]
     fn api_failures_are_not_successful_sessions() {
