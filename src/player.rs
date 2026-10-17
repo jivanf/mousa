@@ -33,6 +33,34 @@ impl Snapshot {
         self.queue.get(self.index)
     }
 }
+// Keep seeks made before FileLoaded out of mpv: it rejects them while idle/loading.
+fn seek_to(
+    s: &mut Snapshot,
+    ready: bool,
+    pending: &mut Option<f64>,
+    position: f64,
+    seek: impl FnOnce(f64) -> Result<(), String>,
+) {
+    if !position.is_finite() || s.current().is_none() {
+        return;
+    }
+    let position = if s.duration > 0. {
+        position.clamp(0., s.duration)
+    } else {
+        position.max(0.)
+    };
+    if ready {
+        if let Err(error) = seek(position) {
+            s.error = format!("Seek failed: {error}");
+            return;
+        }
+    } else {
+        *pending = Some(position);
+    }
+    s.position = position;
+    s.seek_serial += 1;
+}
+
 pub enum Command {
     Queue(Vec<Track>, usize),
     Toggle,
@@ -98,7 +126,7 @@ impl Player {
             let _ = mpv.set_property("volume", output.lock().unwrap().volume);
             let mut loaded = false;
             let mut ready = false;
-            let mut resume_at = 0.;
+            let mut resume_at = None;
             let mut started = 0;
             let mut listened = 0.;
             let mut scrobbled = false;
@@ -134,7 +162,7 @@ impl Player {
                             crate::queue_metadata::apply(&mut s, updates);
                         }
                         Command::Queue(q, i) => {
-                            resume_at = 0.;
+                            resume_at = None;
                             if i < q.len() {
                                 s.queue = Arc::new(q);
                                 s.index = i;
@@ -144,7 +172,7 @@ impl Player {
                         }
                         Command::Toggle => {
                             if !loaded && !s.queue.is_empty() {
-                                resume_at = s.position;
+                                resume_at = Some(s.position);
                                 load = true;
                             } else {
                                 s.paused = !s.paused;
@@ -155,12 +183,12 @@ impl Player {
                             s.paused = p;
                             let _ = mpv.set_property("pause", p);
                             if !p && !loaded && !s.queue.is_empty() {
-                                resume_at = s.position;
+                                resume_at = Some(s.position);
                                 load = true;
                             }
                         }
                         Command::Next => {
-                            resume_at = 0.;
+                            resume_at = None;
                             if !s.queue.is_empty() {
                                 history.push(s.index);
                                 if s.shuffle && s.queue.len() > 1 {
@@ -181,27 +209,21 @@ impl Player {
                         }
                         Command::Previous => {
                             if s.position > 3. {
-                                let _ = mpv.command("seek", &["0", "absolute"]);
+                                seek_to(&mut s, loaded && ready, &mut resume_at, 0., |position| {
+                                    mpv.command("seek", &[&position.to_string(), "absolute"])
+                                        .map_err(|e| e.to_string())
+                                });
                             } else if !s.queue.is_empty() {
+                                resume_at = None;
                                 s.index = history.pop().unwrap_or(s.index.saturating_sub(1));
                                 load = true;
                             }
                         }
                         Command::Seek(p) => {
-                            if p.is_finite() {
-                                let p = if s.duration > 0. {
-                                    p.clamp(0., s.duration)
-                                } else {
-                                    p.max(0.)
-                                };
-                                match mpv.command("seek", &[&p.to_string(), "absolute"]) {
-                                    Ok(_) => {
-                                        s.position = p;
-                                        s.seek_serial += 1;
-                                    }
-                                    Err(e) => s.error = format!("Seek failed: {e}"),
-                                }
-                            }
+                            seek_to(&mut s, loaded && ready, &mut resume_at, p, |position| {
+                                mpv.command("seek", &[&position.to_string(), "absolute"])
+                                    .map_err(|e| e.to_string())
+                            });
                         }
                         Command::Volume(v) => {
                             s.volume = if v.is_finite() {
@@ -217,7 +239,7 @@ impl Player {
                         Command::Repeat => s.repeat = !s.repeat,
                         Command::Append(t) => Arc::make_mut(&mut s.queue).push(t),
                         Command::Jump(i) => {
-                            resume_at = 0.;
+                            resume_at = None;
                             if i < s.queue.len() {
                                 history.push(s.index);
                                 s.index = i;
@@ -231,6 +253,7 @@ impl Player {
                                 if i < s.index {
                                     s.index -= 1;
                                 } else if i == s.index {
+                                    resume_at = None;
                                     if s.queue.is_empty() {
                                         let _ = mpv.command("stop", &[]);
                                         loaded = false;
@@ -243,6 +266,7 @@ impl Player {
                             }
                         }
                         Command::Stop => {
+                            resume_at = None;
                             s.stopped = true;
                             s.position = 0.;
                             let _ = mpv.command("stop", &[]);
@@ -259,7 +283,7 @@ impl Player {
                             ready = false;
                             s.stopped = false;
                             s.paused = false;
-                            s.position = 0.;
+                            s.position = resume_at.unwrap_or(0.);
                             s.duration = t.duration;
                             let _ = mpv.set_property("pause", false);
                             started = integrations::now();
@@ -272,6 +296,7 @@ impl Player {
                 while let Some(event) = events.wait_event(0.) {
                     match event {
                         Ok(Event::EndFile(0)) => {
+                            resume_at = None;
                             loaded = false;
                             if !s.queue.is_empty()
                                 && (s.index + 1 < s.queue.len() || s.repeat || s.shuffle)
@@ -312,9 +337,11 @@ impl Player {
                         }
                         Ok(Event::FileLoaded) => {
                             ready = true;
-                            if resume_at > 0. {
-                                let _ = mpv.command("seek", &[&resume_at.to_string(), "absolute"]);
-                                resume_at = 0.;
+                            if let Some(position) = resume_at.take() {
+                                seek_to(&mut s, true, &mut resume_at, position, |position| {
+                                    mpv.command("seek", &[&position.to_string(), "absolute"])
+                                        .map_err(|e| e.to_string())
+                                });
                             }
                             if let Some(t) = s.current().cloned() {
                                 std::thread::spawn(move || {
@@ -327,7 +354,7 @@ impl Player {
                 }
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
-                if loaded {
+                if loaded && ready {
                     s.position = mpv.get_property::<f64>("time-pos").unwrap_or(s.position);
                     s.duration = mpv.get_property::<f64>("duration").unwrap_or(s.duration);
                     if ready
@@ -387,5 +414,71 @@ impl Player {
     }
     pub fn send(&self, c: Command) {
         let _ = self.tx.send(c);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            queue: Arc::new(vec![Track {
+                id: 1,
+                playlist_index: 1,
+                url: "test.wav".into(),
+                title: "Test".into(),
+                artist: "Test".into(),
+                duration: 120.,
+            }]),
+            paused: true,
+            duration: 120.,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn seeks_before_loading_are_deferred_without_starting_playback() {
+        let mut s = snapshot();
+        let mut pending = None;
+        for position in [45., 80., 0.] {
+            seek_to(&mut s, false, &mut pending, position, |_| {
+                panic!("must not seek an idle or loading player")
+            });
+            assert_eq!(pending, Some(position));
+            assert_eq!(s.position, position);
+            assert!(s.paused);
+            assert!(s.error.is_empty());
+        }
+        let position = pending.take().unwrap();
+        seek_to(&mut s, true, &mut pending, position, |target| {
+            assert_eq!(target, 0.);
+            Ok(())
+        });
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn ready_seeks_clamp_positions_and_preserve_position_on_failure() {
+        let mut s = snapshot();
+        let mut pending = None;
+        seek_to(&mut s, true, &mut pending, 200., |target| {
+            assert_eq!(target, 120.);
+            Ok(())
+        });
+        assert_eq!(s.position, 120.);
+        assert_eq!(s.seek_serial, 1);
+        seek_to(&mut s, true, &mut pending, 20., |_| {
+            Err("unavailable".into())
+        });
+        assert_eq!(s.position, 120.);
+        assert_eq!(s.seek_serial, 1);
+        assert_eq!(s.error, "Seek failed: unavailable");
+        seek_to(&mut s, true, &mut pending, f64::NAN, |_| {
+            panic!("invalid seek")
+        });
+        s.queue = Arc::new(vec![]);
+        seek_to(&mut s, false, &mut pending, 10., |_| panic!("empty queue"));
+        assert!(pending.is_none());
     }
 }
