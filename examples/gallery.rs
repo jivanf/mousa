@@ -292,20 +292,8 @@ impl Render for Gallery {
                                     .flex_col()
                                     .gap(space::sm())
                                     .child(ui::input(&self.field, cx))
-                                    .child(ui::playlist_item(
-                                        1,
-                                        "Bach / Choral works".into(),
-                                        5000,
-                                        "YouTube",
-                                        true,
-                                    ))
-                                    .child(ui::playlist_item(
-                                        2,
-                                        "Evening listening".into(),
-                                        42,
-                                        "Local",
-                                        false,
-                                    )),
+                                    .child(ui::playlist_item(1, "Bach / Choral works".into(), true))
+                                    .child(ui::playlist_item(2, "Evening listening".into(), false)),
                             )
                             .child(
                                 div()
