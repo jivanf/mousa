@@ -6,7 +6,7 @@ use gpui_component::{
 use mousa::{
     db::{self, Playlist, Sort, Track},
     integrations, mpris,
-    player::{Command, Player},
+    player::{Command, PendingSeek, Player},
     sync,
 };
 use mousa::{
@@ -90,6 +90,7 @@ struct Mousa {
     current_title: String,
     current_artist: String,
     position: f64,
+    pending_seek: Option<PendingSeek>,
     duration: f64,
     volume: f64,
     audible_volume: f64,
@@ -178,6 +179,7 @@ impl Mousa {
             current_title: "Nothing playing yet".into(),
             current_artist: "Choose a playlist and press play".into(),
             position: 0.,
+            pending_seek: None,
             duration: 0.,
             volume: 70.,
             audible_volume: 70.,
@@ -195,10 +197,11 @@ impl Mousa {
                 this.player.send(Command::Volume(*value as f64 * 100.));
             }));
         app.subscriptions
-            .push(cx.subscribe(&seek, |this, _, event, _| {
+            .push(cx.subscribe(&seek, |this, _, event, cx| {
                 let BarChange(value) = event;
-                this.player
-                    .send(Command::Seek(*value as f64 * this.duration));
+                this.position = *value as f64 * this.duration;
+                this.pending_seek = Some(this.player.seek_with_preview(this.position));
+                cx.notify();
             }));
         app.subscriptions
             .push(cx.subscribe(&search, |this, _, event, cx| {
@@ -498,7 +501,11 @@ impl Mousa {
             }
         }
         let s = self.player.state.lock().unwrap();
-        let position = s.position.floor();
+        let preview = self.pending_seek.as_ref().and_then(PendingSeek::position);
+        if preview.is_none() {
+            self.pending_seek = None;
+        }
+        let position = preview.unwrap_or(s.position);
         let title = s
             .current()
             .map(|t| t.title.clone())

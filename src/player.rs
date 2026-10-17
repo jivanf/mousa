@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     sync::{
         Arc, Mutex,
-        mpsc::{self, Sender},
+        mpsc::{self, Receiver, Sender},
     },
     time::{Duration, Instant},
 };
@@ -68,6 +68,7 @@ pub enum Command {
     Next,
     Previous,
     Seek(f64),
+    SeekAcknowledged(f64, Sender<()>),
     Volume(f64),
     Shuffle,
     SetShuffle(bool),
@@ -79,6 +80,25 @@ pub enum Command {
     Stop,
     Metadata(Vec<(Track, Track)>),
 }
+/// Holds the requested position until the playback thread has handled that seek.
+pub struct PendingSeek {
+    position: f64,
+    completed: Receiver<()>,
+}
+impl PendingSeek {
+    pub fn position(&self) -> Option<f64> {
+        match self.completed.try_recv() {
+            Err(mpsc::TryRecvError::Empty) => Some(self.position),
+            _ => None,
+        }
+    }
+}
+
+// A seek command returns before mpv has necessarily updated time-pos.
+fn can_sample_position(previous_seek: u64, current_seek: u64, seeking: bool) -> bool {
+    previous_seek == current_seek && !seeking
+}
+
 #[derive(Clone)]
 pub struct Player {
     pub tx: Sender<Command>,
@@ -140,8 +160,17 @@ impl Player {
                     break;
                 }
                 let mut s = output.lock().unwrap();
+                let previous_seek = s.seek_serial;
                 let mut load = false;
                 if let Ok(cmd) = cmd {
+                    // Keep the acknowledgement alive through validation and execution.
+                    // Dropping it also releases the preview if the request is rejected.
+                    let (cmd, _acknowledgement) = match cmd {
+                        Command::SeekAcknowledged(position, ack) => {
+                            (Command::Seek(position), Some(ack))
+                        }
+                        cmd => (cmd, None),
+                    };
                     if !matches!(cmd, Command::Metadata(_)) {
                         s.error.clear();
                     }
@@ -158,6 +187,7 @@ impl Player {
                         continue;
                     }
                     match cmd {
+                        Command::SeekAcknowledged(..) => unreachable!(),
                         Command::Metadata(updates) => {
                             crate::queue_metadata::apply(&mut s, updates);
                         }
@@ -355,7 +385,13 @@ impl Player {
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
                 if loaded && ready {
-                    s.position = mpv.get_property::<f64>("time-pos").unwrap_or(s.position);
+                    if can_sample_position(
+                        previous_seek,
+                        s.seek_serial,
+                        mpv.get_property::<bool>("seeking").unwrap_or(true),
+                    ) {
+                        s.position = mpv.get_property::<f64>("time-pos").unwrap_or(s.position);
+                    }
                     s.duration = mpv.get_property::<f64>("duration").unwrap_or(s.duration);
                     if ready
                         && !s.paused
@@ -412,6 +448,14 @@ impl Player {
             }
         });
     }
+    pub fn seek_with_preview(&self, position: f64) -> PendingSeek {
+        let (ack, completed) = mpsc::channel();
+        self.send(Command::SeekAcknowledged(position, ack));
+        PendingSeek {
+            position,
+            completed,
+        }
+    }
     pub fn send(&self, c: Command) {
         let _ = self.tx.send(c);
     }
@@ -435,6 +479,35 @@ mod tests {
             duration: 120.,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn preview_waits_for_its_own_seek_and_releases_on_rejection() {
+        let (tx, rx) = mpsc::channel();
+        let player = Player {
+            tx,
+            state: Arc::new(Mutex::new(snapshot())),
+        };
+        let first = player.seek_with_preview(45.);
+        let latest = player.seek_with_preview(80.);
+        assert_eq!(latest.position(), Some(80.));
+        // An earlier request finishing must not release a newer preview.
+        drop(rx.recv().unwrap());
+        assert_eq!(first.position(), None);
+        assert_eq!(latest.position(), Some(80.));
+        // Rejected requests drop their acknowledgement too, restoring real state.
+        drop(rx.recv().unwrap());
+        assert_eq!(latest.position(), None);
+        drop(rx);
+        assert_eq!(player.seek_with_preview(20.).position(), None);
+    }
+
+    #[test]
+    fn stale_playback_samples_cannot_overwrite_a_seek() {
+        assert!(!can_sample_position(0, 1, false));
+        assert!(!can_sample_position(1, 1, true));
+        assert!(can_sample_position(1, 1, false));
+        assert!(!can_sample_position(1, 2, true));
     }
 
     #[test]

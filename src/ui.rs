@@ -313,7 +313,11 @@ impl Bar {
         if self.disabled {
             return;
         }
-        self.value = value.clamp(0., 1.);
+        let value = value.clamp(0., 1.);
+        if self.value == value {
+            return;
+        }
+        self.value = value;
         cx.emit(BarChange(self.value));
         cx.notify();
     }
