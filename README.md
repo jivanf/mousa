@@ -2,7 +2,7 @@
 
 # Mousa
 
-A native Linux music player for YouTube, with fast playlist browsing, a customizable queue, and a neobrutalist interface.
+A native Linux music player for YouTube.
 
 ## Features
 
@@ -17,7 +17,6 @@ A native Linux music player for YouTube, with fast playlist browsing, a customiz
 - Browse cached playlists offline; YouTube playback and edits require a connection.
 - Use Linux desktop media controls through MPRIS.
 - Connect Last.fm for now-playing updates and scrobbling.
-- Store account credentials in your operating system's keyring.
 
 Changes to YouTube playlists are saved to your YouTube account. Deleting one in Mousa also deletes it on YouTube and requires confirmation. Local playlists stay on your device. Some YouTube Music collections and playlists saved from other owners may not be available.
 
@@ -69,26 +68,6 @@ Mousa requests your basic Google profile and permission to manage YouTube playli
 
 Keep the downloaded client file and account credentials private; do not commit them to a repository.
 
-## Connect Last.fm
-
-Choose **Connect Last.fm**, then approve Mousa in your browser. Mousa completes the desktop token exchange automatically and stores the session in the system keyring. Sign-in times out after three minutes and can be retried. The sidebar then displays your Last.fm username; hover to reveal **Disconnect**. Disconnecting deletes the saved session and queued scrobbles. To revoke Mousa's grant on Last.fm itself, remove it from [Last.fm application settings](https://www.last.fm/settings/applications).
-
-For application maintainers: [desktop authentication](https://www.last.fm/api/desktopauth) requires a registered application key and shared secret. Provision these once for the installation in `~/.local/share/mousa/lastfm-client.json` with fields `api_key` and `shared_secret`, and restrict the file to its owner (`chmod 600`). These are application credentials, not fields users enter to connect their accounts. Legacy application credentials already stored in the keyring remain supported. Do not commit credentials.
-
-Scrobbling starts after authorization. Video metadata may differ from Last.fm's artist and track names.
-
 ## Limitations
 
 Mousa currently supports Linux. Offline downloads, gapless playback guarantees, and YouTube Music recommendations are not available. YouTube playback may require yt-dlp updates when YouTube changes. Playlist edits require a connection and are not queued offline.
-
-## YouTube refresh policy
-
-The library catalog refreshes at most hourly. Playlist contents load when first opened; unused playlists are never downloaded just to support search, which is playlist-specific. Cached tracks remain immediately available while refreshes run.
-
-Opened or playing playlists are checked for freshness every ten minutes. Their content refresh interval starts at one hour, doubles after unchanged snapshots, and caps at 24 hours. A detected change resets it to one hour. Restarts preserve freshness. The **Refresh** button bypasses this interval for the selected playlist; duplicate requests within five seconds are coalesced.
-
-A playlist visited at least three times (visits separated by ten minutes), most recently within seven days, qualifies for opportunistic background refresh once daily. One candidate is considered per scheduler pass. Automatic API work shares a local budget of 2,000 estimated units per Pacific calendar day, reserving capacity for opening playlists, manual refreshes, and edits. This local estimate does not measure other installations using the same Google project.
-
-Video durations persist for seven days; missing/unavailable metadata is retried after six hours. Successful batches survive later request failures. The quota-exhausted state persists until midnight America/Los_Angeles, including daylight-saving changes. While paused, cached data remains usable; YouTube edits require the quota to recover. Per-endpoint estimated usage is recorded locally, without credentials or request bodies.
-
-On normal exit, Mousa saves browsing context and window size, position, and maximized state. Window placement follows desktop/compositor support; unavailable display positions fall back to centering. Menus, forms, unsaved form input, errors, and pending account actions reopen closed. If the saved playlist is missing, Mousa returns to the available library.
