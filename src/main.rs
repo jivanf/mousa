@@ -66,6 +66,8 @@ struct Mousa {
     selected: Option<i64>,
     seek: Entity<Bar>,
     volume_slider: Entity<Bar>,
+    track_scrollbar: Entity<ui::TrackScrollbar>,
+    queue_scrollbar: Entity<ui::TrackScrollbar>,
     track_list: ListState,
     queue_list: ListState,
     search: Entity<InputState>,
@@ -139,7 +141,11 @@ impl Mousa {
         });
         let sidebar_scroll = ScrollHandle::new();
         sidebar_scroll.set_offset(point(px(0.), px(saved.library_scroll.min(0.))));
+        let track_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
+        let queue_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
         let mut app = Self {
+            track_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(track_list.clone(), cx)),
+            queue_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(queue_list.clone(), cx)),
             sidebar_scroll,
             view_state: saved.clone(),
             tracks_ready: false,
@@ -151,8 +157,8 @@ impl Mousa {
             selected: saved.playlist,
             seek: seek.clone(),
             volume_slider: volume_slider.clone(),
-            track_list: ListState::new(0, ListAlignment::Top, layout::list_overscan()),
-            queue_list: ListState::new(0, ListAlignment::Top, layout::list_overscan()),
+            track_list,
+            queue_list,
             search: search.clone(),
             playlist_search: playlist_search.clone(),
             field,
@@ -645,7 +651,7 @@ impl Mousa {
         let can_move = !queue && self.search.read(cx).value().is_empty();
         let active = self.playing_id;
         let active_queue_index = self.queue_index;
-        list(
+        let rows = list(
             if queue {
                 self.queue_list.clone()
             } else {
@@ -822,7 +828,16 @@ impl Mousa {
             }),
         )
         .h_full()
-        .w_full()
+        .w_full();
+        div()
+            .flex()
+            .size_full()
+            .child(div().flex_1().min_w_0().h_full().child(rows))
+            .child(if queue {
+                self.queue_scrollbar.clone()
+            } else {
+                self.track_scrollbar.clone()
+            })
     }
 }
 impl Render for Mousa {

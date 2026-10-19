@@ -258,3 +258,16 @@ pub mod landing {
         px(56.)
     }
 }
+
+pub mod scrollbar {
+    use super::*;
+    pub fn width() -> Pixels {
+        px(20.)
+    }
+    pub fn min_thumb() -> Pixels {
+        px(48.)
+    }
+    pub fn readout_height() -> Pixels {
+        px(30.)
+    }
+}

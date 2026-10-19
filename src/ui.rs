@@ -665,3 +665,152 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                 }),
         )
 }
+
+/// A persistent scrollbar for GPUI's variable-height virtualized track lists.
+pub struct TrackScrollbar {
+    list: ListState,
+    grab: Option<Pixels>,
+    bounds: Bounds<Pixels>,
+    focus: FocusHandle,
+}
+impl TrackScrollbar {
+    pub fn new(list: ListState, cx: &mut Context<Self>) -> Self {
+        Self {
+            list,
+            grab: None,
+            bounds: Bounds::default(),
+            focus: cx.focus_handle(),
+        }
+    }
+    // Unmeasured GPUI rows have zero pixel height. Use logical positions so
+    // dragging can reach tracks that have never been rendered.
+    fn visible_span(&self) -> f32 {
+        let viewport = self.list.viewport_bounds();
+        let first = self.list.logical_scroll_top().item_ix;
+        let mut span = 0.;
+        for i in first..self.list.item_count() {
+            let Some(bounds) = self.list.bounds_for_item(i) else {
+                break;
+            };
+            if bounds.top() >= viewport.bottom() {
+                break;
+            }
+            if bounds.size.height > px(0.) {
+                span += ((bounds.bottom().min(viewport.bottom())
+                    - bounds.top().max(viewport.top()))
+                    / bounds.size.height)
+                    .max(0.);
+            }
+        }
+        span.max(1.)
+    }
+    fn overflowing(&self) -> bool {
+        self.list.item_count() as f32 > self.visible_span()
+    }
+    fn geometry(&self) -> (Pixels, Pixels) {
+        let height = self.bounds.size.height;
+        let count = self.list.item_count() as f32;
+        let span = self.visible_span();
+        let thumb = (height * (span / count.max(1.)).min(1.))
+            .max(crate::theme::scrollbar::min_thumb())
+            .min(height);
+        let offset = self.list.logical_scroll_top();
+        let row_height = self
+            .list
+            .bounds_for_item(offset.item_ix)
+            .map(|b| b.size.height)
+            .unwrap_or(size::row())
+            .max(px(1.));
+        let position = offset.item_ix as f32 + offset.offset_in_item / row_height;
+        let fraction = (position / (count - span).max(1.)).clamp(0., 1.);
+        ((height - thumb) * fraction, thumb)
+    }
+    fn pointer(&mut self, y: Pixels, cx: &mut Context<Self>) {
+        let (_, thumb) = self.geometry();
+        let travel = self.bounds.size.height - thumb;
+        if travel > px(0.) {
+            let fraction =
+                ((y - self.bounds.top() - self.grab.unwrap_or(thumb / 2.)) / travel).clamp(0., 1.);
+            let index = (fraction * (self.list.item_count() as f32 - self.visible_span()).max(0.))
+                .round() as usize;
+            self.list.scroll_to(ListOffset {
+                item_ix: if fraction == 1. {
+                    self.list.item_count().saturating_sub(1)
+                } else {
+                    index
+                },
+                offset_in_item: px(0.),
+            });
+            cx.notify();
+        }
+    }
+}
+impl Render for TrackScrollbar {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity = cx.entity();
+        let weak = entity.downgrade();
+        div().id("track-scrollbar").relative().w(crate::theme::scrollbar::width()).h_full().flex_shrink_0()
+            .bg(color::white()).border_l(border::strong()).border_color(color::ink())
+            .track_focus(&self.focus).tab_index(0).focus(|s| s.shadow(vec![shadow::focus_ring()]))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, window, cx| {
+                if !this.overflowing() { return; }
+                this.focus.focus(window);
+                let (top, thumb) = this.geometry();
+                let y = e.position.y - this.bounds.top();
+                this.grab = Some(if y >= top && y <= top + thumb { y - top } else { thumb / 2. });
+                this.list.scrollbar_drag_started();
+                this.pointer(e.position.y, cx);
+                cx.notify();
+                cx.stop_propagation();
+            }))
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
+                let current = this.list.logical_scroll_top().item_ix;
+                let page = this.visible_span().floor().max(1.) as usize;
+                let next = match e.keystroke.key.as_str() {
+                    "up" => current.saturating_sub(1), "down" => current.saturating_add(1),
+                    "pageup" => current.saturating_sub(page), "pagedown" => current.saturating_add(page),
+                    "home" => 0, "end" => this.list.item_count().saturating_sub(1),
+                    _ => return,
+                };
+                this.list.scroll_to(ListOffset { item_ix: next.min(this.list.item_count().saturating_sub(1)), offset_in_item: px(0.) });
+                cx.notify(); cx.stop_propagation();
+            }))
+            .child(canvas(move |bounds, window, cx| {
+                entity.update(cx, |this, cx| {
+                    this.bounds = bounds;
+                    let (top, height) = this.geometry();
+                    let mut content = div().relative().size_full();
+                    if this.overflowing() {
+                        content = content.child(div().absolute().top(top).left(border::strong()).right(border::strong()).h(height)
+                            .border(border::strong()).border_color(color::ink())
+                            .bg(if this.grab.is_some() { color::white() } else { color::ink() }));
+                        if this.grab.is_some() {
+                            content = content.child(div().absolute().right(bounds.size.width + space::sm())
+                                .top((top + height / 2. - crate::theme::scrollbar::readout_height() / 2.).clamp(px(0.), (bounds.size.height - crate::theme::scrollbar::readout_height()).max(px(0.))))
+                                .h(crate::theme::scrollbar::readout_height()).px(space::sm()).flex().items_center()
+                                .bg(color::ink()).text_color(color::lime()).font_family(font::MONO).text_size(text::label()).font_weight(FontWeight::BOLD)
+                                .whitespace_nowrap().child(format!("{} / {}", (this.list.logical_scroll_top().item_ix + 1).min(this.list.item_count()), this.list.item_count())));
+                        }
+                    }
+                    let mut element = content.into_any_element();
+                    element.layout_as_root(bounds.size.map(AvailableSpace::Definite), window, cx);
+                    element.prepaint_at(bounds.origin, window, cx);
+                    element
+                })
+            }, move |_, mut element, window, cx| {
+                element.paint(window, cx);
+                let moving = weak.clone();
+                window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble { let _ = moving.update(cx, |this, cx| {
+                        if this.grab.is_some() { this.pointer(e.position.y, cx); }
+                    }); }
+                });
+                let ending = weak.clone();
+                window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble && e.button == MouseButton::Left { let _ = ending.update(cx, |this, cx| {
+                        if this.grab.take().is_some() { this.list.scrollbar_drag_ended(); cx.notify(); }
+                    }); }
+                });
+            }).size_full())
+    }
+}

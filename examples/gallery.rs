@@ -6,6 +6,8 @@ use mousa::{
     ui::{self, Bar, BarChange, button, icon_button, step_button},
 };
 struct Gallery {
+    track_list: ListState,
+    scrollbar: Entity<ui::TrackScrollbar>,
     seek: Entity<Bar>,
     volume: Entity<Bar>,
     field: Entity<InputState>,
@@ -34,7 +36,15 @@ impl Gallery {
                 cx.notify();
             }),
         ];
+        let track_list = ListState::new(1230, ListAlignment::Top, layout::list_overscan());
+        track_list.scroll_to(ListOffset {
+            item_ix: 154,
+            offset_in_item: px(0.),
+        });
+        let scrollbar = cx.new(|cx| ui::TrackScrollbar::new(track_list.clone(), cx));
         Self {
+            track_list,
+            scrollbar,
             seek,
             volume,
             field,
@@ -50,6 +60,17 @@ impl Gallery {
 }
 impl Render for Gallery {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::env::args().any(|a| a == "--scrollbar") {
+            return div().size_full().p(space::xxl()).bg(color::canvas()).font_family(font::SANS).text_size(text::body()).text_color(color::ink())
+                .child(div().flex().w_full().h(px(228.)).border(mousa::theme::border::strong()).border_color(color::ink())
+                    .child(div().flex_1().min_w_0().h_full().child(list(self.track_list.clone(), |i, _, _| {
+                        ui::track_row(i, false).child(format!("{}", i + 1))
+                            .child(div().flex_1().child("J.S. Bach: Jesu, der du meine Seele, Cantata BWV 78")
+                                .child(div().text_size(text::secondary()).text_color(color::muted()).child("Münchener Bach-Orchester · Karl Richter · Münchener Bach-Chor")))
+                            .child("5:12").into_any_element()
+                    }).size_full()))
+                    .child(self.scrollbar.clone())).into_any_element();
+        }
         if std::env::args().any(|a| a == "--landing") {
             return ui::landing(ui::google_sign_in(false), None).into_any_element();
         }
