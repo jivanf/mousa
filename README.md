@@ -92,3 +92,22 @@ A playlist visited at least three times (visits separated by ten minutes), most 
 Video durations persist for seven days; missing/unavailable metadata is retried after six hours. Successful batches survive later request failures. The quota-exhausted state persists until midnight America/Los_Angeles, including daylight-saving changes. While paused, cached data remains usable; YouTube edits require the quota to recover. Per-endpoint estimated usage is recorded locally, without credentials or request bodies.
 
 On normal exit, Mousa saves browsing context and window size, position, and maximized state. Window placement follows desktop/compositor support; unavailable display positions fall back to centering. Menus, forms, unsaved form input, errors, and pending account actions reopen closed. If the saved playlist is missing, Mousa returns to the available library.
+
+### Streaming preparation and playback measurements
+
+Mousa prepares **one next-track stream URL when 30 seconds or less remain**, once the current track has loaded and playback is not paused. Short tracks prepare immediately; tracks with unknown duration wait for a valid duration. This resolves a URL with yt-dlp in the background; it does not prebuffer the next track's audio or save media files. The current stream continues using mpv's normal buffering.
+
+Shuffle retains its chosen next entry for both preparation and advancement. Queue replacement, appends/removals, jumps, Previous, Stop, and changes to shuffle/repeat cancel the old preparation. Late results cannot overwrite the replacement. Pause and seek retain the choice; URLs older than two minutes are refreshed when playback re-enters the preparation window. URLs approaching their advertised expiry are not used. Preparation has a 25-second timeout; a pending/failed preparation never delays advancing. Failed direct playback falls back once to resolving the original YouTube URL through mpv. Required HTTP headers remain in memory and apply only to that file. Direct prepared loading uses mpv 0.38+'s per-file `loadfile` options; unsupported command syntax falls back to normal streaming.
+
+Diagnostics are written asynchronously to `~/.local/share/mousa/playback.jsonl` (or the app's XDG/`MOUSA_DATA_DIR` data directory). Rotation retains the current file and `playback.jsonl.1`, each at most 1 MiB. They contain timestamps, process/playback IDs, queue indexes, preparation outcomes/durations, load-to-first-progress timing, and cache-wait counts/durations. They do not contain track titles, source/stream URLs, HTTP headers, credentials, or raw resolver errors. Writes are best-effort and may be dropped if the bounded log queue fills; logging never blocks playback.
+
+After listening to several normally advancing tracks, summarize the logs with:
+
+```sh
+python3 scripts/playback-report.py
+# Optional: python3 scripts/playback-report.py /path/to/mousa-data
+```
+
+Compare `preparation=ready` automatic transitions with `pending`, `failed`, `expired`, or `not_requested`. `fallback` means a prepared load failed and normal resolution was retried. `first_progress_ms` measures from the observed end event to advancing playback position on the next track; `file_loaded_ms` and `playback_restart_ms` distinguish opening from playback readiness. User pauses/seeks during startup are marked `interrupted` and excluded from the report. Buffering before first progress is separate from stalls during playback. The playback loop samples at a nominal 50 ms interval; these values approximate audible gaps, not hardware output latency, and very short cache waits can be missed.
+
+If prepared transitions are consistently quick and stall-free, further audio prebuffering is unlikely to help much. Persistent delays above roughly 200–300 ms **with cache waits**, or frequent playback stalls, justify a prebuffering experiment. URL-resolution failures or slow preparation call for resolver improvements first. Use a reasonable sample across tracks and network conditions; this comparison is observational, not a controlled benchmark.

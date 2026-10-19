@@ -1,6 +1,8 @@
 use crate::{
     db::{self, Track},
     integrations,
+    playback_metrics::{Metrics, Playback},
+    stream_prepare::{self, Preparation},
 };
 use libmpv2::{Mpv, events::Event};
 use serde::{Deserialize, Serialize};
@@ -99,6 +101,60 @@ fn can_sample_position(previous_seek: u64, current_seek: u64, seeking: bool) -> 
     previous_seek == current_seek && !seeking
 }
 
+// Retain the random choice until it is consumed or a relevant command invalidates it.
+fn planned_next(s: &Snapshot, preparation: Option<&Preparation>) -> Option<usize> {
+    preparation
+        .map(|p| p.index)
+        .or_else(|| stream_prepare::next_index(s.index, s.queue.len(), s.shuffle, s.repeat))
+}
+fn invalidates_preparation(cmd: &Command, s: &Snapshot) -> bool {
+    match cmd {
+        Command::Queue(..)
+        | Command::Jump(_)
+        | Command::Previous
+        | Command::Append(_)
+        | Command::Remove(_)
+        | Command::Stop
+        | Command::Shuffle
+        | Command::Repeat => true,
+        Command::SetShuffle(v) => *v != s.shuffle,
+        Command::SetRepeat(v) => *v != s.repeat,
+        _ => false,
+    }
+}
+fn load_track(
+    mpv: &Mpv,
+    track: &Track,
+    index: usize,
+    preparation: Option<Preparation>,
+    metrics: &Metrics,
+) -> (libmpv2::Result<()>, bool, &'static str) {
+    let (stream, status) = preparation
+        .map(|p| p.take(index, &track.url, metrics))
+        .unwrap_or((None, "not_requested"));
+    metrics
+        .emit(serde_json::json!({"event":"prepare_consumed","queue_index":index,"outcome":status}));
+    if let Some(stream) = stream {
+        let options = stream.options();
+        if mpv
+            .command("loadfile", &[&stream.url, "replace", "-1", &options])
+            .is_ok()
+        {
+            return (Ok(()), true, status);
+        }
+        return (
+            mpv.command("loadfile", &[&track.url, "replace"]),
+            false,
+            "fallback",
+        );
+    }
+    (
+        mpv.command("loadfile", &[&track.url, "replace"]),
+        false,
+        status,
+    )
+}
+
 #[derive(Clone)]
 pub struct Player {
     pub tx: Sender<Command>,
@@ -144,6 +200,12 @@ impl Player {
             };
             let events = mpv.create_client(None).expect("mpv event client");
             let _ = mpv.set_property("volume", output.lock().unwrap().volume);
+            let metrics = Metrics::start();
+            let mut preparation: Option<Preparation> = None;
+            let mut measurement: Option<Playback> = None;
+            let mut playback_id = 0;
+            let mut using_prepared = false;
+            let mut now_playing_sent = false;
             let mut loaded = false;
             let mut ready = false;
             let mut resume_at = None;
@@ -155,13 +217,133 @@ impl Player {
             let mut history = Vec::new();
             let mut saved_revision = u64::MAX;
             loop {
-                let cmd = rx.recv_timeout(Duration::from_millis(200));
+                let cmd = rx.recv_timeout(Duration::from_millis(50));
                 if matches!(cmd, Err(mpsc::RecvTimeoutError::Disconnected)) {
+                    stream_prepare::invalidate(&mut preparation, &metrics, "shutdown");
+                    if let Some(m) = measurement.take() {
+                        m.finish("shutdown", &metrics);
+                    }
                     break;
+                }
+                if let Some(p) = preparation.as_mut() {
+                    p.poll(&metrics);
                 }
                 let mut s = output.lock().unwrap();
                 let previous_seek = s.seek_serial;
                 let mut load = false;
+                while let Some(event) = events.wait_event(0.) {
+                    match event {
+                        Ok(Event::EndFile(0)) if loaded => {
+                            resume_at = None;
+                            loaded = false;
+                            ready = false;
+                            if let Some(m) = measurement.take() {
+                                m.finish("end", &metrics);
+                            }
+                            if let Some(index) = planned_next(&s, preparation.as_ref()) {
+                                history.push(s.index);
+                                s.index = index;
+                                if let Some(t) = s.current().cloned() {
+                                    playback_id += 1;
+                                    // Start the clock at the observed end event, before issuing loadfile.
+                                    let prep_status = if preparation.is_some() {
+                                        "pending"
+                                    } else {
+                                        "not_requested"
+                                    };
+                                    let mut timing = Playback::new(
+                                        playback_id,
+                                        "automatic",
+                                        prep_status,
+                                        &metrics,
+                                    );
+                                    let (result, prepared, status) =
+                                        load_track(&mpv, &t, s.index, preparation.take(), &metrics);
+                                    timing.preparation_status(status);
+                                    using_prepared = prepared;
+                                    now_playing_sent = false;
+                                    measurement = Some(timing);
+                                    s.position = 0.;
+                                    s.duration = t.duration;
+                                    s.paused = false;
+                                    s.revision += 1;
+                                    match result {
+                                        Ok(()) => {
+                                            loaded = true;
+                                            started = integrations::now();
+                                            listened = 0.;
+                                            scrobbled = false;
+                                        }
+                                        Err(e) => {
+                                            s.error = e.to_string();
+                                            s.paused = true;
+                                            if let Some(m) = measurement.take() {
+                                                m.finish("load_error", &metrics);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                stream_prepare::invalidate(
+                                    &mut preparation,
+                                    &metrics,
+                                    "queue_ended",
+                                );
+                                s.paused = true;
+                            }
+                        }
+                        Ok(Event::EndFile(4)) if loaded => {
+                            if using_prepared {
+                                // Resolve again through mpv once if a prepared URL is rejected/expired.
+                                using_prepared = false;
+                                ready = false;
+                                resume_at = Some(s.position);
+                                if let Some(m) = measurement.as_mut() {
+                                    m.fallback(&metrics);
+                                }
+                                if let Some(t) = s.current()
+                                    && mpv.command("loadfile", &[&t.url, "replace"]).is_ok()
+                                {
+                                    loaded = true;
+                                    continue;
+                                }
+                            }
+                            s.error =
+                                "YouTube playback failed. Update yt-dlp or try another track."
+                                    .into();
+                            s.paused = true;
+                            loaded = false;
+                            ready = false;
+                            if let Some(m) = measurement.take() {
+                                m.finish("playback_error", &metrics);
+                            }
+                        }
+                        Ok(Event::PlaybackRestart) if loaded => {
+                            if let Some(m) = measurement.as_mut() {
+                                m.restarted();
+                            }
+                        }
+                        Ok(Event::FileLoaded) if loaded => {
+                            ready = true;
+                            if let Some(m) = measurement.as_mut() {
+                                m.loaded();
+                            }
+                            if let Some(position) = resume_at.take() {
+                                seek_to(&mut s, true, &mut resume_at, position, |position| {
+                                    mpv.command("seek", &[&position.to_string(), "absolute"])
+                                        .map_err(|e| e.to_string())
+                                });
+                            }
+                            if !now_playing_sent && let Some(t) = s.current().cloned() {
+                                now_playing_sent = true;
+                                std::thread::spawn(move || {
+                                    let _ = integrations::lastfm_track(&t, None);
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 if let Ok(cmd) = cmd {
                     // Keep the acknowledgement alive through validation and execution.
                     // Dropping it also releases the preview if the request is rejected.
@@ -185,6 +367,18 @@ impl Player {
                         )
                     {
                         continue;
+                    }
+                    if invalidates_preparation(&cmd, &s) {
+                        stream_prepare::invalidate(
+                            &mut preparation,
+                            &metrics,
+                            "queue_or_mode_changed",
+                        );
+                    }
+                    if matches!(cmd, Command::Seek(_))
+                        && let Some(m) = measurement.as_mut()
+                    {
+                        m.interrupt();
                     }
                     match cmd {
                         Command::SeekAcknowledged(..) => unreachable!(),
@@ -221,15 +415,8 @@ impl Player {
                             resume_at = None;
                             if !s.queue.is_empty() {
                                 history.push(s.index);
-                                if s.shuffle && s.queue.len() > 1 {
-                                    let offset = rand::random_range(1..s.queue.len());
-                                    s.index = (s.index + offset) % s.queue.len();
-                                    load = true;
-                                } else if s.index + 1 < s.queue.len() {
-                                    s.index += 1;
-                                    load = true;
-                                } else if s.repeat {
-                                    s.index = 0;
+                                if let Some(index) = planned_next(&s, preparation.as_ref()) {
+                                    s.index = index;
                                     load = true;
                                 } else {
                                     s.paused = true;
@@ -287,6 +474,10 @@ impl Player {
                                     if s.queue.is_empty() {
                                         let _ = mpv.command("stop", &[]);
                                         loaded = false;
+                                        ready = false;
+                                        if let Some(m) = measurement.take() {
+                                            m.finish("queue_empty", &metrics);
+                                        }
                                         s.paused = true;
                                     } else {
                                         s.index = s.index.min(s.queue.len() - 1);
@@ -302,12 +493,31 @@ impl Player {
                             let _ = mpv.command("stop", &[]);
                             s.paused = true;
                             loaded = false;
+                            ready = false;
+                            if let Some(m) = measurement.take() {
+                                m.finish("stop", &metrics);
+                            }
                         }
                     }
                     s.revision += 1;
                 }
                 if load && let Some(t) = s.current().cloned() {
-                    match mpv.command("loadfile", &[&t.url, "replace"]) {
+                    if let Some(m) = measurement.take() {
+                        m.finish("replaced", &metrics);
+                    }
+                    playback_id += 1;
+                    let mut timing =
+                        Playback::new(playback_id, "manual", "not_requested", &metrics);
+                    let (result, prepared, status) =
+                        load_track(&mpv, &t, s.index, preparation.take(), &metrics);
+                    timing.preparation_status(status);
+                    using_prepared = prepared;
+                    now_playing_sent = false;
+                    measurement = Some(timing);
+                    if resume_at.is_some_and(|p| p > 0.) {
+                        measurement.as_mut().unwrap().interrupt();
+                    }
+                    match result {
                         Ok(_) => {
                             loaded = true;
                             ready = false;
@@ -320,66 +530,15 @@ impl Player {
                             listened = 0.;
                             scrobbled = false;
                         }
-                        Err(e) => s.error = e.to_string(),
-                    }
-                }
-                while let Some(event) = events.wait_event(0.) {
-                    match event {
-                        Ok(Event::EndFile(0)) => {
-                            resume_at = None;
+                        Err(e) => {
+                            s.error = e.to_string();
                             loaded = false;
-                            if !s.queue.is_empty()
-                                && (s.index + 1 < s.queue.len() || s.repeat || s.shuffle)
-                            {
-                                drop(s);
-                                let mut s2 = output.lock().unwrap();
-                                history.push(s2.index);
-                                s2.index = if s2.shuffle && s2.queue.len() > 1 {
-                                    (s2.index + rand::random_range(1..s2.queue.len()))
-                                        % s2.queue.len()
-                                } else {
-                                    (s2.index + 1) % s2.queue.len()
-                                };
-                                if let Some(t) = s2.current().cloned() {
-                                    let _ = mpv.command("loadfile", &[&t.url, "replace"]);
-                                    loaded = true;
-                                    ready = false;
-                                    s2.position = 0.;
-                                    s2.duration = t.duration;
-                                    s2.paused = false;
-                                    started = integrations::now();
-                                    listened = 0.;
-                                    scrobbled = false;
-                                    s2.revision += 1;
-                                }
-                                drop(s2);
-                                s = output.lock().unwrap();
-                            } else {
-                                s.paused = true;
-                            }
-                        }
-                        Ok(Event::EndFile(4)) => {
-                            s.error =
-                                "YouTube playback failed. Update yt-dlp or try another track."
-                                    .into();
+                            ready = false;
                             s.paused = true;
-                            loaded = false;
-                        }
-                        Ok(Event::FileLoaded) => {
-                            ready = true;
-                            if let Some(position) = resume_at.take() {
-                                seek_to(&mut s, true, &mut resume_at, position, |position| {
-                                    mpv.command("seek", &[&position.to_string(), "absolute"])
-                                        .map_err(|e| e.to_string())
-                                });
-                            }
-                            if let Some(t) = s.current().cloned() {
-                                std::thread::spawn(move || {
-                                    let _ = integrations::lastfm_track(&t, None);
-                                });
+                            if let Some(m) = measurement.take() {
+                                m.finish("load_error", &metrics);
                             }
                         }
-                        _ => {}
                     }
                 }
                 let elapsed = last.elapsed().as_secs_f64();
@@ -400,6 +559,33 @@ impl Player {
                             .unwrap_or(false)
                     {
                         listened += elapsed;
+                    }
+                }
+                if loaded {
+                    if let Some(m) = measurement.as_mut() {
+                        m.sample(
+                            if ready {
+                                mpv.get_property::<f64>("time-pos").ok()
+                            } else {
+                                None
+                            },
+                            s.paused,
+                            mpv.get_property::<bool>("seeking").unwrap_or(false),
+                            mpv.get_property::<bool>("paused-for-cache")
+                                .unwrap_or(false),
+                            mpv.get_property::<f64>("demuxer-cache-duration").ok(),
+                            &metrics,
+                        );
+                    }
+                    if ready
+                        && stream_prepare::due(s.position, s.duration, s.paused)
+                        && (preparation.is_none()
+                            || preparation.as_ref().is_some_and(|p| p.needs_refresh()))
+                        && let Some(index) = planned_next(&s, preparation.as_ref())
+                        && let Some(track) = s.queue.get(index)
+                    {
+                        stream_prepare::invalidate(&mut preparation, &metrics, "expired");
+                        preparation = Some(Preparation::start(index, track, &metrics));
                     }
                 }
                 if !scrobbled
@@ -553,5 +739,41 @@ mod tests {
         s.queue = Arc::new(vec![]);
         seek_to(&mut s, false, &mut pending, 10., |_| panic!("empty queue"));
         assert!(pending.is_none());
+    }
+    #[test]
+    fn shuffle_plan_is_reused_and_queue_edits_invalidate_it() {
+        let mut s = snapshot();
+        s.queue = Arc::new(vec![s.queue[0].clone(); 4]);
+        s.shuffle = true;
+        let p = Preparation::pending(3, &s.queue[3].url);
+        for _ in 0..100 {
+            assert_eq!(planned_next(&s, Some(&p)), Some(3));
+        }
+        for cmd in [
+            Command::Queue(vec![], 0),
+            Command::Jump(2),
+            Command::Previous,
+            Command::Append(s.queue[0].clone()),
+            Command::Remove(1),
+            Command::Stop,
+            Command::Shuffle,
+            Command::Repeat,
+            Command::SetShuffle(false),
+            Command::SetRepeat(true),
+        ] {
+            assert!(invalidates_preparation(&cmd, &s));
+        }
+        for cmd in [
+            Command::Next,
+            Command::Seek(2.),
+            Command::Pause(true),
+            Command::Toggle,
+            Command::Volume(20.),
+            Command::SetShuffle(true),
+            Command::SetRepeat(false),
+            Command::Metadata(vec![]),
+        ] {
+            assert!(!invalidates_preparation(&cmd, &s));
+        }
     }
 }

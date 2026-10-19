@@ -1,0 +1,509 @@
+//! One speculative URL, never audio bytes. Results live only in memory.
+use crate::{db::Track, playback_metrics::Metrics};
+use serde_json::{Value, json};
+use std::{
+    io::Read,
+    process::{Command, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver},
+    },
+    time::{Duration, Instant},
+};
+
+pub(crate) const LEAD_SECONDS: f64 = 30.;
+const MAX_AGE: Duration = Duration::from_secs(120);
+
+pub(crate) fn next_index(index: usize, len: usize, shuffle: bool, repeat: bool) -> Option<usize> {
+    if len == 0 {
+        None
+    } else if shuffle && len > 1 {
+        Some((index + rand::random_range(1..len)) % len)
+    } else if index + 1 < len {
+        Some(index + 1)
+    } else if repeat || shuffle {
+        Some(0)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn due(position: f64, duration: f64, paused: bool) -> bool {
+    !paused
+        && position.is_finite()
+        && duration.is_finite()
+        && duration > 0.
+        && position >= 0.
+        && duration - position <= LEAD_SECONDS
+}
+
+pub(crate) struct Stream {
+    pub url: String,
+    headers: Vec<String>,
+    resolved: Instant,
+    expires: Option<i64>,
+}
+impl Stream {
+    fn fresh(&self) -> bool {
+        self.resolved.elapsed() < MAX_AGE
+            && self
+                .expires
+                .is_none_or(|expiry| expiry > crate::integrations::now() + 30)
+    }
+    // Two nested mpv lists: header fields and loadfile's per-file options.
+    pub fn options(&self) -> String {
+        let headers = self
+            .headers
+            .iter()
+            .map(|s| s.replace('\\', "\\\\").replace(',', "\\,"))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("ytdl=no,http-header-fields={}", quote(&headers))
+    }
+}
+fn quote(s: &str) -> String {
+    format!("%{}%{}", s.len(), s)
+}
+
+struct Outcome {
+    stream: Result<Stream, &'static str>,
+    elapsed_ms: u128,
+}
+pub(crate) struct Preparation {
+    pub index: usize,
+    url: String,
+    cancel: Arc<AtomicBool>,
+    result: Receiver<Outcome>,
+    outcome: Option<Outcome>,
+}
+impl Preparation {
+    pub fn start(index: usize, track: &Track, metrics: &Metrics) -> Self {
+        let url = track.url.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, result) = mpsc::channel();
+        let worker_url = url.clone();
+        let worker_cancel = cancel.clone();
+        std::thread::spawn(move || {
+            let start = Instant::now();
+            let stream = resolve(&worker_url, &worker_cancel);
+            let _ = tx.send(Outcome {
+                stream,
+                elapsed_ms: start.elapsed().as_millis(),
+            });
+        });
+        metrics.emit(json!({"event":"prepare_started","queue_index":index}));
+        Self {
+            index,
+            url,
+            cancel,
+            result,
+            outcome: None,
+        }
+    }
+    pub fn needs_refresh(&self) -> bool {
+        matches!(&self.outcome, Some(Outcome { stream: Ok(stream), .. }) if stream.resolved.elapsed() >= MAX_AGE)
+    }
+    #[cfg(test)]
+    pub fn pending(index: usize, url: &str) -> Self {
+        let (_, result) = mpsc::channel();
+        Self {
+            index,
+            url: url.into(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            result,
+            outcome: None,
+        }
+    }
+    pub fn poll(&mut self, metrics: &Metrics) {
+        if self.outcome.is_some() {
+            return;
+        }
+        if let Ok(outcome) = self.result.try_recv() {
+            metrics.emit(json!({"event":"prepare_finished","queue_index":self.index,
+                "resolve_ms":outcome.elapsed_ms,
+                "outcome":outcome.stream.as_ref().map(|_| "ready").unwrap_or_else(|e| *e)}));
+            self.outcome = Some(outcome);
+        }
+    }
+    pub fn take(
+        mut self,
+        index: usize,
+        url: &str,
+        metrics: &Metrics,
+    ) -> (Option<Stream>, &'static str) {
+        self.poll(metrics);
+        if self.index != index || self.url != url {
+            return (None, "mismatch");
+        }
+        match self.outcome.take() {
+            Some(Outcome { stream: Ok(s), .. }) if s.fresh() => (Some(s), "ready"),
+            Some(Outcome { stream: Ok(_), .. }) => (None, "expired"),
+            Some(_) => (None, "failed"),
+            None => (None, "pending"),
+        }
+    }
+}
+impl Drop for Preparation {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+pub(crate) fn invalidate(
+    preparation: &mut Option<Preparation>,
+    metrics: &Metrics,
+    reason: &'static str,
+) {
+    if let Some(p) = preparation.take() {
+        metrics.emit(json!({"event":"prepare_discarded","queue_index":p.index,"reason":reason}));
+    }
+}
+
+fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| "invalid_json")?;
+    // Unsupported multi-resource formats and live streams use mpv's normal resolver.
+    if value["is_live"].as_bool() == Some(true) {
+        return Err("live_stream");
+    }
+    let url = value["url"].as_str().ok_or("unsupported_format")?;
+    let parsed = url::Url::parse(url).map_err(|_| "invalid_url")?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("unsupported_protocol");
+    }
+    let expires = parsed
+        .query_pairs()
+        .find(|(k, _)| k == "expire")
+        .and_then(|(_, v)| v.parse().ok());
+    let mut headers = Vec::new();
+    if let Some(fields) = value["http_headers"].as_object() {
+        for (name, value) in fields {
+            let value = value.as_str().ok_or("invalid_headers")?;
+            if name.contains(['\r', '\n', '\0', ':']) || value.contains(['\r', '\n', '\0']) {
+                return Err("invalid_headers");
+            }
+            headers.push(format!("{name}: {value}"));
+        }
+    }
+    Ok(Stream {
+        url: url.into(),
+        headers,
+        resolved: Instant::now(),
+        expires,
+    })
+}
+
+fn resolve(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled");
+    }
+    let mut command = Command::new("yt-dlp");
+    command.args([
+        "--ignore-config",
+        "--no-playlist",
+        "--skip-download",
+        "--dump-single-json",
+        "--no-warnings",
+        "--socket-timeout",
+        "10",
+        "--retries",
+        "1",
+        "-f",
+        "bestaudio/best",
+        "--",
+        url,
+    ]);
+    resolve_command(command, cancel, Duration::from_secs(25))
+}
+fn resolve_command(
+    mut command: Command,
+    cancel: &AtomicBool,
+    timeout: Duration,
+) -> Result<Stream, &'static str> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "resolver_unavailable")?;
+    let stdout = child.stdout.take().unwrap();
+    // Drain concurrently, retain at most 8 MiB, and never persist resolver output.
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stdout = stdout;
+        let mut chunk = [0; 8192];
+        let mut overflow = false;
+        loop {
+            let count = stdout
+                .read(&mut chunk)
+                .map_err(|_| "resolver_read_failed")?;
+            if count == 0 {
+                break;
+            }
+            if bytes.len() + count <= 8 * 1024 * 1024 {
+                bytes.extend_from_slice(&chunk[..count]);
+            } else {
+                overflow = true;
+            }
+        }
+        if overflow {
+            Err("resolver_output_limit")
+        } else {
+            Ok(bytes)
+        }
+    });
+    let start = Instant::now();
+    let status = loop {
+        if cancel.load(Ordering::Relaxed) {
+            break Err("cancelled");
+        }
+        if start.elapsed() > timeout {
+            break Err("timeout");
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                break if status.success() {
+                    Ok(())
+                } else {
+                    Err("resolver_failed")
+                };
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => break Err("resolver_failed"),
+        }
+    };
+    if status.is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let bytes = reader.join().map_err(|_| "resolver_read_failed")?;
+    status?;
+    parse(&bytes?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn selection_and_trigger_respect_playback_modes() {
+        assert_eq!(next_index(0, 0, false, true), None);
+        assert_eq!(next_index(1, 3, false, false), Some(2));
+        assert_eq!(next_index(2, 3, false, false), None);
+        assert_eq!(next_index(2, 3, false, true), Some(0));
+        assert_eq!(next_index(0, 1, true, false), Some(0));
+        for _ in 0..100 {
+            assert_ne!(next_index(1, 3, true, false), Some(1));
+        }
+        assert!(!due(69.9, 100., false));
+        assert!(due(70., 100., false));
+        assert!(due(0., 15., false));
+        assert!(!due(90., 100., true));
+        assert!(!due(0., 0., false));
+        assert!(!due(f64::NAN, 100., false));
+    }
+    #[test]
+    fn parses_headers_and_rejects_expired_or_unsupported_streams() {
+        let s = parse(br#"{"url":"https://example.org/audio?expire=1","http_headers":{"User-Agent":"a,b","Referer":"https://example.org"}}"#).unwrap();
+        assert!(!s.fresh());
+        assert!(s.options().contains("User-Agent: a\\,b"));
+        assert!(parse(br#"{"url":"file:///tmp/file"}"#).is_err());
+        assert!(
+            parse(br#"{"url":"https://example.org","http_headers":{"X":"bad\r\nheader"}}"#)
+                .is_err()
+        );
+        assert!(parse(br#"{"requested_formats":[]}"#).is_err());
+        assert!(parse(br#"{"url":"https://example.org","is_live":true}"#).is_err());
+    }
+    #[test]
+    fn consuming_pending_mismatched_and_stale_results_never_uses_the_url() {
+        let m = Metrics::silent();
+        let pending = Preparation::pending(1, "original");
+        let cancel = pending.cancel.clone();
+        assert_eq!(pending.take(1, "original", &m).1, "pending");
+        assert!(cancel.load(Ordering::Relaxed));
+        let mut ready = Preparation::pending(1, "original");
+        ready.outcome = Some(Outcome {
+            stream: parse(br#"{"url":"https://example.org/audio"}"#),
+            elapsed_ms: 1,
+        });
+        assert_eq!(ready.take(2, "different", &m).1, "mismatch");
+        let mut stale = Preparation::pending(1, "original");
+        stale.outcome = Some(Outcome {
+            stream: parse(br#"{"url":"https://example.org/audio?expire=1"}"#),
+            elapsed_ms: 1,
+        });
+        assert!(!stale.needs_refresh());
+        assert_eq!(stale.take(1, "original", &m).1, "expired");
+        let mut ready = Preparation::pending(1, "original");
+        ready.outcome = Some(Outcome {
+            stream: parse(br#"{"url":"https://example.org/audio"}"#),
+            elapsed_ms: 1,
+        });
+        assert!(ready.take(1, "original", &m).0.is_some());
+    }
+    #[test]
+    fn cancelled_late_result_cannot_replace_a_new_plan() {
+        let m = Metrics::silent();
+        let mut old = Preparation::pending(1, "old");
+        let (tx, rx) = mpsc::channel();
+        old.result = rx;
+        let cancel = old.cancel.clone();
+        let mut plan = Some(old);
+        invalidate(&mut plan, &m, "queue_changed");
+        plan = Some(Preparation::pending(2, "new"));
+        assert!(cancel.load(Ordering::Relaxed));
+        assert!(
+            tx.send(Outcome {
+                stream: Err("cancelled"),
+                elapsed_ms: 1
+            })
+            .is_err()
+        );
+        assert_eq!(plan.unwrap().index, 2);
+    }
+    #[test]
+    fn direct_stream_headers_survive_mpv_option_parsing_and_are_file_local() {
+        use libmpv2::{Mpv, events::Event};
+        use std::{io::Write, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/audio.wav", listener.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let start = Instant::now();
+            let mut served = 0;
+            while served < 2 && start.elapsed() < Duration::from_secs(10) {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while socket.read_exact(&mut byte).is_ok() {
+                    request.push(byte[0]);
+                    if request.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&request).into_owned());
+                // One second of PCM silence. No device or remote network involved.
+                let mut wav = Vec::new();
+                wav.extend_from_slice(b"RIFF");
+                wav.extend_from_slice(&16036u32.to_le_bytes());
+                wav.extend_from_slice(b"WAVEfmt ");
+                wav.extend_from_slice(&16u32.to_le_bytes());
+                wav.extend_from_slice(&1u16.to_le_bytes());
+                wav.extend_from_slice(&1u16.to_le_bytes());
+                wav.extend_from_slice(&8000u32.to_le_bytes());
+                wav.extend_from_slice(&16000u32.to_le_bytes());
+                wav.extend_from_slice(&2u16.to_le_bytes());
+                wav.extend_from_slice(&16u16.to_le_bytes());
+                wav.extend_from_slice(b"data");
+                wav.extend_from_slice(&16000u32.to_le_bytes());
+                wav.resize(16044, 0);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    wav.len()
+                );
+                let _ = socket.write_all(header.as_bytes());
+                let _ = socket.write_all(&wav);
+                served += 1;
+            }
+        });
+        let mpv = Mpv::with_initializer(|m| {
+            m.set_property("ao", "null")?;
+            m.set_property("vo", "null")?;
+            Ok(())
+        })
+        .unwrap();
+        let events = mpv.create_client(None).unwrap();
+        let stream = parse(
+            &serde_json::to_vec(
+                &json!({"url":url,"http_headers":{"X-Mousa-Test":"a,b=quoted%value"}}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        mpv.command("loadfile", &[&url, "replace", "-1", &stream.options()])
+            .unwrap();
+        let start = Instant::now();
+        loop {
+            assert!(start.elapsed() < Duration::from_secs(5));
+            if let Some(Ok(Event::EndFile(0))) = events.wait_event(0.1) {
+                break;
+            }
+        }
+        let request = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            request.contains("X-Mousa-Test: a,b=quoted%value"),
+            "{request}"
+        );
+        mpv.command("loadfile", &[&url, "replace"]).unwrap();
+        assert!(
+            !rx.recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .contains("X-Mousa-Test")
+        );
+        server.join().unwrap();
+    }
+    #[test]
+    fn resolver_process_failure_timeout_and_cancellation_are_bounded() {
+        let cancel = AtomicBool::new(false);
+        let mut fail = Command::new("sh");
+        fail.args(["-c", "exit 1"]);
+        assert!(matches!(
+            resolve_command(fail, &cancel, Duration::from_secs(1)),
+            Err("resolver_failed")
+        ));
+        let mut sleep = Command::new("sleep");
+        sleep.arg("10");
+        let start = Instant::now();
+        assert!(matches!(
+            resolve_command(sleep, &cancel, Duration::from_millis(100)),
+            Err("timeout")
+        ));
+        assert!(start.elapsed() < Duration::from_secs(2));
+        let mut sleep = Command::new("sleep");
+        sleep.arg("10");
+        cancel.store(true, Ordering::Relaxed);
+        assert!(matches!(
+            resolve_command(sleep, &cancel, Duration::from_secs(10)),
+            Err("cancelled")
+        ));
+    }
+    #[test]
+    #[ignore = "live YouTube URL preparation and muted playback; requires network and yt-dlp"]
+    fn youtube_prepared_stream_plays() {
+        use libmpv2::Mpv;
+        let stream = resolve(
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            &AtomicBool::new(false),
+        )
+        .expect("URL preparation");
+        assert!(stream.fresh());
+        let mpv = Mpv::with_initializer(|m| {
+            m.set_property("ao", "null")?;
+            m.set_property("vo", "null")?;
+            m.set_property("vid", "no")?;
+            Ok(())
+        })
+        .unwrap();
+        mpv.command(
+            "loadfile",
+            &[&stream.url, "replace", "-1", &stream.options()],
+        )
+        .unwrap();
+        let start = Instant::now();
+        loop {
+            if mpv.get_property::<f64>("time-pos").unwrap_or(0.) > 0.1 {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "Prepared stream did not advance"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
