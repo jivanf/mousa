@@ -2,6 +2,7 @@ use crate::{
     db::{self, Track},
     integrations,
     playback_metrics::{Metrics, Playback},
+    playback_start::StartupDeadline,
     stream_prepare::{self, Preparation},
 };
 use libmpv2::{Mpv, events::Event};
@@ -235,6 +236,7 @@ impl Player {
             let mut startup_preparation = startup_track(&saved, signed_in)
                 .map(|(index, track)| Preparation::start(index, &track, "startup", &metrics));
             let mut measurement: Option<Playback> = None;
+            let mut startup_deadline = StartupDeadline::default();
             let mut playback_id = 0;
             let mut using_prepared = false;
             let mut now_playing_sent = false;
@@ -274,6 +276,7 @@ impl Player {
                             resume_at = None;
                             loaded = false;
                             ready = false;
+                            startup_deadline.cancel();
                             if let Some(m) = measurement.take() {
                                 m.finish("end", &metrics);
                             }
@@ -307,6 +310,8 @@ impl Player {
                                     match result {
                                         Ok(()) => {
                                             loaded = true;
+                                            let _ = mpv.set_property("pause", false);
+                                            startup_deadline.arm(Instant::now(), prepared);
                                             started = integrations::now();
                                             listened = 0.;
                                             scrobbled = false;
@@ -336,12 +341,13 @@ impl Player {
                                 ready = false;
                                 resume_at = Some(s.position);
                                 if let Some(m) = measurement.as_mut() {
-                                    m.fallback(&metrics);
+                                    m.fallback("playback_error", &metrics);
                                 }
                                 if let Some(t) = s.current()
                                     && mpv.command("loadfile", &[&t.url, "replace"]).is_ok()
                                 {
                                     loaded = true;
+                                    startup_deadline.arm(Instant::now(), false);
                                     continue;
                                 }
                             }
@@ -351,6 +357,7 @@ impl Player {
                             s.paused = true;
                             loaded = false;
                             ready = false;
+                            startup_deadline.cancel();
                             if let Some(m) = measurement.take() {
                                 m.finish("playback_error", &metrics);
                             }
@@ -363,7 +370,7 @@ impl Player {
                         Ok(Event::FileLoaded) if loaded => {
                             ready = true;
                             if let Some(m) = measurement.as_mut() {
-                                m.loaded();
+                                m.loaded(&metrics);
                             }
                             if let Some(position) = resume_at.take() {
                                 seek_to(&mut s, true, &mut resume_at, position, |position| {
@@ -521,6 +528,7 @@ impl Player {
                                         let _ = mpv.command("stop", &[]);
                                         loaded = false;
                                         ready = false;
+                                        startup_deadline.cancel();
                                         if let Some(m) = measurement.take() {
                                             m.finish("queue_empty", &metrics);
                                         }
@@ -540,6 +548,7 @@ impl Player {
                             s.paused = true;
                             loaded = false;
                             ready = false;
+                            startup_deadline.cancel();
                             if let Some(m) = measurement.take() {
                                 m.finish("stop", &metrics);
                             }
@@ -570,6 +579,7 @@ impl Player {
                         Ok(_) => {
                             loaded = true;
                             ready = false;
+                            startup_deadline.arm(Instant::now(), prepared);
                             s.stopped = false;
                             s.paused = false;
                             s.position = resume_at.unwrap_or(0.);
@@ -625,6 +635,53 @@ impl Player {
                             mpv.get_property::<f64>("demuxer-cache-duration").ok(),
                             &metrics,
                         );
+                    }
+                    if startup_deadline.expired(
+                        Instant::now(),
+                        s.paused,
+                        measurement.as_ref().is_some_and(|m| m.has_progressed()),
+                    ) {
+                        if let Some(m) = measurement.as_ref() {
+                            m.timeout(
+                                ready,
+                                mpv.get_property::<bool>("pause").unwrap_or(false),
+                                mpv.get_property::<bool>("paused-for-cache")
+                                    .unwrap_or(false),
+                                &metrics,
+                            );
+                        }
+                        if using_prepared {
+                            using_prepared = false;
+                            ready = false;
+                            resume_at = Some(s.position);
+                            if let Some(m) = measurement.as_mut() {
+                                m.fallback("startup_timeout", &metrics);
+                            }
+                            if let Some(t) = s.current()
+                                && mpv.command("loadfile", &[&t.url, "replace"]).is_ok()
+                            {
+                                let _ = mpv.set_property("pause", s.paused);
+                                startup_deadline.arm(Instant::now(), false);
+                            } else {
+                                loaded = false;
+                            }
+                        } else {
+                            loaded = false;
+                        }
+                        if !loaded {
+                            let _ = mpv.command("stop", &[]);
+                            ready = false;
+                            s.paused = true;
+                            s.error = "Playback could not start. Press Play to retry or choose another track.".into();
+                            stream_prepare::invalidate(
+                                &mut preparation,
+                                &metrics,
+                                "startup_timeout",
+                            );
+                            if let Some(m) = measurement.take() {
+                                m.finish("startup_timeout", &metrics);
+                            }
+                        }
                     }
                     if ready
                         && stream_prepare::due(s.position, s.duration, s.paused)

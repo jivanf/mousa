@@ -95,8 +95,24 @@ impl Playback {
     pub fn preparation_status(&mut self, status: &'static str) {
         self.preparation = status;
     }
-    pub fn loaded(&mut self) {
+    pub fn loaded(&mut self, metrics: &Metrics) {
         self.loaded_ms = Some(self.start.elapsed().as_millis());
+        metrics
+            .emit(json!({"event":"file_loaded","playback_id":self.id,"elapsed_ms":self.loaded_ms}));
+    }
+    pub fn has_progressed(&self) -> bool {
+        self.progressed
+    }
+    pub fn timeout(
+        &self,
+        file_loaded: bool,
+        engine_paused: bool,
+        cache_wait: bool,
+        metrics: &Metrics,
+    ) {
+        metrics.emit(json!({"event":"startup_timeout","playback_id":self.id,
+            "preparation":self.preparation,"file_loaded":file_loaded,"engine_paused":engine_paused,
+            "cache_wait":cache_wait,"elapsed_ms":self.start.elapsed().as_millis()}));
     }
     pub fn restarted(&mut self) {
         if self.restart_ms.is_none() {
@@ -107,9 +123,15 @@ impl Playback {
         self.interrupted = true;
         self.last_position = None;
     }
-    pub fn fallback(&mut self, metrics: &Metrics) {
-        metrics.emit(json!({"event":"prepared_url_fallback","playback_id":self.id}));
+    pub fn fallback(&mut self, reason: &'static str, metrics: &Metrics) {
+        metrics
+            .emit(json!({"event":"prepared_url_fallback","playback_id":self.id,"reason":reason}));
         self.preparation = "fallback";
+        // A retry after playback began is a recovery, not a clean startup sample.
+        if self.progressed {
+            self.interrupted = true;
+        }
+        self.progressed = false;
         self.loaded_ms = None;
         self.restart_ms = None;
         self.last_position = None;
@@ -193,7 +215,7 @@ mod tests {
     fn load_is_not_playback_and_seeks_do_not_count_as_progress() {
         let (m, rx) = capture();
         let mut p = Playback::new(1, "automatic", "ready", &m);
-        p.loaded();
+        p.loaded(&m);
         p.restarted();
         p.sample(Some(0.), false, false, false, Some(5.), &m);
         assert!(!p.progressed);
@@ -204,15 +226,18 @@ mod tests {
         p.sample(Some(40.1), false, false, false, Some(5.), &m);
         assert!(p.progressed);
         let events: Vec<_> = rx.try_iter().collect();
-        assert_eq!(events[1]["event"], "playback_started");
-        assert_eq!(events[1]["interrupted"], true);
+        let started = events
+            .iter()
+            .find(|e| e["event"] == "playback_started")
+            .unwrap();
+        assert_eq!(started["interrupted"], true);
     }
     #[test]
     fn startup_cache_and_playback_stalls_are_separate() {
         let (m, rx) = capture();
         let mut p = Playback::new(1, "automatic", "ready", &m);
         p.sample(None, false, false, true, None, &m);
-        p.loaded();
+        p.loaded(&m);
         p.restarted();
         p.sample(Some(0.), false, false, false, None, &m);
         p.sample(Some(0.1), false, false, false, None, &m);

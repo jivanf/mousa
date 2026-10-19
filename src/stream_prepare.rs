@@ -59,7 +59,9 @@ impl Stream {
             .map(|s| s.replace('\\', "\\\\").replace(',', "\\,"))
             .collect::<Vec<_>>()
             .join(",");
-        format!("ytdl=no,http-header-fields={}", quote(&headers))
+        // Keep mpv's resolver script alive. Toggling ytdl per file asynchronously
+        // unloads/reloads it while its end/load hooks may still be running.
+        format!("http-header-fields={}", quote(&headers))
     }
 }
 fn quote(s: &str) -> String {
@@ -375,7 +377,7 @@ mod tests {
         let server = std::thread::spawn(move || {
             let start = Instant::now();
             let mut served = 0;
-            while served < 2 && start.elapsed() < Duration::from_secs(10) {
+            while served < 13 && start.elapsed() < Duration::from_secs(20) {
                 let Ok((mut socket, _)) = listener.accept() else {
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
@@ -419,6 +421,7 @@ mod tests {
         let mpv = Mpv::with_initializer(|m| {
             m.set_property("ao", "null")?;
             m.set_property("vo", "null")?;
+            m.set_property("speed", 20.)?;
             Ok(())
         })
         .unwrap();
@@ -430,26 +433,33 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        mpv.command("loadfile", &[&url, "replace", "-1", &stream.options()])
-            .unwrap();
-        let start = Instant::now();
-        loop {
-            assert!(start.elapsed() < Duration::from_secs(5));
-            if let Some(Ok(Event::EndFile(0))) = events.wait_event(0.1) {
-                break;
+        // Exercise repeated prepared-to-prepared transitions, then ordinary loading.
+        for attempt in 0..13 {
+            let prepared = attempt < 12;
+            if prepared {
+                mpv.command("loadfile", &[&url, "replace", "-1", &stream.options()])
+                    .unwrap();
+            } else {
+                mpv.command("loadfile", &[&url, "replace"]).unwrap();
             }
+            let start = Instant::now();
+            loop {
+                assert!(
+                    start.elapsed() < Duration::from_secs(3),
+                    "transition {attempt} hung"
+                );
+                match events.wait_event(0.1) {
+                    Some(Ok(Event::FileLoaded)) => assert!(
+                        mpv.get_property::<bool>("ytdl").unwrap(),
+                        "resolver must stay enabled across transitions"
+                    ),
+                    Some(Ok(Event::EndFile(0))) => break,
+                    _ => {}
+                }
+            }
+            let request = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(request.contains("X-Mousa-Test: a,b=quoted%value"), prepared);
         }
-        let request = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            request.contains("X-Mousa-Test: a,b=quoted%value"),
-            "{request}"
-        );
-        mpv.command("loadfile", &[&url, "replace"]).unwrap();
-        assert!(
-            !rx.recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .contains("X-Mousa-Test")
-        );
         server.join().unwrap();
     }
     #[test]

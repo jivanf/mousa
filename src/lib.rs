@@ -3,6 +3,7 @@ pub mod db;
 pub mod integrations;
 pub mod mpris;
 mod playback_metrics;
+mod playback_start;
 pub mod player;
 mod queue_metadata;
 mod stream_prepare;

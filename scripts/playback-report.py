@@ -34,7 +34,6 @@ def main():
             groups[(event["origin"], event["preparation"])].append(event)
     if not groups:
         print("No uninterrupted starts recorded yet. Resume playback or let a few tracks finish normally.")
-        return
     print("Playback starts (milliseconds; resume and automatic transitions kept separate):")
     for (origin, status), rows in sorted(groups.items()):
         values = sorted(row["first_progress_ms"] for row in rows)
@@ -46,6 +45,8 @@ def main():
         f"{event.get('purpose', 'next')}/{event.get('outcome')}" for event in events
         if event.get("event") == "prepare_finished")
     print("URL preparation outcomes:", dict(preparation))
+    print("Startup timeouts:", sum(e.get("event") == "startup_timeout" for e in events),
+          "| Prepared URL retries:", sum(e.get("event") == "prepared_url_fallback" for e in events))
     summaries = [event for event in events if event.get("event") == "playback_summary"]
     print(f"Playback stalls in {len(summaries)} completed playback attempts: "
           f"{sum(e.get('stall_count', 0) for e in summaries)}; "
