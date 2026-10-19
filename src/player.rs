@@ -122,6 +122,30 @@ fn invalidates_preparation(cmd: &Command, s: &Snapshot) -> bool {
         _ => false,
     }
 }
+// Startup preparation belongs to the saved current entry, never to the next-track plan.
+fn startup_track(s: &Snapshot, signed_in: bool) -> Option<(usize, Track)> {
+    if !signed_in || s.stopped {
+        return None;
+    }
+    s.current().cloned().map(|track| (s.index, track))
+}
+fn invalidates_startup_preparation(cmd: &Command, s: &Snapshot) -> bool {
+    matches!(
+        cmd,
+        Command::Queue(..) | Command::Jump(_) | Command::Next | Command::Remove(_) | Command::Stop
+    ) || matches!(cmd, Command::Previous) && s.position <= 3.
+}
+fn preparation_for_load(
+    resuming: bool,
+    startup: &mut Option<Preparation>,
+    next: &mut Option<Preparation>,
+) -> Option<Preparation> {
+    if resuming {
+        startup.take()
+    } else {
+        next.take()
+    }
+}
 fn load_track(
     mpv: &Mpv,
     track: &Track,
@@ -202,6 +226,14 @@ impl Player {
             let _ = mpv.set_property("volume", output.lock().unwrap().volume);
             let metrics = Metrics::start();
             let mut preparation: Option<Preparation> = None;
+            let saved = output.lock().unwrap().clone();
+            // Credential checks and resolution happen on the worker, without holding UI state.
+            let signed_in = !saved.stopped
+                && saved.current().is_some()
+                && integrations::get_secret("google-refresh").is_ok()
+                && integrations::get_secret("google-name").is_ok();
+            let mut startup_preparation = startup_track(&saved, signed_in)
+                .map(|(index, track)| Preparation::start(index, &track, "startup", &metrics));
             let mut measurement: Option<Playback> = None;
             let mut playback_id = 0;
             let mut using_prepared = false;
@@ -220,6 +252,7 @@ impl Player {
                 let cmd = rx.recv_timeout(Duration::from_millis(50));
                 if matches!(cmd, Err(mpsc::RecvTimeoutError::Disconnected)) {
                     stream_prepare::invalidate(&mut preparation, &metrics, "shutdown");
+                    stream_prepare::invalidate(&mut startup_preparation, &metrics, "shutdown");
                     if let Some(m) = measurement.take() {
                         m.finish("shutdown", &metrics);
                     }
@@ -228,9 +261,13 @@ impl Player {
                 if let Some(p) = preparation.as_mut() {
                     p.poll(&metrics);
                 }
+                if let Some(p) = startup_preparation.as_mut() {
+                    p.poll(&metrics);
+                }
                 let mut s = output.lock().unwrap();
                 let previous_seek = s.seek_serial;
                 let mut load = false;
+                let mut resuming = false;
                 while let Some(event) = events.wait_event(0.) {
                     match event {
                         Ok(Event::EndFile(0)) if loaded => {
@@ -368,6 +405,13 @@ impl Player {
                     {
                         continue;
                     }
+                    if invalidates_startup_preparation(&cmd, &s) {
+                        stream_prepare::invalidate(
+                            &mut startup_preparation,
+                            &metrics,
+                            "current_track_changed",
+                        );
+                    }
                     if invalidates_preparation(&cmd, &s) {
                         stream_prepare::invalidate(
                             &mut preparation,
@@ -397,6 +441,7 @@ impl Player {
                         Command::Toggle => {
                             if !loaded && !s.queue.is_empty() {
                                 resume_at = Some(s.position);
+                                resuming = true;
                                 load = true;
                             } else {
                                 s.paused = !s.paused;
@@ -408,6 +453,7 @@ impl Player {
                             let _ = mpv.set_property("pause", p);
                             if !p && !loaded && !s.queue.is_empty() {
                                 resume_at = Some(s.position);
+                                resuming = true;
                                 load = true;
                             }
                         }
@@ -506,17 +552,20 @@ impl Player {
                         m.finish("replaced", &metrics);
                     }
                     playback_id += 1;
-                    let mut timing =
-                        Playback::new(playback_id, "manual", "not_requested", &metrics);
+                    let mut timing = Playback::new(
+                        playback_id,
+                        if resuming { "resume" } else { "manual" },
+                        "not_requested",
+                        &metrics,
+                    );
+                    let candidate =
+                        preparation_for_load(resuming, &mut startup_preparation, &mut preparation);
                     let (result, prepared, status) =
-                        load_track(&mpv, &t, s.index, preparation.take(), &metrics);
+                        load_track(&mpv, &t, s.index, candidate, &metrics);
                     timing.preparation_status(status);
                     using_prepared = prepared;
                     now_playing_sent = false;
                     measurement = Some(timing);
-                    if resume_at.is_some_and(|p| p > 0.) {
-                        measurement.as_mut().unwrap().interrupt();
-                    }
                     match result {
                         Ok(_) => {
                             loaded = true;
@@ -585,7 +634,7 @@ impl Player {
                         && let Some(track) = s.queue.get(index)
                     {
                         stream_prepare::invalidate(&mut preparation, &metrics, "expired");
-                        preparation = Some(Preparation::start(index, track, &metrics));
+                        preparation = Some(Preparation::start(index, track, "next", &metrics));
                     }
                 }
                 if !scrobbled
@@ -775,5 +824,77 @@ mod tests {
         ] {
             assert!(!invalidates_preparation(&cmd, &s));
         }
+    }
+    #[test]
+    fn startup_prepares_only_a_signed_in_nonstopped_current_entry() {
+        let mut s = snapshot();
+        s.position = 42.;
+        let (index, track) = startup_track(&s, true).unwrap();
+        assert_eq!(index, s.index);
+        assert_eq!(track, s.current().unwrap().clone());
+        assert!(s.paused);
+        assert_eq!(s.position, 42.);
+        assert!(startup_track(&s, false).is_none());
+        s.stopped = true;
+        assert!(startup_track(&s, true).is_none());
+        s.stopped = false;
+        s.index = 5;
+        assert!(startup_track(&s, true).is_none());
+        s.queue = Arc::new(vec![]);
+        assert!(startup_track(&s, true).is_none());
+    }
+    #[test]
+    fn startup_preparation_survives_controls_that_leave_current_track_selected() {
+        let mut s = snapshot();
+        s.position = 42.;
+        for cmd in [
+            Command::Toggle,
+            Command::Pause(false),
+            Command::Pause(true),
+            Command::Volume(10.),
+            Command::Seek(10.),
+            Command::Previous,
+            Command::Shuffle,
+            Command::Repeat,
+            Command::Append(s.queue[0].clone()),
+            Command::Metadata(vec![]),
+        ] {
+            assert!(!invalidates_startup_preparation(&cmd, &s));
+        }
+        for cmd in [
+            Command::Next,
+            Command::Queue(vec![], 0),
+            Command::Jump(0),
+            Command::Remove(0),
+            Command::Stop,
+        ] {
+            assert!(invalidates_startup_preparation(&cmd, &s));
+        }
+        s.position = 0.;
+        assert!(invalidates_startup_preparation(&Command::Previous, &s));
+    }
+    #[test]
+    fn startup_preparation_is_consumed_only_by_resume_never_next_or_shuffle() {
+        let s = snapshot();
+        let mut startup = Some(Preparation::pending(0, "current"));
+        let mut next = Some(Preparation::pending(1, "next"));
+        assert_eq!(
+            preparation_for_load(false, &mut startup, &mut next)
+                .unwrap()
+                .index,
+            1
+        );
+        assert!(startup.is_some());
+        assert!(next.is_none());
+        // No next plan: ordinary Next still follows the queue, never the startup index.
+        assert_eq!(planned_next(&s, next.as_ref()), None);
+        assert_eq!(
+            preparation_for_load(true, &mut startup, &mut next)
+                .unwrap()
+                .index,
+            0
+        );
+        assert!(startup.is_none());
+        assert!(preparation_for_load(true, &mut startup, &mut next).is_none());
     }
 }

@@ -73,12 +73,13 @@ struct Outcome {
 pub(crate) struct Preparation {
     pub index: usize,
     url: String,
+    purpose: &'static str,
     cancel: Arc<AtomicBool>,
     result: Receiver<Outcome>,
     outcome: Option<Outcome>,
 }
 impl Preparation {
-    pub fn start(index: usize, track: &Track, metrics: &Metrics) -> Self {
+    pub fn start(index: usize, track: &Track, purpose: &'static str, metrics: &Metrics) -> Self {
         let url = track.url.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, result) = mpsc::channel();
@@ -92,10 +93,11 @@ impl Preparation {
                 elapsed_ms: start.elapsed().as_millis(),
             });
         });
-        metrics.emit(json!({"event":"prepare_started","queue_index":index}));
+        metrics.emit(json!({"event":"prepare_started","queue_index":index,"purpose":purpose}));
         Self {
             index,
             url,
+            purpose,
             cancel,
             result,
             outcome: None,
@@ -110,6 +112,7 @@ impl Preparation {
         Self {
             index,
             url: url.into(),
+            purpose: "test",
             cancel: Arc::new(AtomicBool::new(false)),
             result,
             outcome: None,
@@ -120,9 +123,11 @@ impl Preparation {
             return;
         }
         if let Ok(outcome) = self.result.try_recv() {
-            metrics.emit(json!({"event":"prepare_finished","queue_index":self.index,
+            metrics.emit(
+                json!({"event":"prepare_finished","queue_index":self.index,"purpose":self.purpose,
                 "resolve_ms":outcome.elapsed_ms,
-                "outcome":outcome.stream.as_ref().map(|_| "ready").unwrap_or_else(|e| *e)}));
+                "outcome":outcome.stream.as_ref().map(|_| "ready").unwrap_or_else(|e| *e)}),
+            );
             self.outcome = Some(outcome);
         }
     }
@@ -155,7 +160,7 @@ pub(crate) fn invalidate(
     reason: &'static str,
 ) {
     if let Some(p) = preparation.take() {
-        metrics.emit(json!({"event":"prepare_discarded","queue_index":p.index,"reason":reason}));
+        metrics.emit(json!({"event":"prepare_discarded","queue_index":p.index,"purpose":p.purpose,"reason":reason}));
     }
 }
 

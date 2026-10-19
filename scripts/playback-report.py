@@ -29,21 +29,22 @@ def main():
                 pass  # A running writer may have an incomplete final line.
     groups = collections.defaultdict(list)
     for event in events:
-        if (event.get("event") == "playback_started" and event.get("origin") == "automatic"
+        if (event.get("event") == "playback_started" and event.get("origin") in ("automatic", "resume")
                 and not event.get("interrupted")):
-            groups[event["preparation"]].append(event)
+            groups[(event["origin"], event["preparation"])].append(event)
     if not groups:
-        print("No uninterrupted automatic transitions recorded yet. Let a few tracks finish normally.")
+        print("No uninterrupted starts recorded yet. Resume playback or let a few tracks finish normally.")
         return
-    print("Automatic transitions (milliseconds; excludes user pauses and seeks during startup):")
-    for status, rows in sorted(groups.items()):
+    print("Playback starts (milliseconds; resume and automatic transitions kept separate):")
+    for (origin, status), rows in sorted(groups.items()):
         values = sorted(row["first_progress_ms"] for row in rows)
         p95 = values[math.ceil(len(values) * .95) - 1]
         buffering = sum(row.get("startup_buffering_ms", 0) > 0 for row in rows)
-        print(f"  {status}: n={len(rows)}, median={statistics.median(values):.0f}, "
+        print(f"  {origin}/{status}: n={len(rows)}, median={statistics.median(values):.0f}, "
               f"p95={p95:.0f}, startup cache waits={buffering}")
-    preparation = collections.Counter(event.get("outcome") for event in events
-                                      if event.get("event") == "prepare_finished")
+    preparation = collections.Counter(
+        f"{event.get('purpose', 'next')}/{event.get('outcome')}" for event in events
+        if event.get("event") == "prepare_finished")
     print("URL preparation outcomes:", dict(preparation))
     summaries = [event for event in events if event.get("event") == "playback_summary"]
     print(f"Playback stalls in {len(summaries)} completed playback attempts: "
