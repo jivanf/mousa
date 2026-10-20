@@ -17,6 +17,30 @@ fn client() -> Result<Client> {
         .timeout(Duration::from_secs(30))
         .build()?)
 }
+// Startup can race network/DNS setup. Retry only transport failures, never
+// rejected credentials, and keep the waits on the existing background worker.
+const GOOGLE_RETRY_DELAYS: [u64; 5] = [2, 4, 8, 16, 30];
+
+fn retry_google_token<T>(
+    mut request: impl FnMut() -> std::result::Result<T, reqwest::Error>,
+    mut wait: impl FnMut(Duration),
+) -> Result<T> {
+    let mut delays = GOOGLE_RETRY_DELAYS.into_iter();
+    loop {
+        match request() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.is_connect() || error.is_timeout() => {
+                if let Some(seconds) = delays.next() {
+                    wait(Duration::from_secs(seconds));
+                } else {
+                    return Err(error).context("Google connection failed after 6 attempts");
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 fn secret(name: &str) -> Result<keyring::Entry> {
     Ok(keyring::Entry::new("app.mousa", name)?)
 }
@@ -223,23 +247,29 @@ pub(crate) fn google_access() -> Result<String> {
     let v: Value =
         serde_json::from_slice(&std::fs::read(db::data_dir().join("google-client.json"))?)?;
     let refresh = get_secret("google-refresh").context("Sign in to Google first")?;
-    let t: Value = client()?
-        .post("https://oauth2.googleapis.com/token")
-        .form(&[
-            (
-                "client_id",
-                v["installed"]["client_id"].as_str().unwrap_or(""),
-            ),
-            (
-                "client_secret",
-                v["installed"]["client_secret"].as_str().unwrap_or(""),
-            ),
-            ("refresh_token", &refresh),
-            ("grant_type", "refresh_token"),
-        ])
-        .send()?
-        .error_for_status()?
-        .json()?;
+    let client = client()?;
+    let t: Value = retry_google_token(
+        || {
+            client
+                .post("https://oauth2.googleapis.com/token")
+                .form(&[
+                    (
+                        "client_id",
+                        v["installed"]["client_id"].as_str().unwrap_or(""),
+                    ),
+                    (
+                        "client_secret",
+                        v["installed"]["client_secret"].as_str().unwrap_or(""),
+                    ),
+                    ("refresh_token", &refresh),
+                    ("grant_type", "refresh_token"),
+                ])
+                .send()?
+                .error_for_status()?
+                .json()
+        },
+        std::thread::sleep,
+    )?;
     Ok(t["access_token"]
         .as_str()
         .context("Missing access token")?
@@ -442,6 +472,90 @@ pub fn flush_scrobbles() -> Result<()> {
 #[cfg(test)]
 mod auth_tests {
     use super::*;
+    fn connection_error() -> reqwest::Error {
+        // Reserve then close a local port; no external network or DNS required.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}"))
+            .send()
+            .unwrap_err()
+    }
+
+    #[test]
+    fn google_token_recovers_without_waiting_again_after_success() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let value = retry_google_token(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(connection_error())
+                } else {
+                    Ok("token")
+                }
+            },
+            |delay| waits.push(delay),
+        )
+        .unwrap();
+        assert_eq!(value, "token");
+        assert_eq!(attempts, 3);
+        assert_eq!(waits, vec![Duration::from_secs(2), Duration::from_secs(4)]);
+    }
+
+    #[test]
+    fn google_token_reports_failure_after_all_retries() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let error = retry_google_token::<()>(
+            || {
+                attempts += 1;
+                Err(connection_error())
+            },
+            |delay| waits.push(delay),
+        )
+        .unwrap_err();
+        assert_eq!(attempts, 6);
+        assert_eq!(waits, GOOGLE_RETRY_DELAYS.map(Duration::from_secs));
+        assert!(format!("{error:#}").contains("after 6 attempts"));
+        assert!(error.chain().count() > 1);
+    }
+
+    #[test]
+    fn google_token_does_not_retry_http_auth_errors() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 4096];
+            stream.read(&mut buffer).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        let error = Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}"))
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap_err();
+        server.join().unwrap();
+        let mut error = Some(error);
+        assert!(
+            retry_google_token::<()>(|| Err(error.take().unwrap()), |_| panic!("must not retry"))
+                .is_err()
+        );
+    }
+
     #[test]
     fn desktop_signature_sorts_parameters_and_excludes_transport_fields() {
         let mut p = BTreeMap::from([
