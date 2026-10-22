@@ -147,6 +147,15 @@ fn preparation_for_load(
         next.take()
     }
 }
+fn is_youtube_track(url: &str) -> bool {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .is_some_and(|host| {
+            host == "youtu.be" || host == "youtube.com" || host.ends_with(".youtube.com")
+        })
+}
+
 fn load_track(
     mpv: &Mpv,
     track: &Track,
@@ -245,6 +254,7 @@ impl Player {
                 && integrations::get_secret("google-name").is_ok();
             let mut startup_preparation = startup_track(&saved, signed_in)
                 .map(|(index, track)| Preparation::start(index, &track, "startup", &metrics));
+            let mut active_preparation: Option<Preparation> = None;
             let mut measurement: Option<Playback> = None;
             let mut startup_deadline = StartupDeadline::default();
             let mut playback_id = 0;
@@ -270,6 +280,9 @@ impl Player {
                     }
                     break;
                 }
+                if let Some(p) = active_preparation.as_mut() {
+                    p.poll(&metrics);
+                }
                 if let Some(p) = preparation.as_mut() {
                     p.poll(&metrics);
                 }
@@ -278,6 +291,7 @@ impl Player {
                 }
                 let mut s = output.lock().unwrap();
                 let previous_seek = s.seek_serial;
+                let mut load_origin = "manual";
                 let mut load = false;
                 let mut resuming = false;
                 while let Some(event) = events.wait_event(0.) {
@@ -293,48 +307,8 @@ impl Player {
                             if let Some(index) = planned_next(&s, preparation.as_ref()) {
                                 history.push(s.index);
                                 s.index = index;
-                                if let Some(t) = s.current().cloned() {
-                                    playback_id += 1;
-                                    // Start the clock at the observed end event, before issuing loadfile.
-                                    let prep_status = if preparation.is_some() {
-                                        "pending"
-                                    } else {
-                                        "not_requested"
-                                    };
-                                    let mut timing = Playback::new(
-                                        playback_id,
-                                        "automatic",
-                                        prep_status,
-                                        &metrics,
-                                    );
-                                    let (result, prepared, status) =
-                                        load_track(&mpv, &t, s.index, preparation.take(), &metrics);
-                                    timing.preparation_status(status);
-                                    using_prepared = prepared;
-                                    now_playing_sent = false;
-                                    measurement = Some(timing);
-                                    s.position = 0.;
-                                    s.duration = t.duration;
-                                    s.paused = false;
-                                    s.revision += 1;
-                                    match result {
-                                        Ok(()) => {
-                                            loaded = true;
-                                            let _ = mpv.set_property("pause", false);
-                                            startup_deadline.arm(Instant::now(), prepared);
-                                            started = integrations::now();
-                                            listened = 0.;
-                                            scrobbled = false;
-                                        }
-                                        Err(e) => {
-                                            s.error = e.to_string();
-                                            s.paused = true;
-                                            if let Some(m) = measurement.take() {
-                                                m.finish("load_error", &metrics);
-                                            }
-                                        }
-                                    }
-                                }
+                                load = true;
+                                load_origin = "automatic";
                             } else {
                                 stream_prepare::invalidate(
                                     &mut preparation,
@@ -344,7 +318,10 @@ impl Player {
                                 s.paused = true;
                             }
                         }
-                        Ok(Event::EndFile(4)) if loaded => {
+                        // libmpv2 returns failed EndFile events as Err, not EndFile(4).
+                        // Handle both so a rejected stream retries promptly instead of
+                        // leaving the UI playing until the startup watchdog expires.
+                        Ok(Event::EndFile(4)) | Err(_) if loaded => {
                             if using_prepared {
                                 // Resolve again through mpv once if a prepared URL is rejected/expired.
                                 using_prepared = false;
@@ -456,7 +433,7 @@ impl Player {
                             }
                         }
                         Command::Toggle => {
-                            if !loaded && !s.queue.is_empty() {
+                            if !loaded && active_preparation.is_none() && !s.queue.is_empty() {
                                 resume_at = Some(s.position);
                                 resuming = true;
                                 load = true;
@@ -468,7 +445,8 @@ impl Player {
                         Command::Pause(p) => {
                             s.paused = p;
                             let _ = mpv.set_property("pause", p);
-                            if !p && !loaded && !s.queue.is_empty() {
+                            if !p && !loaded && active_preparation.is_none() && !s.queue.is_empty()
+                            {
                                 resume_at = Some(s.position);
                                 resuming = true;
                                 load = true;
@@ -532,9 +510,13 @@ impl Player {
                                 Arc::make_mut(&mut s.queue).remove(i);
                                 if i < s.index {
                                     s.index -= 1;
+                                    if active_preparation.is_some() {
+                                        load = true;
+                                    }
                                 } else if i == s.index {
                                     resume_at = None;
                                     if s.queue.is_empty() {
+                                        active_preparation = None;
                                         let _ = mpv.command("stop", &[]);
                                         loaded = false;
                                         ready = false;
@@ -551,6 +533,8 @@ impl Player {
                             }
                         }
                         Command::Stop => {
+                            load = false;
+                            active_preparation = None;
                             resume_at = None;
                             s.stopped = true;
                             s.position = 0.;
@@ -566,35 +550,61 @@ impl Player {
                     }
                     s.revision += 1;
                 }
+                // Keep an in-flight resolver alive when Play is pressed immediately.
+                // Manual loads use the same bounded worker as speculative preparation.
                 if load && let Some(t) = s.current().cloned() {
+                    active_preparation =
+                        preparation_for_load(resuming, &mut startup_preparation, &mut preparation)
+                            .filter(|p| p.matches(s.index, &t));
+                    if active_preparation.is_none() && is_youtube_track(&t.url) {
+                        active_preparation =
+                            Some(Preparation::start(s.index, &t, "current", &metrics));
+                    }
                     if let Some(m) = measurement.take() {
                         m.finish("replaced", &metrics);
                     }
                     playback_id += 1;
-                    let mut timing = Playback::new(
+                    measurement = Some(Playback::new(
                         playback_id,
-                        if resuming { "resume" } else { "manual" },
-                        "not_requested",
+                        if resuming { "resume" } else { load_origin },
+                        "pending",
                         &metrics,
-                    );
-                    let candidate =
-                        preparation_for_load(resuming, &mut startup_preparation, &mut preparation);
+                    ));
+                    let _ = mpv.command("stop", &[]);
+                    loaded = false;
+                    ready = false;
+                    startup_deadline.cancel();
+                    s.stopped = false;
+                    s.paused = false;
+                    s.position = resume_at.unwrap_or(0.);
+                    s.duration = t.duration;
+                    listened = 0.;
+                    scrobbled = false;
+                    s.revision += 1;
+                }
+                let resolved = active_preparation
+                    .as_ref()
+                    .is_some_and(Preparation::finished);
+                if (resolved || load && active_preparation.is_none())
+                    && let Some(t) = s.current().cloned()
+                {
                     let (result, prepared, status) =
-                        load_track(&mpv, &t, s.index, candidate, &metrics);
-                    timing.preparation_status(status);
+                        load_track(&mpv, &t, s.index, active_preparation.take(), &metrics);
+                    if let Some(timing) = measurement.as_mut() {
+                        timing.preparation_status(status);
+                    }
+                    s.revision += 1;
                     using_prepared = prepared;
                     now_playing_sent = false;
-                    measurement = Some(timing);
                     match result {
                         Ok(_) => {
                             loaded = true;
                             ready = false;
                             startup_deadline.arm(Instant::now(), prepared);
                             s.stopped = false;
-                            s.paused = false;
                             s.position = resume_at.unwrap_or(0.);
                             s.duration = t.duration;
-                            let _ = mpv.set_property("pause", false);
+                            let _ = mpv.set_property("pause", s.paused);
                             started = integrations::now();
                             listened = 0.;
                             scrobbled = false;

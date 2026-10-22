@@ -105,6 +105,12 @@ impl Preparation {
             outcome: None,
         }
     }
+    pub fn finished(&self) -> bool {
+        self.outcome.is_some()
+    }
+    pub fn matches(&self, index: usize, track: &Track) -> bool {
+        self.index == index && self.url == track.url
+    }
     pub fn needs_refresh(&self) -> bool {
         matches!(&self.outcome, Some(Outcome { stream: Ok(stream), .. }) if stream.resolved.elapsed() >= MAX_AGE)
     }
@@ -544,7 +550,8 @@ mod tests {
     fn youtube_prepared_stream_plays() {
         use libmpv2::Mpv;
         let stream = resolve(
-            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            &std::env::var("MOUSA_TEST_YOUTUBE_URL")
+                .unwrap_or_else(|_| "https://www.youtube.com/watch?v=jNQXAC9IVRw".into()),
             &AtomicBool::new(false),
         )
         .expect("URL preparation");
