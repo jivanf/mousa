@@ -175,6 +175,42 @@ impl Library {
         tx.commit()?;
         Ok(())
     }
+    /// Move an entry before another entry, or to the end, atomically.
+    pub fn move_entry_before(&mut self, id: i64, before: Option<i64>) -> Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let playlist: i64 =
+            tx.query_row("SELECT playlist_id FROM entries WHERE id=?", [id], |r| {
+                r.get(0)
+            })?;
+        let mut ids = {
+            let mut stmt =
+                tx.prepare("SELECT id FROM entries WHERE playlist_id=? ORDER BY position,id")?;
+            stmt.query_map([playlist], |r| r.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if before == Some(id) {
+            return Ok(());
+        }
+        ids.retain(|entry| *entry != id);
+        let target = match before {
+            Some(anchor) => ids
+                .iter()
+                .position(|entry| *entry == anchor)
+                .ok_or_else(|| anyhow::anyhow!("Drop target is no longer in this playlist"))?,
+            None => ids.len(),
+        };
+        ids.insert(target, id);
+        for (position, entry) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE entries SET position=? WHERE id=?",
+                params![position, entry],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn tracks(&self, playlist: i64, query: &str, sort: Sort) -> Result<Vec<Track>> {
         // Quote every token: user text can never become FTS query syntax.
         let query = query

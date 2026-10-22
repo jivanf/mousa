@@ -512,3 +512,62 @@ fn full_artist_credit_survives_storage_search_and_queue_serialization() {
             .is_empty()
     );
 }
+
+#[test]
+fn arbitrary_reorder_persists_duplicate_identity_and_handles_gaps() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.db");
+    let mut db = Library::open(path.to_str().unwrap()).unwrap();
+    let playlist = db.create("Reorder").unwrap();
+    db.add(
+        playlist,
+        &[
+            track("Same"),
+            track("Deleted"),
+            track("Same"),
+            track("Last"),
+        ],
+    )
+    .unwrap();
+    let original = db.tracks(playlist, "", Sort::Position).unwrap();
+    let ids: Vec<_> = original.iter().map(|t| t.id).collect();
+    db.remove(ids[1]).unwrap();
+    db.move_entry_before(ids[3], Some(ids[0])).unwrap();
+    assert_eq!(
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>(),
+        vec![ids[3], ids[0], ids[2]]
+    );
+    db.move_entry_before(ids[0], None).unwrap();
+    db.move_entry_before(ids[2], Some(ids[2])).unwrap();
+    drop(db);
+    let mut db = Library::open(path.to_str().unwrap()).unwrap();
+    let reordered = db.tracks(playlist, "", Sort::Position).unwrap();
+    assert_eq!(
+        reordered.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![ids[3], ids[2], ids[0]]
+    );
+    assert_eq!(
+        reordered
+            .iter()
+            .map(|t| t.playlist_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let other = db.create("Other").unwrap();
+    db.add(other, &[track("Elsewhere")]).unwrap();
+    let foreign = db.tracks(other, "", Sort::Position).unwrap()[0].id;
+    assert!(db.move_entry_before(ids[0], Some(foreign)).is_err());
+    assert!(db.move_entry_before(ids[0], Some(ids[1])).is_err());
+    assert_eq!(
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>(),
+        vec![ids[3], ids[2], ids[0]]
+    );
+}

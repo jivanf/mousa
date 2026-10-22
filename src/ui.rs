@@ -814,3 +814,21 @@ impl Render for TrackScrollbar {
             }).size_full())
     }
 }
+
+/// Six-square reorder grip, occupying the existing row-number slot.
+pub fn track_grip() -> Div {
+    div()
+        .flex()
+        .gap(crate::theme::reorder::grip_gap())
+        .children((0..2).map(|_| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(crate::theme::reorder::grip_gap())
+                .children((0..3).map(|_| {
+                    div()
+                        .size(crate::theme::reorder::grip_square())
+                        .bg(color::ink())
+                }))
+        }))
+}

@@ -271,3 +271,23 @@ pub mod scrollbar {
         px(30.)
     }
 }
+
+/// Playlist drag geometry, kept independent of playback's lime treatment.
+pub mod reorder {
+    use super::*;
+    pub fn grip_square() -> Pixels {
+        px(4.)
+    }
+    pub fn grip_gap() -> Pixels {
+        px(3.)
+    }
+    pub fn line() -> Pixels {
+        px(6.)
+    }
+    pub fn cap() -> Pixels {
+        px(16.)
+    }
+    pub fn scroll_step() -> Pixels {
+        px(8.)
+    }
+}

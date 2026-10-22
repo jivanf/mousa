@@ -446,6 +446,53 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     Ok(())
 }
 
+/// Use entry identity as the drop anchor so remote refreshes cannot shift the target.
+pub fn move_entry_before(id: i64, before: Option<i64>) -> Result<()> {
+    let _guard = OPERATIONS.lock().unwrap();
+    let mut db = db::library()?;
+    let playlist = db.entry_playlist(id)?;
+    let Some((remote, account)) = db.google_playlist(playlist)? else {
+        return db.move_entry_before(id, before);
+    };
+    let g = Google::connect()?;
+    g.check(&account)?;
+    g.refresh(&mut db, playlist, &remote, &mut HashMap::new())?;
+    let tracks = db.tracks(playlist, "", Sort::Position)?;
+    let source = tracks
+        .iter()
+        .find(|t| t.id == id)
+        .context("Track was removed on YouTube")?;
+    if before == Some(id) {
+        return Ok(());
+    }
+    let remaining: Vec<_> = tracks.iter().filter(|t| t.id != id).collect();
+    let target = match before {
+        Some(anchor) => remaining
+            .iter()
+            .position(|t| t.id == anchor)
+            .context("Drop target was removed on YouTube")?,
+        None => remaining.len(),
+    };
+    let video = url::Url::parse(&source.url)?
+        .query_pairs()
+        .find(|(k, _)| k == "v")
+        .context("Missing video ID")?
+        .1
+        .into_owned();
+    g.request(
+        Method::PUT,
+        "playlistItems",
+        &[("part", "snippet")],
+        Some(
+            json!({"id":db.google_entry(id)?,"snippet":{"playlistId":remote,"position":target,
+        "resourceId":{"kind":"youtube#video","videoId":video}}}),
+        ),
+    )?;
+    db.move_entry_before(id, before)?;
+    db.mark_written(playlist)?;
+    Ok(())
+}
+
 /// Persist each successful metadata batch, even if a later batch fails.
 fn persistent_durations(
     db: &Library,
