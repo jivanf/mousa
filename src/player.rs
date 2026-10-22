@@ -233,6 +233,9 @@ impl Player {
                 m.set_property("vo", "null")?;
                 m.set_property("vid", "no")?;
                 m.set_property("ytdl-format", "bestaudio/best")?;
+                // Metadata can advertise streams that the CDN rejects. The fallback
+                // must test the selected format and try another before handing it to mpv.
+                m.set_property("ytdl-raw-options", "check-formats=")?;
                 m.set_property("idle", "yes")?;
                 Ok(())
             }) {
