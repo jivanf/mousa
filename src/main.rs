@@ -59,6 +59,8 @@ enum Form {
 struct TrackDrag {
     index: usize,
     pointer: Point<Pixels>,
+    origin: Point<Pixels>,
+    active: bool,
     offset: Pixels,
     generation: u64,
 }
@@ -723,7 +725,11 @@ impl Mousa {
             && self.tracks_ready
             && !self.reorder_busy
             && self.search.read(cx).value().is_empty();
-        let source = self.track_drag.as_ref().map(|d| d.index);
+        let source = self
+            .track_drag
+            .as_ref()
+            .filter(|d| d.active)
+            .map(|d| d.index);
         let reorder_focus = self.reorder_focus.clone();
         let active = self.playing_id;
         let active_queue_index = self.queue_index;
@@ -735,7 +741,11 @@ impl Mousa {
             },
             cx.processor(move |_this, i: usize, _, cx| {
                 if !queue && source == Some(i) {
-                    return div().h(control_size::row()).w_full().bg(color::canvas()).into_any_element();
+                    return div()
+                        .h(control_size::row())
+                        .w_full()
+                        .bg(color::canvas())
+                        .into_any_element();
                 }
                 let t = &tracks[i];
                 let id = t.id;
@@ -753,9 +763,13 @@ impl Mousa {
                     Some(id) == active
                 };
                 ui::track_row(if queue { i } else { id as usize }, is_active)
-                    .when_some(reorder_focus.as_ref().filter(|(entry, _)| !queue && *entry == id), |d, (_, focus)| d.track_focus(focus))
+                    .when_some(
+                        reorder_focus
+                            .as_ref()
+                            .filter(|(entry, _)| !queue && *entry == id),
+                        |d, (_, focus)| d.track_focus(focus),
+                    )
                     .when(!queue, |d| d.h(control_size::row()).overflow_hidden())
-                    .cursor_pointer()
                     .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
                         if can_move && e.keystroke.modifiers.alt {
                             let boundary = match e.keystroke.key.as_str() {
@@ -769,57 +783,113 @@ impl Mousa {
                             cx.stop_propagation();
                         }
                     }))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if queue {
-                            this.player.send(Command::Jump(i));
-                        } else {
-                            this.play(id, cx);
-                        }
-                    }))
-                    .child(
-                        div().relative().w(layout::row_index()).flex_shrink_0()
-                            .font_family(font::MONO).text_size(text::secondary())
-                            .child(div().when(can_move, |d| d.group_hover("track-row", |s| s.invisible()))
-                                .child(format!("{:02}", if queue { i + 1 } else { t.playlist_index })))
-                            .when(can_move, |d| d.child(
-                                div().id(("grip", i)).absolute().inset_0().invisible()
-                                    .group_hover("track-row", |s| s.visible())
-                                    .cursor(CursorStyle::OpenHand)
-                                    .tooltip(|w, cx| gpui_component::tooltip::Tooltip::new("Drag to reorder · Alt+↑ / Alt+↓").build(w, cx))
-                                    .child(ui::track_grip())
-                                    .on_click(|_, _, cx| cx.stop_propagation())
-                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, e: &MouseDownEvent, window, cx| {
-                                        cx.stop_propagation();
-                                        this.focus.focus(window);
-                                        let top = this.track_list.bounds_for_item(i).map(|b| b.top()).unwrap_or(e.position.y);
-                                        this.track_drag = Some(TrackDrag { index: i, pointer: e.position, offset: e.position.y - top, generation: this.generation });
-                                        cx.spawn(async move |this, cx| {
-                                            loop {
-                                                cx.background_executor().timer(Duration::from_millis(16)).await;
-                                                let keep = this.update(cx, |this, cx| {
-                                                    let Some(drag) = this.track_drag.clone() else { return false; };
-                                                    if drag.generation != this.generation || this.queue_view { this.track_drag = None; cx.notify(); return false; }
-                                                    let bounds = this.track_list.viewport_bounds();
-                                                    if bounds.contains(&drag.pointer) {
-                                                        let band = control_size::row();
-                                                        let delta = if drag.pointer.y < bounds.top() + band { -reorder::scroll_step() }
-                                                            else if drag.pointer.y > bounds.bottom() - band { reorder::scroll_step() } else { px(0.) };
-                                                        if delta != px(0.) {
-                                                            let current = this.track_list.scroll_px_offset_for_scrollbar();
-                                                            let max = this.track_list.max_offset_for_scrollbar().height;
-                                                            let next = (-current.y + delta).clamp(px(0.), max);
-                                                            this.track_list.set_offset_from_scrollbar(point(px(0.), -next));
-                                                        }
-                                                    }
+                    .when(can_move, |d| {
+                        d.cursor(CursorStyle::OpenHand).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                                // A focused child control owns this press.
+                                if window.default_prevented() {
+                                    return;
+                                }
+                                let top = this
+                                    .track_list
+                                    .bounds_for_item(i)
+                                    .map(|b| b.top())
+                                    .unwrap_or(e.position.y);
+                                this.track_drag = Some(TrackDrag {
+                                    index: i,
+                                    pointer: e.position,
+                                    origin: e.position,
+                                    active: false,
+                                    offset: e.position.y - top,
+                                    generation: this.generation,
+                                });
+                                cx.spawn(async move |this, cx| {
+                                    loop {
+                                        cx.background_executor()
+                                            .timer(Duration::from_millis(16))
+                                            .await;
+                                        let keep = this
+                                            .update(cx, |this, cx| {
+                                                let Some(drag) = this.track_drag.clone() else {
+                                                    return false;
+                                                };
+                                                if drag.generation != this.generation
+                                                    || this.queue_view
+                                                {
+                                                    this.track_drag = None;
                                                     cx.notify();
-                                                    true
-                                                }).unwrap_or(false);
-                                                if !keep { break; }
-                                            }
-                                        }).detach();
-                                        cx.notify();
-                                    }))
+                                                    return false;
+                                                }
+                                                let bounds = this.track_list.viewport_bounds();
+                                                if drag.active && bounds.contains(&drag.pointer) {
+                                                    let band = control_size::row();
+                                                    let delta =
+                                                        if drag.pointer.y < bounds.top() + band {
+                                                            -reorder::scroll_step()
+                                                        } else if drag.pointer.y
+                                                            > bounds.bottom() - band
+                                                        {
+                                                            reorder::scroll_step()
+                                                        } else {
+                                                            px(0.)
+                                                        };
+                                                    if delta != px(0.) {
+                                                        let current = this
+                                                            .track_list
+                                                            .scroll_px_offset_for_scrollbar();
+                                                        let max = this
+                                                            .track_list
+                                                            .max_offset_for_scrollbar()
+                                                            .height;
+                                                        let next =
+                                                            (-current.y + delta).clamp(px(0.), max);
+                                                        this.track_list.set_offset_from_scrollbar(
+                                                            point(px(0.), -next),
+                                                        );
+                                                    }
+                                                }
+                                                cx.notify();
+                                                true
+                                            })
+                                            .unwrap_or(false);
+                                        if !keep {
+                                            break;
+                                        }
+                                    }
+                                })
+                                .detach();
+                                cx.notify();
+                            }),
+                        )
+                    })
+                    .child(
+                        div()
+                            .relative()
+                            .w(layout::row_index())
+                            .h(control_size::row_action())
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .font_family(font::MONO)
+                            .text_size(text::secondary())
+                            .child(div().group_hover("track-row", |s| s.invisible()).child(
+                                format!("{:02}", if queue { i + 1 } else { t.playlist_index }),
                             ))
+                            .child(
+                                ui::track_play_button(("play-track", i))
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        if queue {
+                                            this.player.send(Command::Jump(i));
+                                        } else {
+                                            this.play(id, cx);
+                                        }
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -956,7 +1026,9 @@ impl Mousa {
                                 move |bounds, window, cx| {
                                     entity.update(cx, |this, cx| {
                                         let mut overlay = div().size_full().relative();
-                                        if let Some(drag) = &this.track_drag {
+                                        if let Some(drag) =
+                                            this.track_drag.as_ref().filter(|d| d.active)
+                                        {
                                             if let Some((_, y)) = this.drop_boundary(drag.pointer) {
                                                 overlay = overlay.child(
                                                     div()
@@ -1014,7 +1086,16 @@ impl Mousa {
                                                                     color::white()
                                                                 },
                                                             )
-                                                            .child(ui::track_grip())
+                                                            .child(
+                                                                div()
+                                                                    .w(layout::row_index())
+                                                                    .font_family(font::MONO)
+                                                                    .child(
+                                                                        track
+                                                                            .playlist_index
+                                                                            .to_string(),
+                                                                    ),
+                                                            )
                                                             .child(
                                                                 div()
                                                                     .flex_1()
@@ -1053,7 +1134,10 @@ impl Mousa {
                                             cx,
                                         );
                                         element.prepaint_at(bounds.origin, window, cx);
-                                        (element, this.track_drag.is_some())
+                                        (
+                                            element,
+                                            this.track_drag.as_ref().is_some_and(|d| d.active),
+                                        )
                                     })
                                 },
                                 move |_, (mut element, dragging), window, cx| {
@@ -1063,11 +1147,21 @@ impl Mousa {
                                     }
                                     let moving = weak.clone();
                                     window.on_mouse_event(
-                                        move |e: &MouseMoveEvent, phase, _, cx| {
+                                        move |e: &MouseMoveEvent, phase, window, cx| {
                                             if phase == DispatchPhase::Capture {
                                                 let _ = moving.update(cx, |this, cx| {
                                                     if let Some(drag) = &mut this.track_drag {
                                                         drag.pointer = e.position;
+                                                        let was_active = drag.active;
+                                                        drag.active |= (e.position.x
+                                                            - drag.origin.x)
+                                                            .abs()
+                                                            >= reorder::drag_threshold()
+                                                            || (e.position.y - drag.origin.y).abs()
+                                                                >= reorder::drag_threshold();
+                                                        if drag.active && !was_active {
+                                                            this.focus.focus(window);
+                                                        }
                                                         cx.notify();
                                                     }
                                                 });
@@ -1081,7 +1175,8 @@ impl Mousa {
                                         {
                                             let _ = ending.update(cx, |this, cx| {
                                                 if let Some(drag) = this.track_drag.take() {
-                                                    if drag.generation == this.generation
+                                                    if drag.active
+                                                        && drag.generation == this.generation
                                                         && let Some((boundary, _)) =
                                                             this.drop_boundary(e.position)
                                                     {

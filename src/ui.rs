@@ -815,20 +815,24 @@ impl Render for TrackScrollbar {
     }
 }
 
-/// Six-square reorder grip, occupying the existing row-number slot.
-pub fn track_grip() -> Div {
+/// A stationary play button covering the row number on hover or keyboard focus.
+pub fn track_play_button(id: impl Into<ElementId>) -> Stateful<Div> {
     div()
+        .id(id)
+        .tab_index(0)
+        .size(size::row_action())
         .flex()
-        .gap(crate::theme::reorder::grip_gap())
-        .children((0..2).map(|_| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(crate::theme::reorder::grip_gap())
-                .children((0..3).map(|_| {
-                    div()
-                        .size(crate::theme::reorder::grip_square())
-                        .bg(color::ink())
-                }))
-        }))
+        .items_center()
+        .justify_center()
+        .border(border::strong())
+        .border_color(color::ink())
+        .bg(color::surface())
+        .cursor_pointer()
+        .opacity(0.)
+        .group_hover("track-row", |s| s.opacity(1.))
+        .hover(|s| s.bg(color::white()))
+        .active(|s| s.bg(color::canvas()))
+        .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
+        .tooltip(|w, cx| Tooltip::new("Play track").build(w, cx))
+        .child(icon("player-play", false).text_color(color::ink()))
 }

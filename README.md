@@ -7,7 +7,7 @@ A native Linux music player for YouTube, with fast playlist browsing, a customiz
 ## Features
 
 - Create, rename, delete, and reorder local and YouTube playlists.
-- Drag the grip revealed over a track number to reorder a playlist. Reordering is disabled during search.
+- Drag a track row to reorder a playlist; use the play button revealed over its number to play it. Reordering is disabled during search.
 - Search playlists, track titles, and artists.
 - Play a search result and continue from that entry in the full playlist.
 - Add tracks or entire playlists from YouTube URLs.
