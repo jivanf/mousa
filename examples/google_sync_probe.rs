@@ -17,6 +17,7 @@ fn main() -> anyhow::Result<()> {
             let t = Track {
                 id: 0,
                 playlist_index: 0,
+                unavailable: None,
                 url: "https://www.youtube.com/watch?v=jNQXAC9IVRw".into(),
                 title: "Me at the zoo".into(),
                 artist: "jawed".into(),

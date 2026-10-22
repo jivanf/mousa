@@ -3,6 +3,7 @@ fn track(title: &str) -> Track {
     Track {
         id: 0,
         playlist_index: 0,
+        unavailable: None,
         url: "https://www.youtube.com/watch?v=test".into(),
         title: title.into(),
         artist: "Test artist".into(),
@@ -412,14 +413,16 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         id = db.create("Keep me").unwrap();
         db.add(id, &[track("Preserved")]).unwrap();
         db.save("session", "saved queue").unwrap();
-        db.conn.execute_batch("PRAGMA user_version=0;").unwrap();
+        db.conn
+            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=0;")
+            .unwrap();
     }
     let db = Library::open(&path).unwrap();
     assert_eq!(
         db.conn
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        1
+        2
     );
     assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
     assert_eq!(db.load("session").as_deref(), Some("saved queue"));
@@ -570,4 +573,59 @@ fn arbitrary_reorder_persists_duplicate_identity_and_handles_gaps() {
             .collect::<Vec<_>>(),
         vec![ids[3], ids[2], ids[0]]
     );
+}
+
+#[test]
+fn unavailable_tracks_preserve_metadata_and_recover() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("availability.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Availability").unwrap();
+    let original = track("Original song");
+    db.reconcile_entries(playlist, &[("remote".into(), original.clone())])
+        .unwrap();
+    let mut private = track("Private video");
+    private.artist.clear();
+    private.duration = 0.;
+    private.unavailable = Some("PRIVATE".into());
+    db.reconcile_entries(playlist, &[("remote".into(), private)])
+        .unwrap();
+    drop(db);
+    let mut db = Library::open(&path).unwrap();
+    let saved = db.tracks(playlist, "", Sort::Position).unwrap().remove(0);
+    assert_eq!(saved.title, original.title);
+    assert_eq!(saved.artist, original.artist);
+    assert_eq!(saved.duration, original.duration);
+    assert_eq!(saved.unavailable.as_deref(), Some("PRIVATE"));
+    db.reconcile_entries(playlist, &[("remote".into(), original)])
+        .unwrap();
+    assert!(
+        db.tracks(playlist, "", Sort::Position).unwrap()[0]
+            .unavailable
+            .is_none()
+    );
+}
+
+#[test]
+fn old_library_migrates_explicit_unavailable_titles_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Old").unwrap();
+    let mut unknown = track("Duration unknown");
+    unknown.duration = 0.;
+    db.add(
+        playlist,
+        &[track("Private video"), track("Deleted video"), unknown],
+    )
+    .unwrap();
+    db.conn
+        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=1;")
+        .unwrap();
+    drop(db);
+    let db = Library::open(path).unwrap();
+    let tracks = db.tracks(playlist, "", Sort::Position).unwrap();
+    assert_eq!(tracks[0].unavailable.as_deref(), Some("PRIVATE"));
+    assert_eq!(tracks[1].unavailable.as_deref(), Some("REMOVED"));
+    assert_eq!(tracks[2].unavailable, None);
 }

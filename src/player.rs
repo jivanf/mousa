@@ -163,6 +163,14 @@ fn load_track(
     preparation: Option<Preparation>,
     metrics: &Metrics,
 ) -> (Result<(), String>, bool, &'static str) {
+    if let Some(reason) = &track.unavailable {
+        let _ = mpv.command("stop", &[]);
+        return (
+            Err(format!("Track unavailable: {reason}")),
+            false,
+            "unavailable",
+        );
+    }
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
@@ -785,6 +793,7 @@ mod tests {
             queue: Arc::new(vec![Track {
                 id: 1,
                 playlist_index: 1,
+                unavailable: None,
                 url: "test.wav".into(),
                 title: "Test".into(),
                 artist: "Test".into(),

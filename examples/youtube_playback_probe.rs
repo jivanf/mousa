@@ -30,6 +30,7 @@ fn main() {
     let track = Track {
         id: 1,
         playlist_index: 0,
+        unavailable: None,
         url: std::env::args().nth(1).expect("YouTube URL"),
         title: "Playback regression probe".into(),
         artist: "".into(),

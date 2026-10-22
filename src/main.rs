@@ -79,6 +79,7 @@ struct Mousa {
     playlists: Vec<Playlist>,
     tracks: Arc<Vec<Track>>,
     selected: Option<i64>,
+    unavailable_selection: Option<(bool, i64)>,
     seek: Entity<Bar>,
     volume_slider: Entity<Bar>,
     track_scrollbar: Entity<ui::TrackScrollbar>,
@@ -174,6 +175,7 @@ impl Mousa {
             playlists: vec![],
             tracks: Arc::new(vec![]),
             selected: saved.playlist,
+            unavailable_selection: None,
             seek: seek.clone(),
             volume_slider: volume_slider.clone(),
             track_list,
@@ -586,12 +588,17 @@ impl Mousa {
         self.shuffle = s.shuffle;
         self.repeat = s.repeat;
         self.queue_index = s.index;
-        if !s.error.is_empty() && self.status != s.error {
+        let availability_changed = !s.error.is_empty() && self.status != s.error;
+        if availability_changed {
             self.error = Some(s.error.clone());
             self.status = s.error.clone();
             changed = true;
         }
         drop(s);
+        if availability_changed {
+            self.player.refresh_metadata();
+            self.refresh_tracks(cx);
+        }
         if changed {
             cx.notify();
         }
@@ -666,7 +673,11 @@ impl Mousa {
         if let Some(playlist) = self.selected {
             let player = self.player.clone();
             self.job(move || {
-                let tracks = db::library()?.tracks(playlist, "", Sort::Position)?;
+                let tracks: Vec<_> = db::library()?
+                    .tracks(playlist, "", Sort::Position)?
+                    .into_iter()
+                    .filter(|t| t.unavailable.is_none())
+                    .collect();
                 let index = tracks
                     .iter()
                     .position(|t| t.id == id)
@@ -731,6 +742,7 @@ impl Mousa {
             .filter(|d| d.active)
             .map(|d| d.index);
         let reorder_focus = self.reorder_focus.clone();
+        let unavailable_selection = self.unavailable_selection;
         let active = self.playing_id;
         let active_queue_index = self.queue_index;
         let rows = list(
@@ -748,6 +760,7 @@ impl Mousa {
                         .into_any_element();
                 }
                 let t = &tracks[i];
+                let unavailable = t.unavailable.is_some();
                 let id = t.id;
                 let title = t.title.clone();
                 let artist = t.artist.clone();
@@ -762,7 +775,36 @@ impl Mousa {
                 } else {
                     Some(id) == active
                 };
+                let inverted = unavailable
+                    && (is_active
+                        || unavailable_selection
+                            == Some((queue, if queue { i as i64 } else { id })));
                 ui::track_row(if queue { i } else { id as usize }, is_active)
+                    .when(unavailable, |d| {
+                        d.hover(move |s| {
+                            s.bg(if inverted {
+                                color::ink()
+                            } else {
+                                color::white()
+                            })
+                        })
+                        .focus(move |s| {
+                            s.bg(if inverted {
+                                color::ink()
+                            } else {
+                                color::canvas()
+                            })
+                        })
+                        .when(inverted, |d| d.bg(color::ink()).text_color(color::lime()))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.unavailable_selection = if unavailable {
+                            Some((queue, if queue { i as i64 } else { id }))
+                        } else {
+                            None
+                        };
+                        cx.notify();
+                    }))
                     .when_some(
                         reorder_focus
                             .as_ref()
@@ -771,6 +813,13 @@ impl Mousa {
                     )
                     .when(!queue, |d| d.h(control_size::row()).overflow_hidden())
                     .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                        if unavailable && matches!(e.keystroke.key.as_str(), "enter" | "space") {
+                            this.unavailable_selection =
+                                Some((queue, if queue { i as i64 } else { id }));
+                            cx.notify();
+                            cx.stop_propagation();
+                            return;
+                        }
                         if can_move && e.keystroke.modifiers.alt {
                             let boundary = match e.keystroke.key.as_str() {
                                 "up" => i.saturating_sub(1),
@@ -873,23 +922,32 @@ impl Mousa {
                             .items_center()
                             .font_family(font::MONO)
                             .text_size(text::secondary())
-                            .child(div().group_hover("track-row", |s| s.invisible()).child(
-                                format!("{:02}", if queue { i + 1 } else { t.playlist_index }),
-                            ))
                             .child(
-                                ui::track_play_button(("play-track", i))
-                                    .absolute()
-                                    .left_0()
-                                    .top_0()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        if queue {
-                                            this.player.send(Command::Jump(i));
-                                        } else {
-                                            this.play(id, cx);
-                                        }
-                                    })),
-                            ),
+                                div()
+                                    .when(!unavailable, |d| {
+                                        d.group_hover("track-row", |s| s.invisible())
+                                    })
+                                    .child(format!(
+                                        "{:02}",
+                                        if queue { i + 1 } else { t.playlist_index }
+                                    )),
+                            )
+                            .when(!unavailable, |d| {
+                                d.child(
+                                    ui::track_play_button(("play-track", i))
+                                        .absolute()
+                                        .left_0()
+                                        .top_0()
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            if queue {
+                                                this.player.send(Command::Jump(i));
+                                            } else {
+                                                this.play(id, cx);
+                                            }
+                                        })),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -902,40 +960,45 @@ impl Mousa {
                                     .when(queue, |d| d.whitespace_normal())
                                     .when(!queue, |d| d.truncate())
                                     .font_weight(FontWeight::BOLD)
+                                    .when(unavailable, |d| d.line_through())
                                     .child(title),
                             )
                             .child(
                                 div()
                                     .truncate()
                                     .text_size(text::secondary())
-                                    .text_color(color::muted())
+                                    .when(!unavailable, |d| d.text_color(color::muted()))
                                     .child(artist),
                             ),
                     )
-                    .child(
-                        icon_button(
-                            ("enqueue", i),
-                            if queue { "x" } else { "playlist-add" },
-                            if queue {
-                                "Remove from queue"
-                            } else {
-                                "Add to queue"
-                            },
-                            false,
-                            false,
-                            true,
+                    .when(!unavailable || queue, |d| {
+                        d.child(
+                            icon_button(
+                                ("enqueue", i),
+                                if queue { "x" } else { "playlist-add" },
+                                if queue {
+                                    "Remove from queue"
+                                } else {
+                                    "Add to queue"
+                                },
+                                false,
+                                false,
+                                true,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if queue {
+                                        this.player.send(Command::Remove(i));
+                                    } else {
+                                        this.player.send(Command::Append(track.clone()));
+                                    }
+                                    cx.notify();
+                                },
+                            )),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            if queue {
-                                this.player.send(Command::Remove(i));
-                            } else {
-                                this.player.send(Command::Append(track.clone()));
-                            }
-                            cx.notify();
-                        })),
-                    )
-                    .when(queue && id > 0, |d| {
+                    })
+                    .when(queue && id > 0 && !unavailable, |d| {
                         let url = t.url.clone();
                         d.child(
                             icon_button(
@@ -980,7 +1043,7 @@ impl Mousa {
                                 false,
                                 true,
                             )
-                            .bg(color::pink())
+                            .when(!unavailable, |d| d.bg(color::pink()))
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     cx.stop_propagation();
@@ -993,15 +1056,48 @@ impl Mousa {
                             )),
                         )
                     })
-                    .child(
-                        div()
-                            .min_w(layout::time_label())
-                            .flex_shrink_0()
-                            .text_right()
-                            .font_family(font::MONO)
-                            .text_size(text::label())
-                            .child(duration),
-                    )
+                    .when_some(t.unavailable.clone(), |d, label| {
+                        d.child(
+                            div()
+                                .w(control_size::availability_width())
+                                .h(control_size::availability_height())
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .border(border::strong())
+                                .border_color(if inverted {
+                                    color::lime()
+                                } else {
+                                    color::ink()
+                                })
+                                .bg(if inverted {
+                                    color::ink()
+                                } else {
+                                    color::canvas()
+                                })
+                                .text_color(if inverted {
+                                    color::lime()
+                                } else {
+                                    color::ink()
+                                })
+                                .font_family(font::MONO)
+                                .text_size(text::label())
+                                .font_weight(FontWeight::BOLD)
+                                .child(label),
+                        )
+                    })
+                    .when(!unavailable, |d| {
+                        d.child(
+                            div()
+                                .min_w(layout::time_label())
+                                .flex_shrink_0()
+                                .text_right()
+                                .font_family(font::MONO)
+                                .text_size(text::label())
+                                .child(duration),
+                        )
+                    })
                     .into_any_element()
             }),
         )
@@ -1242,6 +1338,19 @@ impl Render for Mousa {
         } else {
             self.tracks.len()
         };
+        let unavailable_count = if self.queue_view {
+            &self.queue
+        } else {
+            &self.tracks
+        }
+        .iter()
+        .filter(|t| t.unavailable.is_some())
+        .count();
+        let availability_summary = if unavailable_count > 0 {
+            format!(" / {unavailable_count} unavailable")
+        } else {
+            String::new()
+        };
         let mut sidebar = div()
             .w(control_size::sidebar())
             .flex_shrink_0()
@@ -1395,9 +1504,12 @@ impl Render for Mousa {
             )
             .child(div().text_size(text::secondary()).child(
                 if self.queue_view || self.freshness.is_empty() {
-                    format!("{n} tracks")
+                    format!("{n} tracks{availability_summary}")
                 } else {
-                    format!("{n} cached tracks · {}", self.freshness)
+                    format!(
+                        "{n} cached tracks{availability_summary} · {}",
+                        self.freshness
+                    )
                 },
             ));
         if let Some(error) = self.error.clone() {

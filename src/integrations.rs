@@ -125,6 +125,10 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
             Some(Track {
                 id: 0,
                 playlist_index: 0,
+                unavailable: crate::db::unavailable_status(
+                    v["title"].as_str(),
+                    v["availability"].as_str(),
+                ),
                 url: format!("https://www.youtube.com/watch?v={id}"),
                 title: crate::titles::complete(
                     v["title"].as_str().unwrap_or("Unavailable track"),
@@ -457,6 +461,7 @@ pub fn flush_scrobbles() -> Result<()> {
             &Track {
                 id: 0,
                 playlist_index: 0,
+                unavailable: None,
                 url: String::new(),
                 title,
                 artist,

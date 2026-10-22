@@ -47,6 +47,7 @@ fn main() {
         vec![Track {
             id: 1,
             playlist_index: 0,
+            unavailable: None,
             url: path.to_string_lossy().into(),
             title: "Silent playback probe".into(),
             artist: "Mousa QA".into(),
@@ -94,6 +95,7 @@ fn main() {
         vec![Track {
             id: 2,
             playlist_index: 0,
+            unavailable: None,
             url: path.with_file_name("missing.wav").to_string_lossy().into(),
             title: "Missing file probe".into(),
             artist: "".into(),

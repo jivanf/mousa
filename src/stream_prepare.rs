@@ -229,7 +229,24 @@ fn resolve(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
         "--",
         url,
     ]);
-    resolve_command(command, cancel, Duration::from_secs(25))
+    let result = resolve_command(command, cancel, Duration::from_secs(25));
+    let reason = match result.as_ref().err().copied() {
+        Some("private") => Some("PRIVATE"),
+        Some("removed") => Some("REMOVED"),
+        Some("region_blocked") => Some("REGION BLOCKED"),
+        Some("unavailable") => Some("UNAVAILABLE"),
+        _ => None,
+    };
+    if let Some(reason) = reason {
+        if let Ok(db) = crate::db::library() {
+            let _ = db.conn.execute(
+                "UPDATE entries SET unavailable=? WHERE url=?",
+                rusqlite::params![reason, url],
+            );
+        }
+        return Err("unavailable");
+    }
+    result
 }
 fn resolve_command(
     mut command: Command,
@@ -308,18 +325,32 @@ fn resolve_command(
     let _ = child.wait();
     let bytes = reader.join().map_err(|_| "resolver_read_failed")?;
     let diagnostic = error_reader.join().unwrap_or_default();
-    if status == Err("resolver_failed") && unavailable(&diagnostic) {
-        return Err("unavailable");
+    if status == Err("resolver_failed") {
+        if let Some(reason) = unavailable_reason(&diagnostic) {
+            return Err(reason);
+        }
     }
     status?;
     parse(&bytes?)
 }
 
-fn unavailable(diagnostic: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(diagnostic);
-    text.contains("Video unavailable")
-        || text.contains("Private video")
-        || text.contains("This video has been removed")
+fn unavailable_reason(diagnostic: &[u8]) -> Option<&'static str> {
+    let text = String::from_utf8_lossy(diagnostic).to_ascii_lowercase();
+    if text.contains("not available in your country")
+        || text.contains("not made this video available in your country")
+    {
+        Some("region_blocked")
+    } else if text.contains("private video") {
+        Some("private")
+    } else if text.contains("this video has been removed")
+        || text.contains("video has been deleted")
+    {
+        Some("removed")
+    } else if text.contains("video unavailable") {
+        Some("unavailable")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +358,19 @@ mod tests {
     use super::*;
     #[test]
     fn unavailable_video_is_distinguished_from_transient_failure() {
+        assert_eq!(
+            unavailable_reason(b"Video unavailable: not available in your country"),
+            Some("region_blocked")
+        );
+        assert_eq!(unavailable_reason(b"Private video"), Some("private"));
+        assert_eq!(
+            unavailable_reason(b"This video has been removed"),
+            Some("removed")
+        );
+        assert_eq!(
+            unavailable_reason(b"Sign in to confirm you are not a bot"),
+            None
+        );
         let mut command = Command::new("sh");
         command.args([
             "-c",
@@ -336,7 +380,7 @@ mod tests {
             resolve_command(command, &AtomicBool::new(false), Duration::from_secs(2)),
             Err("unavailable")
         ));
-        assert!(!unavailable(b"HTTP Error 503: Service Unavailable"));
+        assert!(unavailable_reason(b"HTTP Error 503: Service Unavailable").is_none());
         let mut preparation = Preparation::pending(1, "original");
         preparation.outcome = Some(Outcome {
             stream: Err("unavailable"),

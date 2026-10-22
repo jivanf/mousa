@@ -165,6 +165,12 @@ pub mod space {
 
 /// Control sizes. Desktop and mouse first, so denser than touch targets.
 pub mod size {
+    pub fn availability_width() -> gpui::Pixels {
+        gpui::px(150.)
+    }
+    pub fn availability_height() -> gpui::Pixels {
+        gpui::px(28.)
+    }
     use super::*;
     pub fn row_action() -> Pixels {
         px(32.)

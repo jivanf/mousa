@@ -176,6 +176,7 @@ impl Google {
                 Track {
                     id: 0,
                     playlist_index: 0,
+                    unavailable: crate::db::unavailable_status(s["title"].as_str(), None),
                     url: format!("https://www.youtube.com/watch?v={video}"),
                     title: crate::titles::from_snippet(s),
                     artist: crate::artists::resolve(s),
