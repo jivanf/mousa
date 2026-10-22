@@ -1,6 +1,45 @@
 use crate::player::{Command, Player};
+use anyhow::Context;
+use serde_json::json;
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use zbus::zvariant::{ObjectPath, OwnedValue};
+
+const LOG_LIMIT: u64 = 64 * 1024;
+
+fn log(event: &str, error: Option<&anyhow::Error>) {
+    let path = crate::db::data_dir().join("mpris.jsonl");
+    let value = json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "process_id": std::process::id(),
+        "event": event,
+        "error": error.map(|e| format!("{e:#}")),
+    });
+    let result = (|| -> std::io::Result<()> {
+        let line = value.to_string().into_bytes();
+        if fs::metadata(&path).map(|m| m.len()).unwrap_or(0) + line.len() as u64 + 1 > LOG_LIMIT {
+            let rotated = path.with_extension("jsonl.1");
+            if rotated.exists() {
+                fs::remove_file(&rotated)?;
+            }
+            fs::rename(&path, rotated)?;
+        }
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        file.write_all(&line)?;
+        file.write_all(b"\n")
+    })();
+    if let Err(e) = result {
+        eprintln!("Could not write MPRIS diagnostics: {e}");
+    }
+}
 struct Root;
 #[zbus::interface(name = "org.mpris.MediaPlayer2")]
 impl Root {
@@ -220,12 +259,19 @@ impl Controls {
 }
 pub fn start(player: Player) {
     std::thread::spawn(move || {
+        log("registration_started", None);
         let result = (|| -> anyhow::Result<()> {
-            let conn = zbus::blocking::connection::Builder::session()?
-                .name("org.mpris.MediaPlayer2.mousa")?
-                .serve_at("/org/mpris/MediaPlayer2", Root)?
-                .serve_at("/org/mpris/MediaPlayer2", Controls(player.clone()))?
-                .build()?;
+            let conn = zbus::blocking::connection::Builder::session()
+                .context("connect to the session bus")?
+                .name("org.mpris.MediaPlayer2.mousa")
+                .context("request the org.mpris.MediaPlayer2.mousa bus name")?
+                .serve_at("/org/mpris/MediaPlayer2", Root)
+                .context("register the root MPRIS interface")?
+                .serve_at("/org/mpris/MediaPlayer2", Controls(player.clone()))
+                .context("register the player MPRIS interface")?
+                .build()
+                .context("finish the MPRIS connection")?;
+            log("registered", None);
             let mut last = String::new();
             let mut last_seek = 0;
             loop {
@@ -241,7 +287,8 @@ pub fn start(player: Player) {
                         "org.mpris.MediaPlayer2.Player",
                         "Seeked",
                         &(position,),
-                    )?;
+                    )
+                    .context("emit the MPRIS Seeked signal")?;
                     last_seek = seek;
                 }
                 let control = Controls(player.clone());
@@ -291,13 +338,15 @@ pub fn start(player: Player) {
                             changed,
                             Vec::<String>::new(),
                         ),
-                    )?;
+                    )
+                    .context("emit the MPRIS PropertiesChanged signal")?;
                     last = current;
                 }
             }
         })();
         if let Err(e) = result {
             eprintln!("MPRIS unavailable: {e}");
+            log("unavailable", Some(&e));
         }
     });
 }
