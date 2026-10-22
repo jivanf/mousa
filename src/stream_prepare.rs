@@ -146,6 +146,10 @@ impl Preparation {
         match self.outcome.take() {
             Some(Outcome { stream: Ok(s), .. }) if s.fresh() => (Some(s), "ready"),
             Some(Outcome { stream: Ok(_), .. }) => (None, "expired"),
+            Some(Outcome {
+                stream: Err("unavailable"),
+                ..
+            }) => (None, "unavailable"),
             Some(_) => (None, "failed"),
             None => (None, "pending"),
         }
@@ -228,9 +232,24 @@ fn resolve_command(
 ) -> Result<Stream, &'static str> {
     let mut child = command
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|_| "resolver_unavailable")?;
+    let stderr = child.stderr.take().unwrap();
+    // Inspect a bounded diagnostic in memory; never log URLs or raw errors.
+    let error_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stderr = stderr;
+        let mut chunk = [0; 4096];
+        while let Ok(count) = stderr.read(&mut chunk) {
+            if count == 0 {
+                break;
+            }
+            let remaining = 65536usize.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&chunk[..count.min(remaining)]);
+        }
+        bytes
+    });
     let stdout = child.stdout.take().unwrap();
     // Drain concurrently, retain at most 8 MiB, and never persist resolver output.
     let reader = std::thread::spawn(move || {
@@ -282,13 +301,46 @@ fn resolve_command(
     }
     let _ = child.wait();
     let bytes = reader.join().map_err(|_| "resolver_read_failed")?;
+    let diagnostic = error_reader.join().unwrap_or_default();
+    if status == Err("resolver_failed") && unavailable(&diagnostic) {
+        return Err("unavailable");
+    }
     status?;
     parse(&bytes?)
+}
+
+fn unavailable(diagnostic: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(diagnostic);
+    text.contains("Video unavailable")
+        || text.contains("Private video")
+        || text.contains("This video has been removed")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_video_is_distinguished_from_transient_failure() {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "printf 'ERROR: Video unavailable. This video is not available' >&2; exit 1",
+        ]);
+        assert!(matches!(
+            resolve_command(command, &AtomicBool::new(false), Duration::from_secs(2)),
+            Err("unavailable")
+        ));
+        assert!(!unavailable(b"HTTP Error 503: Service Unavailable"));
+        let mut preparation = Preparation::pending(1, "original");
+        preparation.outcome = Some(Outcome {
+            stream: Err("unavailable"),
+            elapsed_ms: 1,
+        });
+        assert_eq!(
+            preparation.take(1, "original", &Metrics::silent()).1,
+            "unavailable"
+        );
+    }
     #[test]
     fn selection_and_trigger_respect_playback_modes() {
         assert_eq!(next_index(0, 0, false, true), None);

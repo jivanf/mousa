@@ -153,12 +153,20 @@ fn load_track(
     index: usize,
     preparation: Option<Preparation>,
     metrics: &Metrics,
-) -> (libmpv2::Result<()>, bool, &'static str) {
+) -> (Result<(), String>, bool, &'static str) {
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
     metrics
         .emit(serde_json::json!({"event":"prepare_consumed","queue_index":index,"outcome":status}));
+    if status == "unavailable" {
+        let _ = mpv.command("stop", &[]);
+        return (
+            Err("This track is unavailable on YouTube. Choose another track.".into()),
+            false,
+            status,
+        );
+    }
     if let Some(stream) = stream {
         let options = stream.options();
         if mpv
@@ -168,13 +176,15 @@ fn load_track(
             return (Ok(()), true, status);
         }
         return (
-            mpv.command("loadfile", &[&track.url, "replace"]),
+            mpv.command("loadfile", &[&track.url, "replace"])
+                .map_err(|e| e.to_string()),
             false,
             "fallback",
         );
     }
     (
-        mpv.command("loadfile", &[&track.url, "replace"]),
+        mpv.command("loadfile", &[&track.url, "replace"])
+            .map_err(|e| e.to_string()),
         false,
         status,
     )
@@ -352,7 +362,7 @@ impl Player {
                                 }
                             }
                             s.error =
-                                "YouTube playback failed. Update yt-dlp or try another track."
+                                "This track could not be played from YouTube. It may be unavailable; try another track."
                                     .into();
                             s.paused = true;
                             loaded = false;
