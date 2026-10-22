@@ -924,7 +924,7 @@ impl Mousa {
                             .text_size(text::secondary())
                             .child(
                                 div()
-                                    .when(!unavailable, |d| {
+                                    .when(!unavailable && source.is_none(), |d| {
                                         d.group_hover("track-row", |s| s.invisible())
                                     })
                                     .child(format!(
@@ -932,7 +932,7 @@ impl Mousa {
                                         if queue { i + 1 } else { t.playlist_index }
                                     )),
                             )
-                            .when(!unavailable, |d| {
+                            .when(!unavailable && source.is_none(), |d| {
                                 d.child(
                                     ui::track_play_button(("play-track", i))
                                         .absolute()

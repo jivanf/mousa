@@ -833,6 +833,5 @@ pub fn track_play_button(id: impl Into<ElementId>) -> Stateful<Div> {
         .hover(|s| s.bg(color::white()))
         .active(|s| s.bg(color::canvas()))
         .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
-        .tooltip(|w, cx| Tooltip::new("Play track").build(w, cx))
         .child(icon("player-play", false).text_color(color::ink()))
 }
