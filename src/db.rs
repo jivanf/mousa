@@ -189,6 +189,13 @@ impl Library {
     }
     /// Move an entry before another entry, or to the end, atomically.
     pub fn move_entry_before(&mut self, id: i64, before: Option<i64>) -> Result<()> {
+        self.move_entries_before(&[id], before)
+    }
+    /// Persist a whole selection in one transaction.
+    pub fn move_entries_before(&mut self, selected: &[i64], before: Option<i64>) -> Result<()> {
+        let id = selected
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("No tracks selected"))?;
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -196,24 +203,13 @@ impl Library {
             tx.query_row("SELECT playlist_id FROM entries WHERE id=?", [id], |r| {
                 r.get(0)
             })?;
-        let mut ids = {
+        let order = {
             let mut stmt =
                 tx.prepare("SELECT id FROM entries WHERE playlist_id=? ORDER BY position,id")?;
             stmt.query_map([playlist], |r| r.get::<_, i64>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
-        if before == Some(id) {
-            return Ok(());
-        }
-        ids.retain(|entry| *entry != id);
-        let target = match before {
-            Some(anchor) => ids
-                .iter()
-                .position(|entry| *entry == anchor)
-                .ok_or_else(|| anyhow::anyhow!("Drop target is no longer in this playlist"))?,
-            None => ids.len(),
-        };
-        ids.insert(target, id);
+        let ids = crate::track_selection::moved_order(&order, selected, before)?;
         for (position, entry) in ids.iter().enumerate() {
             tx.execute(
                 "UPDATE entries SET position=? WHERE id=?",

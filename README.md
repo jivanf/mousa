@@ -7,6 +7,7 @@ A native Linux music player for YouTube, with fast playlist browsing, a customiz
 ## Features
 
 - Create, rename, delete, and reorder local and YouTube playlists.
+- Ctrl-click toggles track selection; Shift-click selects a range; Ctrl+Shift-click adds a range. Drag any selected row to move the entire selection in playlist order.
 - Drag a track row to reorder a playlist; use the play button revealed over its number to play it. Reordering is disabled during search.
 - Search playlists, track titles, and artists.
 - Play a search result and continue from that entry in the full playlist.
@@ -47,7 +48,7 @@ Install a local binary, icon, and desktop launcher:
 - Ctrl+R: toggle repeat
 - Ctrl+M: mute/unmute
 - Ctrl+F: focus track search
-- Alt+Up / Alt+Down: move the focused playlist track (with search cleared)
+- Alt+Up / Alt+Down: move the selected group, or the focused playlist track (with search cleared)
 - Esc: cancel a track drag; releasing outside the track list also cancels
 - Tab / Shift+Tab: move between controls
 - Enter / Space: activate a focused button

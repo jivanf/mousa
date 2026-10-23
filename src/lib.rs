@@ -13,3 +13,5 @@ pub mod theme;
 pub mod titles;
 pub mod ui;
 pub mod view_state;
+
+pub mod track_selection;

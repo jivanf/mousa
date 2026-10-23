@@ -629,3 +629,55 @@ fn old_library_migrates_explicit_unavailable_titles_only() {
     assert_eq!(tracks[1].unavailable.as_deref(), Some("REMOVED"));
     assert_eq!(tracks[2].unavailable, None);
 }
+
+#[test]
+fn multiselect_reorder_is_atomic_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("multiselect.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Selection").unwrap();
+    db.add(
+        playlist,
+        &[
+            track("Duplicate"),
+            track("Gap"),
+            track("Duplicate"),
+            track("Fourth"),
+            track("Fifth"),
+        ],
+    )
+    .unwrap();
+    let ids: Vec<_> = db
+        .tracks(playlist, "", Sort::Position)
+        .unwrap()
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    db.remove(ids[1]).unwrap();
+    db.move_entries_before(&[ids[4], ids[0]], Some(ids[3]))
+        .unwrap();
+    let expected = vec![ids[2], ids[0], ids[4], ids[3]];
+    let read = |db: &Library| {
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(read(&db), expected);
+    assert!(db.move_entries_before(&[ids[0], ids[1]], None).is_err());
+    assert_eq!(read(&db), expected);
+    let other = db.create("Other").unwrap();
+    db.add(other, &[track("Other")]).unwrap();
+    let foreign = db.tracks(other, "", Sort::Position).unwrap()[0].id;
+    assert!(db.move_entries_before(&[ids[0], foreign], None).is_err());
+    assert_eq!(read(&db), expected);
+    drop(db);
+    let mut db = Library::open(&path).unwrap();
+    assert_eq!(read(&db), expected);
+    db.move_entries_before(&[ids[0], ids[4]], None).unwrap();
+    assert_eq!(read(&db), [ids[2], ids[3], ids[0], ids[4]]);
+    db.move_entries_before(&[ids[0], ids[4]], Some(ids[2]))
+        .unwrap();
+    assert_eq!(read(&db), [ids[0], ids[4], ids[2], ids[3]]);
+}
