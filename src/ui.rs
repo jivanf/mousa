@@ -609,8 +609,10 @@ pub fn selection_bar(
                 .gap(space::xs())
                 .child(
                     caps(&format!("{count} SELECTED"))
+                        .h(size::control())
+                        .flex()
+                        .items_center()
                         .px(space::sm())
-                        .py(space::xs())
                         .bg(color::ink())
                         .text_color(color::lime()),
                 )

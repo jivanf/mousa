@@ -200,6 +200,8 @@ components:
     height: 90px
   selection-summary:
     width: 128px
+  selection-count:
+    height: 36px
   track-row-selected:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.primary}"
@@ -603,8 +605,10 @@ scrollbar, and programmatic scrolling. Clear removes the selection and the strip
 Library and queue keep their bounded virtualized lists; their strip stays above
 the scrolling rows. Search uses the same stationary strip above results.
 
-The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal /
-4px vertical padding. Neutral 36px Play, Queue, and Save to playlist buttons use
+The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal
+padding. Its height matches the 36px action buttons, with text vertically centered,
+as in the approved mock. It reuses the control-height token.
+Neutral 36px Play, Queue, and Save to playlist buttons use
 13px bold mono text and 18px icons, with 12px gaps. Clear sits at the far right.
 The header retains its lime primary. Owned library playlists add pink Remove,
 separated by 24px; removal asks for confirmation and reports partial failures.
