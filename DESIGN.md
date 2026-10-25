@@ -81,7 +81,7 @@ x-shadows:
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
-  catalog-collection-detail: page-with-sticky-selection
+  catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
 components:
   playlist-editor:
@@ -625,10 +625,13 @@ are not selectable; mixed search selection includes track-like items only.
 
 ### Detail pages
 
-Detail pages replace the search field with Back. The latest approved selection
-mock supersedes the earlier fixed-header exception: album, single, EP, playlist,
-and podcast details scroll as a whole page. The selection strip starts in flow
-above the table and pins to the top of the content viewport when reached.
+Detail pages replace the search field with Back. **User-authorized correction
+to the selection mock:** album, single, EP, playlist, and podcast details keep
+Back, artwork, metadata, and actions fixed. The track table fills the remaining
+height and scrolls internally with the same scrollbar as search results.
+The selection strip stays fixed directly above the scrolling rows; selecting
+or clearing tracks changes the table viewport height, not the header position.
+Continuation controls and supplementary sections remain inside the scroll area.
 Artist pages also retain whole-page scrolling. Use
 32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
