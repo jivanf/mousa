@@ -59,7 +59,7 @@ impl Library {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        anyhow::ensure!(version <= 2, "Library was created by a newer Mousa version");
+        anyhow::ensure!(version <= 3, "Library was created by a newer Mousa version");
         if version == 0 {
             Self::initialize(&mut conn)?;
         }
@@ -69,6 +69,13 @@ impl Library {
                 tx.execute_batch("ALTER TABLE entries ADD COLUMN unavailable TEXT;
                     UPDATE entries SET unavailable=CASE lower(title) WHEN 'private video' THEN 'PRIVATE' WHEN 'deleted video' THEN 'REMOVED' ELSE 'UNAVAILABLE' END WHERE lower(title) IN ('private video','deleted video','unavailable video','unavailable track');
                     PRAGMA user_version=2;")?;
+            }
+            tx.commit()?;
+        }
+        if version < 3 {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if tx.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? < 3 {
+                tx.execute_batch("ALTER TABLE playlists ADD COLUMN description TEXT NOT NULL DEFAULT ''; PRAGMA user_version=3;")?;
             }
             tx.commit()?;
         }
@@ -124,6 +131,28 @@ impl Library {
             "UPDATE playlists SET name=? WHERE id=?",
             params![name.trim(), id],
         )?;
+        Ok(())
+    }
+    pub fn playlist_fields(&self, id: i64) -> Result<crate::playlist_edit::Fields> {
+        Ok(self.conn.query_row(
+            "SELECT name,description FROM playlists WHERE id=?",
+            [id],
+            |r| {
+                Ok(crate::playlist_edit::Fields {
+                    title: r.get(0)?,
+                    description: r.get(1)?,
+                    privacy: None,
+                })
+            },
+        )?)
+    }
+    pub fn edit_playlist(&self, id: i64, fields: &crate::playlist_edit::Fields) -> Result<()> {
+        fields.validate()?;
+        let changed = self.conn.execute(
+            "UPDATE playlists SET name=?,description=? WHERE id=?",
+            params![fields.title.trim(), fields.description, id],
+        )?;
+        anyhow::ensure!(changed == 1, "Playlist was removed");
         Ok(())
     }
     pub fn delete(&self, id: i64) -> Result<()> {

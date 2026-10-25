@@ -312,7 +312,7 @@ impl Render for Gallery {
                                     .flex()
                                     .flex_col()
                                     .gap(space::sm())
-                                    .child(ui::input(&self.field, cx))
+                                    .child(ui::search_input(&self.field, false, cx))
                                     .child(ui::playlist_item(1, "Bach / Choral works".into(), true))
                                     .child(ui::playlist_item(2, "Evening listening".into(), false)),
                             )

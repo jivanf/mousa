@@ -9,6 +9,44 @@
 
 use gpui::{BoxShadow, Hsla, Pixels, hsla, point, px, rgb};
 
+pub mod playlist_editor {
+    use super::*;
+    pub fn width() -> Pixels {
+        px(520.)
+    }
+    pub fn header() -> Pixels {
+        px(56.)
+    }
+    pub fn title_height() -> Pixels {
+        px(44.)
+    }
+    pub fn title_text() -> Pixels {
+        px(16.)
+    }
+    pub fn description_height() -> Pixels {
+        px(150.)
+    }
+    pub fn field_gap() -> Pixels {
+        px(20.)
+    }
+    pub fn field_inset() -> Pixels {
+        px(14.)
+    }
+    pub fn counter_height() -> Pixels {
+        px(22.)
+    }
+    pub fn icon() -> Pixels {
+        px(16.)
+    }
+    pub fn close_icon() -> Pixels {
+        px(18.)
+    }
+    pub fn description_inset() -> Pixels {
+        px(10.)
+    }
+    pub const DESCRIPTION_LINE_HEIGHT: f32 = 1.45;
+}
+
 /// Colors. Lime and pink carry meaning, see DESIGN.md "Color semantics".
 pub mod color {
     use super::*;
@@ -16,6 +54,9 @@ pub mod color {
     pub fn ink() -> Hsla {
         rgb(0x111111).into()
     } // text, borders, shadows
+    pub fn scrim() -> Hsla {
+        Hsla { a: 0.55, ..ink() }
+    }
     pub fn surface() -> Hsla {
         rgb(0xFBF7EE).into()
     } // cards, controls, rows
@@ -140,6 +181,68 @@ pub mod text {
     }
 }
 
+/// Exact measurements from the Search, Album, Playlist and Artist artboards.
+pub mod catalog {
+    use super::*;
+    pub fn action_padding() -> Pixels {
+        px(18.)
+    }
+    pub fn icon() -> Pixels {
+        px(18.)
+    }
+    pub fn nav_gap() -> Pixels {
+        px(10.)
+    }
+    pub fn nav_height() -> Pixels {
+        px(40.)
+    }
+    pub fn field() -> Pixels {
+        px(56.)
+    }
+    pub fn result_row() -> Pixels {
+        px(64.)
+    }
+    pub fn track_row() -> Pixels {
+        px(56.)
+    }
+    pub fn recent_row() -> Pixels {
+        px(48.)
+    }
+    pub fn thumbnail() -> Pixels {
+        px(48.)
+    }
+    pub fn cover() -> Pixels {
+        px(192.)
+    }
+    pub fn portrait() -> Pixels {
+        px(160.)
+    }
+    pub fn card() -> Pixels {
+        px(176.)
+    }
+    pub fn action() -> Pixels {
+        px(44.)
+    }
+    pub fn number() -> Pixels {
+        px(56.)
+    }
+    pub fn duration() -> Pixels {
+        px(84.)
+    }
+    pub fn track_duration() -> Pixels {
+        px(60.)
+    }
+    pub fn state_padding() -> Pixels {
+        px(20.)
+    }
+    pub fn skeleton_title() -> Pixels {
+        px(12.)
+    }
+    pub fn skeleton_subtitle() -> Pixels {
+        px(10.)
+    }
+}
+
 /// Spacing scale. Use these, not ad hoc numbers.
 pub mod space {
     use super::*;
@@ -194,7 +297,7 @@ pub mod size {
         px(56.)
     } // track row height
     pub fn sidebar() -> Pixels {
-        px(300.)
+        px(272.)
     }
 }
 
@@ -275,6 +378,14 @@ pub mod scrollbar {
     }
     pub fn readout_height() -> Pixels {
         px(30.)
+    }
+}
+
+/// Shared track multi-selection marker (track-row-selected in DESIGN.md).
+pub mod selection {
+    use super::*;
+    pub fn marker() -> Pixels {
+        px(6.)
     }
 }
 

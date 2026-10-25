@@ -188,3 +188,21 @@ fn live_catalog_categories_and_pagination() {
         }
     }
 }
+
+#[test]
+fn detail_metadata_and_creator_navigation_survive_parsing() {
+    let page = fixture("albums_detail");
+    assert!(page.metadata.contains("30 songs"));
+    assert!(page.metadata.contains("2 hours"));
+    let page = catalog::parse(
+        &json!({"musicResponsiveHeaderRenderer":{
+            "title":{"runs":[{"text":"Example album"}]},
+            "straplineText":{"runs":[{"text":"Example artist","navigationEndpoint":{"browseEndpoint":{"browseId":"UCcreator"}}}]},
+            "secondSubtitle":{"runs":[{"text":"12 tracks"}]}
+        }}),
+        "browse",
+    );
+    assert_eq!(page.byline, "Example artist");
+    assert_eq!(page.creator.unwrap().body["browseId"], "UCcreator");
+    assert_eq!(page.metadata, "12 tracks");
+}

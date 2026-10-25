@@ -10,10 +10,15 @@ colors:
   canvas: "#E6DFD0"
   field: "#FFFFFF"
   danger: "#FF8FC7"
+  scrim: "rgba(17, 17, 17, 0.55)"
   on-primary: "#C8F560"
   on-tertiary: "#111111"
   on-danger: "#111111"
 typography:
+  playlist-title-input:
+    fontFamily: Space Grotesk
+    fontSize: 16px
+    fontWeight: 500
   landing-title:
     fontFamily: Space Grotesk
     fontSize: 56px
@@ -58,6 +63,7 @@ typography:
 rounded:
   none: 0px
 spacing:
+  playlist-editor-gap: 20px
   xs: 4px
   sm: 8px
   md: 12px
@@ -72,7 +78,32 @@ x-shadows:
   lg: "8px 8px 0 0 {colors.primary}"
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
+x-alignment:
+  playlist-editor-character-counters: right
+x-scrolling:
+  catalog-collection-detail: table
+  catalog-artist-detail: page
 components:
+  playlist-editor:
+    width: 520px
+    padding: 24px
+  modal-backdrop:
+    backgroundColor: "{colors.scrim}"
+  playlist-editor-header:
+    height: 56px
+  playlist-editor-title:
+    height: 44px
+    padding: 14px
+    typography: "{typography.playlist-title-input}"
+  playlist-editor-description:
+    height: 150px
+    padding: 10px
+  playlist-editor-counter:
+    height: 22px
+  playlist-editor-icon:
+    size: 16px
+  playlist-editor-close-icon:
+    size: 18px
   landing-card:
     width: 520px
     padding: 48px
@@ -162,8 +193,9 @@ components:
     backgroundColor: "{colors.tertiary}"
     textColor: "{colors.on-tertiary}"
   track-row-selected:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.primary}"
+    borderLeftWidth: 6px
   track-scrollbar:
     width: 20px
   track-scrollbar-thumb:
@@ -260,6 +292,7 @@ and quiet by default.
 Principles:
 
 1. Hard edges. Zero radius, zero blur, no gradients, no transparency tricks.
+   The functional modal scrim is the sole translucent surface exception.
 2. Heavy 3px ink outlines on anything interactive. 1px hairlines only as
    dividers inside lists.
 3. One hero per view. In the player it is the play button.
@@ -285,10 +318,16 @@ do not reinterpret a final design without authorization.
 - **Danger (#FF8FC7), pink:** destructive actions (Delete, Remove) and error banner backgrounds.
   This replaces the original prototype pink.
 - **On-primary (#C8F560):** text and icons on an ink fill.
+- **Scrim (ink at 55% opacity):** modal backdrop only. It covers the complete
+  window content, including sidebar and player, and makes the background inert.
+  No translucent cards, fields, decorative overlays, or glass effects. Fully
+  transparent hit targets and hidden controls are not translucent surfaces.
 
 On / selected is expressed by inversion: ink fill with lime text. Used for
-the selected playlist, selected row, active shuffle or repeat. Never use pink
-for selection.
+the selected playlist, active shuffle or repeat. Track multi-selection preserves
+the existing playlist appearance: canvas fill with a 6px ink left rule; playing
+rows keep their lime fill and unavailable inverted rows keep their existing fill.
+Never use pink for selection.
 
 Drift to fix in the current app: the sidebar background, every playlist card
 and several buttons are lime, so lime no longer signals anything. Sidebar
@@ -419,7 +458,53 @@ last audible volume; it does not reset volume to a fixed level.
 Volume reuses Bar plus a mute button.
 
 **Page header.** page-title in ink, a secondary metadata line, and actions at
-top right (Rename default, Delete destructive).
+top right (Edit default, Delete destructive).
+
+## Playlist editing
+
+Source: the approved Claude artifact's **Edit playlist** and **Edit playlist
+states** artboards. Edit opens a 520px surface dialog with a 3px ink outline,
+8px hard shadow and the scrim above. Center it in the window; allow vertical
+scrolling with 32px total viewport clearance when the dialog exceeds the window.
+The 56px header has a 3px lower rule, 24px left and 12px right padding, a 13px
+bold mono heading, and a 32px close control with an 18px icon. The body has 24px
+padding and 20px between field groups. Labels use label-caps with an 8px field gap.
+
+Title uses a 44px white input with 16px medium text, 14px horizontal inset,
+and the standard focus ring. Its right-aligned 12px mono counter is below, with at least 22px
+height. Description is a 150px multiline white field with 14px text at 1.45 line
+height, 10px vertical and 14px horizontal text insets, a scrolling
+viewport using the shared 20px ruled scrollbar, and a right-aligned 12px mono counter. Preserve newlines and URLs as
+plain text. The editor limits are 150 title characters and 5000 description
+characters; over-limit text stays editable with Save disabled. Empty or
+whitespace-only titles show inline guidance and REQUIRED, without a red field.
+**User-authorized correction to the mock:** both character counts align to the
+right edge of their fields. Title validation guidance remains left-aligned.
+
+YouTube privacy uses three equal 36px buttons, 12px gaps, 16px icons, 13px bold
+mono text, and the standard inverted selected state. Public, Unlisted and Private
+each have explanatory helper text underneath. Local playlists have title and
+description only: local storage has no YouTube visibility setting.
+
+The footer has a 3px upper rule, 16px vertical and 24px horizontal padding.
+Show UNSAVED CHANGES on the left when dirty, Cancel and lime Save on the right.
+Disable Save when pristine or invalid. While saving, disable fields and dismissal,
+show SAVING…, and keep the dialog open. Load authoritative YouTube metadata before
+enabling editing. Failed loading offers Retry. Failed saving preserves the draft
+and offers Save again. Form-level errors sit above all fields below the header.
+**User-authorized deviation:** reuse the application's existing pink error alert
+with Dismiss, not the mock's custom alert. Delete remains separate in the page header.
+
+Cancel, close, and Escape ask before discarding a dirty draft. Keep editing returns
+to the draft; Discard closes without writing. Clicking the scrim does not dismiss.
+Tab/Shift+Tab stay inside the dialog; closing restores previous focus. Background
+navigation and player controls are inert while the dialog is open.
+
+GPUI 0.2.2's `Hsla` has a public alpha channel (`a`). `color::scrim()` uses
+`Hsla { a: 0.55, ..color::ink() }` as the backdrop fill, so the scrim needs no
+whole-window opacity, blur, or custom shader. This API was verified in the pinned
+crate source. Preview with `cargo run --release --example playlist_editor_gallery
+-- dirty` (also `pristine`, `saving`, `error`, `empty`, `discard`, and `local`).
 
 ## Catalog search and browsing
 
@@ -483,6 +568,16 @@ separate badge**—the user's approved exception. Durations or collection counts
 occupy an 84px trailing column in 14px regular Space Mono. Do not duplicate this
 metadata in the description or invent missing values.
 
+All track tables use plain click to select one occurrence, Ctrl-click to toggle
+an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
+range. Selection is independent per table. Clicking a track row never starts
+playback; its Play button does. Row actions do not change selection or start
+a drag. Playlist reordering retains its existing restrictions and deferred
+selection collapse during dragging; catalog and queue rows cannot reorder.
+Catalog selection resets on page replacement and survives append-only loading.
+Queue selection resets when queue contents/order change, so duplicate entries
+never transfer selection to a different occurrence.
+
 Playable rows reveal a play overlay on the thumbnail and 32px queue/save actions
 with 18px icons on hover or keyboard focus. Reserve action space to prevent text
 movement. Collections open their detail page. Real thumbnails replace the mocks'
@@ -492,7 +587,12 @@ overflow; illustrative fixed mock thumb lengths are not normative.
 
 ### Detail pages
 
-Detail pages replace the search field with Back and scroll as one page. Use
+Detail pages replace the search field with Back. **User-authorized deviation
+from the mock:** album, single, EP, playlist, and podcast detail pages keep Back,
+artwork, metadata, and actions fixed. Their bordered track table fills the remaining
+height and scrolls internally, using the same persistent scrollbar as search
+results. Continuation controls and any supplementary sections remain reachable
+inside this scrolling area. Artist detail pages retain whole-page scrolling. Use
 32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
 have 3px borders and 5px hard shadows. Align header information to the cover's
@@ -510,8 +610,8 @@ snapshot; Save to playlist opens the destination picker.
 Collection tables start 32px below the header, with a 3px outer border and 56px
 rows separated by 1px rules. Number columns are 56px, duration columns 60px,
 both 14px regular Space Mono. Album rows omit redundant artist subtitles;
-playlist rows retain them. These catalog rows are distinct from the existing
-variable-height library/queue rows.
+playlist rows retain them. These catalog rows retain their distinct layout from the existing
+library/queue rows while sharing track selection and action isolation.
 
 Artist pages separate Top songs and Albums. Section headings have 32px height,
 32px top spacing, 12px before their content, and a right-aligned See all control.

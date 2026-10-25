@@ -21,6 +21,19 @@ impl AssetSource for Assets {
             }
             "icons/player-pause.svg" => include_bytes!("../assets/icons/player-pause.svg"),
             "icons/x.svg" => include_bytes!("../assets/icons/x.svg"),
+            "icons/world.svg" => include_bytes!("../assets/icons/world.svg"),
+            "icons/link.svg" => include_bytes!("../assets/icons/link.svg"),
+            "icons/lock.svg" => include_bytes!("../assets/icons/lock.svg"),
+            "icons/search.svg" => include_bytes!("../assets/icons/search.svg"),
+            "icons/plus.svg" => include_bytes!("../assets/icons/plus.svg"),
+            "icons/arrow-left.svg" => include_bytes!("../assets/icons/arrow-left.svg"),
+            "icons/clock.svg" => include_bytes!("../assets/icons/clock.svg"),
+            "icons/plug-connected-x.svg" => include_bytes!("../assets/icons/plug-connected-x.svg"),
+            "icons/disc.svg" => include_bytes!("../assets/icons/disc.svg"),
+            "icons/user.svg" => include_bytes!("../assets/icons/user.svg"),
+            "icons/playlist.svg" => include_bytes!("../assets/icons/playlist.svg"),
+            "icons/microphone.svg" => include_bytes!("../assets/icons/microphone.svg"),
+            "icons/video.svg" => include_bytes!("../assets/icons/video.svg"),
             "icons/player-play.svg" => include_bytes!("../assets/icons/player-play.svg"),
             "icons/volume-off.svg" => include_bytes!("../assets/icons/volume-off.svg"),
             "icons/arrow-down.svg" => include_bytes!("../assets/icons/arrow-down.svg"),
@@ -108,12 +121,20 @@ pub fn button(
         .when(!label.is_empty(), |d| d.child(label))
 }
 pub fn icon(name: &'static str, hero: bool) -> Svg {
-    svg().path(format!("icons/{name}.svg")).size(if hero {
-        layout::hero_icon()
-    } else {
-        layout::icon()
-    })
+    svg()
+        .path(format!("icons/{name}.svg"))
+        .text_color(color::ink())
+        .size(if hero {
+            layout::hero_icon()
+        } else {
+            layout::icon()
+        })
 }
+/// Only ambiguous icon actions need an explanatory hover label.
+pub fn icon_needs_tooltip(name: &str) -> bool {
+    matches!(name, "playlist-add" | "plus" | "external-link")
+}
+
 pub fn icon_button(
     id: impl Into<ElementId>,
     name: &'static str,
@@ -146,6 +167,7 @@ pub fn icon_button(
                 .mb(press::md())
                 .active(|s| s.top(press::md()).left(press::md()).shadow(vec![]))
         })
+        .when(row, track_action)
         .when(row, |d| {
             d.shadow(vec![]).mr(layout::zero()).mb(layout::zero())
         })
@@ -154,7 +176,7 @@ pub fn icon_button(
                 .group_hover("track-row", |s| s.opacity(1.))
                 .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
         })
-        .when(row, |d| {
+        .when(row && icon_needs_tooltip(name), |d| {
             d.tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
         })
 }
@@ -182,6 +204,87 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
                 .rounded_none(),
         )
 }
+/// The existing application error banner, shared with modal forms.
+pub fn error_alert(message: impl Into<SharedString>, dismiss: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .w_full()
+        .min_w_0()
+        .flex_shrink_0()
+        .items_center()
+        .gap(space::md())
+        .p(space::md())
+        .border(border::strong())
+        .border_color(color::ink())
+        .bg(color::pink())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .whitespace_normal()
+                .child(message.into()),
+        )
+        .child(dismiss)
+}
+/// Search and filter fields share an inline, conditional clear affordance.
+pub fn search_input(state: &Entity<InputState>, large: bool, cx: &App) -> Stateful<Div> {
+    let field = state.clone();
+    let height = if large {
+        crate::theme::catalog::field()
+    } else {
+        size::control()
+    };
+    div()
+        .id(("search-field", state.entity_id()))
+        .track_focus(&state.read(cx).focus_handle(cx))
+        .tab_index(0)
+        .h(height)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .min_w_0()
+        .bg(color::white())
+        .border(border::strong())
+        .border_color(color::ink())
+        .focus(|s| s.shadow(vec![shadow::focus_ring()]))
+        .when(large, |d| d.pl(space::lg()).child(icon("search", false)))
+        .child(
+            div().flex_1().min_w_0().child(
+                Input::new(state)
+                    .appearance(false)
+                    .h(height - border::strong() * 2.)
+                    .text_size(if large {
+                        text::track_title()
+                    } else {
+                        text::secondary()
+                    })
+                    .rounded_none(),
+            ),
+        )
+        .when(!state.read(cx).value().is_empty(), |d| {
+            d.child(
+                button(("clear-search", state.entity_id()), "", color::surface())
+                    .size(if large {
+                        size::row_action()
+                    } else {
+                        layout::icon()
+                    })
+                    .px(layout::zero())
+                    .mr(space::sm())
+                    .mb(layout::zero())
+                    .shadow(vec![])
+                    .child(icon("x", false).size(crate::theme::catalog::icon()))
+                    .on_click(move |_, w, cx| {
+                        field.update(cx, |s, cx| {
+                            s.set_value("", w, cx);
+                            s.focus(w, cx);
+                        });
+                        cx.stop_propagation();
+                    }),
+            )
+        })
+}
+
 pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
     // Wait for the final available width before laying out text. GPUI's
     // intrinsic-size passes mutate truncated font runs, which can leave later
@@ -453,6 +556,34 @@ impl Render for Bar {
     }
 }
 
+/// Shared selection surface; layout and optional drag handling belong to the caller.
+pub fn selectable_track_row(
+    row: Stateful<Div>,
+    selected: bool,
+    playing: bool,
+    on_press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    row.when(selected, |d| {
+        d.border_l(crate::theme::selection::marker())
+            .when(!playing, |d| {
+                d.bg(color::canvas())
+                    .hover(|s| s.bg(color::canvas()))
+                    .focus(|s| s.bg(color::canvas()))
+            })
+    })
+    .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        if !window.default_prevented() {
+            on_press(event, window, cx);
+        }
+    })
+}
+
+/// GPUI's focusable child claims the press with prevent_default before the row
+/// receives it. Keep mouse/keyboard focus and the action's click handler intact.
+pub fn track_action(row: Stateful<Div>) -> Stateful<Div> {
+    row.tab_index(0)
+}
+
 pub fn track_row(index: usize, playing: bool) -> Stateful<Div> {
     div()
         .id(("track", index))
@@ -658,6 +789,10 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
                 .when_some(error, |d, error| {
                     d.child(
                         div()
+                            .w_full()
+                            .min_w_0()
+                            .flex_shrink_0()
+                            .whitespace_normal()
                             .p(space::md())
                             .bg(color::pink())
                             .child(error.to_owned()),
@@ -817,8 +952,7 @@ impl Render for TrackScrollbar {
 
 /// A stationary play button covering the row number on hover or keyboard focus.
 pub fn track_play_button(id: impl Into<ElementId>) -> Stateful<Div> {
-    div()
-        .id(id)
+    track_action(div().id(id))
         .tab_index(0)
         .size(size::row_action())
         .flex()
@@ -834,4 +968,130 @@ pub fn track_play_button(id: impl Into<ElementId>) -> Stateful<Div> {
         .active(|s| s.bg(color::canvas()))
         .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
         .child(icon("player-play", false).text_color(color::ink()))
+}
+
+/// Persistent ruled scrollbar for the catalog's non-virtualized sections.
+pub struct CatalogScrollbar {
+    pub scroll: ScrollHandle,
+    bounds: Bounds<Pixels>,
+    grab: Option<Pixels>,
+}
+impl CatalogScrollbar {
+    pub fn new() -> Self {
+        Self {
+            scroll: ScrollHandle::new(),
+            bounds: Bounds::default(),
+            grab: None,
+        }
+    }
+    fn geometry(&self) -> (Pixels, Pixels) {
+        let height = self.bounds.size.height;
+        let viewport = self.scroll.bounds().size.height;
+        let max = self.scroll.max_offset().height;
+        let thumb = (height * (viewport / (viewport + max).max(px(1.))))
+            .max(crate::theme::scrollbar::min_thumb())
+            .min(height);
+        (
+            (height - thumb) * (-self.scroll.offset().y / max.max(px(1.))).clamp(0., 1.),
+            thumb,
+        )
+    }
+    fn pointer(&mut self, y: Pixels, cx: &mut Context<Self>) {
+        let (_, thumb) = self.geometry();
+        let travel = self.bounds.size.height - thumb;
+        if travel > px(0.) {
+            let f =
+                ((y - self.bounds.top() - self.grab.unwrap_or(thumb / 2.)) / travel).clamp(0., 1.);
+            self.scroll
+                .set_offset(point(px(0.), -self.scroll.max_offset().height * f));
+            cx.notify();
+        }
+    }
+}
+impl Default for CatalogScrollbar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Render for CatalogScrollbar {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity = cx.entity();
+        let weak = entity.downgrade();
+        div()
+            .id("catalog-scrollbar")
+            .relative()
+            .w(crate::theme::scrollbar::width())
+            .h_full()
+            .flex_shrink_0()
+            .bg(color::white())
+            .border_l(border::strong())
+            .border_color(color::ink())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                    let (top, thumb) = this.geometry();
+                    let y = e.position.y - this.bounds.top();
+                    this.grab = Some(if y >= top && y <= top + thumb {
+                        y - top
+                    } else {
+                        thumb / 2.
+                    });
+                    this.pointer(e.position.y, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .child(
+                canvas(
+                    move |bounds, window, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.bounds = bounds;
+                            let (top, height) = this.geometry();
+                            let mut d = div().relative().size_full();
+                            if this.scroll.max_offset().height > px(0.) {
+                                d = d.child(
+                                    div()
+                                        .absolute()
+                                        .top(top)
+                                        .left(border::strong())
+                                        .right(border::strong())
+                                        .h(height)
+                                        .bg(color::ink()),
+                                );
+                            }
+                            let mut el = d.into_any_element();
+                            el.layout_as_root(
+                                bounds.size.map(AvailableSpace::Definite),
+                                window,
+                                cx,
+                            );
+                            el.prepaint_at(bounds.origin, window, cx);
+                            el
+                        })
+                    },
+                    move |_, mut el, window, cx| {
+                        el.paint(window, cx);
+                        let moving = weak.clone();
+                        window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble {
+                                let _ = moving.update(cx, |this, cx| {
+                                    if this.grab.is_some() {
+                                        this.pointer(e.position.y, cx);
+                                    }
+                                });
+                            }
+                        });
+                        let ending = weak.clone();
+                        window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
+                                let _ = ending.update(cx, |this, cx| {
+                                    this.grab = None;
+                                    cx.notify();
+                                });
+                            }
+                        });
+                    },
+                )
+                .size_full(),
+            )
+    }
 }

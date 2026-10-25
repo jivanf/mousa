@@ -51,6 +51,9 @@ impl Item {
 pub struct Page {
     pub title: String,
     pub subtitle: String,
+    pub metadata: String,
+    pub byline: String,
+    pub creator: Option<Destination>,
     pub thumbnail: Option<String>,
     pub items: Vec<Item>,
     pub filters: Vec<(String, Destination)>,
@@ -422,6 +425,16 @@ pub fn parse(v: &Value, api: &str) -> Page {
                         | "musicVisualHeaderRenderer" => {
                             page.title = text(&value["title"]);
                             page.subtitle = text(&value["subtitle"]);
+                            page.metadata = text(&value["secondSubtitle"]);
+                            page.byline = text(&value["straplineText"]);
+                            page.creator = find(&value["straplineText"], "navigationEndpoint")
+                                .and_then(endpoint);
+                            if page.byline.is_empty() {
+                                page.byline = text(&value["straplineTextOne"]);
+                                page.creator =
+                                    find(&value["straplineTextOne"], "navigationEndpoint")
+                                        .and_then(endpoint);
+                            }
                             page.thumbnail = thumbnail(&value["thumbnail"]);
                             if let Some(e) =
                                 find(&value["playButton"], "navigationEndpoint").and_then(endpoint)
