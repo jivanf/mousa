@@ -364,6 +364,119 @@ pub fn create(name: &str, google: bool) -> Result<i64> {
     tx.commit()?;
     Ok(id)
 }
+/// Fetch authoritative metadata before enabling the editor. Never substitute an
+/// empty description/private visibility for a failed remote read.
+pub fn playlist_details(id: i64) -> Result<crate::playlist_edit::Details> {
+    use crate::playlist_edit::{Details, Fields, Remote};
+    let _guard = OPERATIONS.lock().unwrap();
+    let db = db::library()?;
+    let fields = db.playlist_fields(id)?;
+    let Some((remote, account)) = db.google_playlist(id)? else {
+        return Ok(Details {
+            fields,
+            remote: None,
+        });
+    };
+    let g = Google::connect()?;
+    g.check(&account)?;
+    let mut playlist = None;
+    for delay in [0, 1, 2, 4] {
+        if delay > 0 {
+            std::thread::sleep(Duration::from_secs(delay));
+        }
+        let v = g.request(
+            Method::GET,
+            "playlists",
+            &[("part", "snippet,status"), ("id", &remote)],
+            None,
+        )?;
+        playlist = v["items"]
+            .as_array()
+            .and_then(|items| items.first())
+            .cloned();
+        if playlist.is_some() {
+            break;
+        }
+    }
+    let p = playlist.context("Playlist is not available on YouTube. Refresh and retry.")?;
+    let fields = Fields {
+        title: p["snippet"]["title"]
+            .as_str()
+            .context("Missing playlist title")?
+            .into(),
+        description: p["snippet"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .into(),
+        privacy: Some(
+            p["status"]["privacyStatus"]
+                .as_str()
+                .context("Missing playlist privacy")?
+                .into(),
+        ),
+    };
+    Ok(Details {
+        fields,
+        remote: Some(Remote {
+            id: remote,
+            account,
+            etag: p["etag"]
+                .as_str()
+                .context("Missing playlist version")?
+                .into(),
+            snippet: p["snippet"].clone(),
+        }),
+    })
+}
+
+pub fn edit_playlist(
+    id: i64,
+    original: &crate::playlist_edit::Details,
+    fields: &crate::playlist_edit::Fields,
+) -> Result<()> {
+    fields.validate()?;
+    let _guard = OPERATIONS.lock().unwrap();
+    let db = db::library()?;
+    let mapping = db.google_playlist(id)?;
+    if let Some(remote) = &original.remote {
+        ensure!(
+            mapping.as_ref() == Some(&(remote.id.clone(), remote.account.clone())),
+            "Playlist account changed. Close and reopen the editor."
+        );
+        let g = Google::connect()?;
+        g.check(&remote.account)?;
+        let body = crate::playlist_edit::update_body(remote, fields)?;
+        policy::init(&db)?;
+        policy::reserve(&db, integrations::now(), "PUT playlists", 50, false)?;
+        let response = g
+            .client
+            .put(format!("{API}/playlists"))
+            .bearer_auth(&g.token)
+            .query(&[("part", "snippet,status")])
+            .header("If-Match", &remote.etag)
+            .json(&body)
+            .send()?;
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            bail!(
+                "This playlist changed on YouTube. Your edits are still here; copy them before reopening the editor to load the latest version."
+            );
+        }
+        decode_response(response, &db)?;
+    } else {
+        ensure!(
+            mapping.is_none() && fields.privacy.is_none(),
+            "Playlist source changed. Close and reopen the editor."
+        );
+    }
+    let tx = db.conn.unchecked_transaction()?;
+    db.edit_playlist(id, fields)?;
+    if original.remote.is_some() {
+        db.mark_written(id)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn rename(id: i64, name: &str) -> Result<()> {
     ensure!(!name.trim().is_empty(), "Enter a playlist name");
     let _guard = OPERATIONS.lock().unwrap();

@@ -49,6 +49,15 @@ App data is stored in `%APPDATA%\Mousa\Mousa\data`. Put `google-client.json` in
 that folder before signing in. The `MOUSA_DATA_DIR` environment variable can
 override the data directory on either platform.
 
+When tools run inside an MSIX-packaged app such as Codex, Windows can redirect
+their AppData access to that package's `LocalCache\Roaming` directory. The same
+printed path can therefore refer to a different configuration and library than
+a normal Start menu launch. The installer's `-Launch` option uses an unpackaged
+Windows process to avoid inheriting this redirection. Set up OAuth JSON files in
+the real user AppData folder from an unpackaged process; verify authentication
+there as well. Preserve both library databases when recovering an existing
+split setup rather than overwriting either one.
+
 ### Linux
 
 Requirements: Linux, Rust 1.91+, a Vulkan-capable desktop, libmpv, yt-dlp, and a running Secret Service keyring. On Arch Linux, the media packages are `mpv` and `yt-dlp`. Building also requires the Linux graphics and text development libraries for Wayland/X11, Vulkan, fontconfig, freetype, and xkbcommon, plus D-Bus development files.
@@ -146,3 +155,7 @@ Search waits 300 ms after typing. Successful responses are cached in memory for 
 Search replaces the main content view while preserving playback and the current queue. Clicking a playable result starts playback; opening a collection does not. Collection actions load remaining pages before changing the queue or saving tracks, and loading can be cancelled. Save actions use the existing remote-first playlist path: quota exhaustion or a partial remote failure is shown explicitly, and additions are never automatically retried.
 
 Artist subscription state is fetched through the official API only when the artist detail page opens, with a five-minute account-scoped cache. Subscription changes, playlist mutations, and existing library refreshes continue to use official API quota.
+
+Catalog detail pages follow the search design: album and playlist track tables, artist song and album sections, and navigable creator credits. **Add to library** saves a local snapshot of a discovered playlist; it does not subscribe to that playlist on YouTube. **Save to playlist** opens the existing destination picker. All search and filter inputs include an inline clear button only while nonempty.
+
+Before the first search, the catalog shows category chips and the “Find something to play” panel. Opening this view does not fetch results. A category selected before typing is resolved from the service’s first search response. With saved history, the same view shows recent searches and Clear all; clearing history restores the first-use panel.

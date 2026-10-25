@@ -1,13 +1,19 @@
 //! Entry-ID based selection and ordering; duplicate URLs remain distinct tracks.
 use std::collections::BTreeSet;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TrackSelection {
     pub ids: BTreeSet<i64>,
     anchor: Option<i64>,
 }
 
 impl TrackSelection {
+    /// Select immediately in tables without drag-to-reorder.
+    pub fn click(&mut self, order: &[i64], index: usize, ctrl: bool, shift: bool) {
+        if self.press(order, index, ctrl, shift) {
+            self.only(order[index]);
+        }
+    }
     pub fn clear(&mut self) {
         self.ids.clear();
         self.anchor = None;
@@ -22,7 +28,9 @@ impl TrackSelection {
 
     /// Return whether an ordinary click should collapse the selection on release.
     pub fn press(&mut self, order: &[i64], index: usize, ctrl: bool, shift: bool) -> bool {
-        let id = order[index];
+        let Some(&id) = order.get(index) else {
+            return false;
+        };
         if shift {
             let anchor = self
                 .anchor
@@ -93,6 +101,28 @@ pub fn moved_order(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn non_draggable_tables_collapse_and_toggle_occurrences() {
+        let mut s = TrackSelection::default();
+        // Occurrence IDs, not media URLs: repeats remain independently selectable.
+        let order = [0, 1, 2, 3];
+        s.click(&order, 0, false, false);
+        s.click(&order, 2, true, false);
+        assert_eq!(s.ids, BTreeSet::from([0, 2]));
+        s.click(&order, 0, false, false);
+        assert_eq!(s.ids, BTreeSet::from([0]));
+        s.click(&order, 2, false, true);
+        assert_eq!(s.ids, BTreeSet::from([0, 1, 2]));
+        s.click(&order, 1, true, false);
+        assert_eq!(s.ids, BTreeSet::from([0, 2]));
+        s.click(&order, 3, true, true);
+        assert_eq!(s.ids, BTreeSet::from([0, 1, 2, 3]));
+        s.clear();
+        s.click(&order, 3, false, true);
+        assert_eq!(s.ids, BTreeSet::from([3]));
+        s.click(&[], 0, false, false);
+        assert_eq!(s.ids, BTreeSet::from([3]));
+    }
     #[test]
     fn ctrl_shift_and_deferred_plain_click() {
         let mut s = TrackSelection::default();

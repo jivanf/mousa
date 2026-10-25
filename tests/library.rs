@@ -414,7 +414,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.add(id, &[track("Preserved")]).unwrap();
         db.save("session", "saved queue").unwrap();
         db.conn
-            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=0;")
+            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=0;")
             .unwrap();
     }
     let db = Library::open(&path).unwrap();
@@ -422,7 +422,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.conn
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
     assert_eq!(db.load("session").as_deref(), Some("saved queue"));
@@ -620,7 +620,7 @@ fn old_library_migrates_explicit_unavailable_titles_only() {
     )
     .unwrap();
     db.conn
-        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=1;")
+        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=1;")
         .unwrap();
     drop(db);
     let db = Library::open(path).unwrap();

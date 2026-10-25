@@ -4,7 +4,7 @@ use crate::{
     db::{self, Playlist, Track},
     player::{Command, Player},
     sync,
-    theme::{color, space, text},
+    theme::{border, catalog as metrics, color, font, shadow, size, space, text},
     ui::{self, button},
 };
 use gpui::{prelude::*, *};
@@ -29,6 +29,34 @@ struct View {
     item: Option<Item>,
     scroll: ScrollHandle,
     filter: String,
+    selection: std::collections::BTreeMap<TrackTable, crate::track_selection::TrackSelection>,
+}
+/// A page can contain several independently selectable track tables.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum TrackTable {
+    Results,
+    Collection,
+    Section(String, bool),
+}
+impl TrackTable {
+    fn order(&self, items: &[Item]) -> Vec<i64> {
+        items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                item.video.is_some()
+                    && match self {
+                        Self::Results => true,
+                        Self::Collection => item.collection_member,
+                        Self::Section(category, exclude_collection) => {
+                            (!exclude_collection || !item.collection_member)
+                                && &item.category == category
+                        }
+                    }
+            })
+            .map(|(i, _)| i as i64)
+            .collect()
+    }
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -36,6 +64,7 @@ enum Action {
     Shuffle,
     Queue,
     Save,
+    Library,
 }
 enum Message {
     Page(u64, bool, Result<Page, String>),
@@ -75,12 +104,62 @@ pub struct CatalogView {
     cancelled: Arc<AtomicBool>,
     preparing: bool,
     last_request: Option<(Destination, bool)>,
+    scrollbar: Entity<ui::CatalogScrollbar>,
+    standalone: bool,
+    focus_handle: FocusHandle,
+    restore_focus: bool,
 }
 impl EventEmitter<Event> for CatalogView {}
 impl CatalogView {
+    /// Deterministic, offline component review used by the catalog gallery.
+    #[doc(hidden)]
+    pub fn preview(
+        player: Player,
+        page: Page,
+        item: Option<Item>,
+        state: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut view = Self::new(player, window, cx);
+        view.standalone = true;
+        view._subscriptions.clear();
+        view.input.update(cx, |s, cx| {
+            s.set_value(
+                if matches!(state, "empty" | "first-use") {
+                    ""
+                } else if state == "no-results" {
+                    "bachh"
+                } else {
+                    "bach"
+                },
+                window,
+                cx,
+            )
+        });
+        view.filters = page.filters.clone();
+        view.view.page = page;
+        view.view.item = item;
+        view.recent = vec![
+            "bach cantatas".into(),
+            "harnoncourt".into(),
+            "goldberg variations".into(),
+        ];
+        if state == "first-use" {
+            view.recent.clear();
+        }
+        view.busy = state == "loading";
+        view.error = (state == "error").then(|| "Offline preview".into());
+        if state == "no-results" {
+            view.view.filter = "Videos".into();
+        }
+        view.subscription = Some(None);
+        view
+    }
     pub fn new(player: Player, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search songs, albums, artists…"));
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search songs, videos, albums, artists…")
+        });
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("New playlist name"));
         let picker_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter destination playlists…"));
@@ -110,6 +189,10 @@ impl CatalogView {
         })
         .detach();
         Self {
+            standalone: false,
+            focus_handle: cx.focus_handle(),
+            restore_focus: false,
+            scrollbar: cx.new(|_| ui::CatalogScrollbar::new()),
             input,
             name,
             picker_filter,
@@ -119,6 +202,7 @@ impl CatalogView {
                 item: None,
                 scroll: ScrollHandle::new(),
                 filter: "All".into(),
+                selection: Default::default(),
             },
             history: vec![],
             filters: vec![],
@@ -146,8 +230,20 @@ impl CatalogView {
             last_request: None,
         }
     }
-    pub fn focus(&self, window: &mut Window, cx: &App) {
+    pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view.item.is_some() && !self.save_busy {
+            self.cancel_collection();
+            self.invalidate();
+            self.busy = false;
+            while let Some(view) = self.history.pop() {
+                self.view = view;
+            }
+            self.view.item = None;
+            self.pending = None;
+            self.error = None;
+        }
         self.input.read(cx).focus_handle(cx).focus(window);
+        cx.notify();
     }
     fn invalidate(&mut self) {
         self.generation += 1;
@@ -174,6 +270,8 @@ impl CatalogView {
             return;
         }
         if self.pending.take().is_some() {
+            self.restore_focus = true;
+            self.status.clear();
             cx.notify();
             return;
         }
@@ -184,6 +282,7 @@ impl CatalogView {
         self.error = None;
         if let Some(view) = self.history.pop() {
             self.view = view;
+            self.restore_focus = true;
             self.load_subscription();
         } else {
             cx.emit(Event::Close);
@@ -198,6 +297,7 @@ impl CatalogView {
         self.history.clear();
         self.view.item = None;
         let query = self.input.read(cx).value().trim().to_owned();
+        self.view.selection.clear();
         self.view.page = Page::default();
         self.view.scroll = ScrollHandle::new();
         self.busy = !query.is_empty();
@@ -269,6 +369,7 @@ impl CatalogView {
         };
         self.debounce = None;
         self.cancel_collection();
+        self.restore_focus = true;
         self.history.push(self.view.clone());
         self.view = View {
             destination,
@@ -276,6 +377,7 @@ impl CatalogView {
             page: Page::default(),
             scroll: ScrollHandle::new(),
             filter: self.view.filter.clone(),
+            selection: Default::default(),
         };
         self.status.clear();
         self.request(false, cx);
@@ -375,6 +477,7 @@ impl CatalogView {
         cx.notify();
     }
     fn apply(&mut self, action: Action, items: Vec<Item>, cx: &mut Context<Self>) {
+        self.status.clear();
         let tracks: Vec<_> = items.iter().filter_map(Item::track).collect();
         if tracks.is_empty() {
             self.error = Some("No playable tracks are available in this selection.".into());
@@ -399,6 +502,35 @@ impl CatalogView {
                     self.player.send(Command::Append(t));
                 }
                 self.status = format!("Added {count} tracks to queue");
+            }
+            Action::Library => {
+                let name = self.view.page.title.clone();
+                let fallback = self
+                    .view
+                    .item
+                    .as_ref()
+                    .map(|i| i.title.clone())
+                    .unwrap_or_default();
+                let key = format!("catalog-library:{}", self.view.destination.body);
+                self.save_busy = true;
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    let result = (|| -> anyhow::Result<String> {
+                        let mut db = db::library()?;
+                        if let Some(saved) = db.load(&key)
+                            && let Ok(id) = saved.parse::<i64>()
+                            && db.playlists()?.iter().any(|p| p.id == id)
+                        {
+                            return Ok("Already in your library".into());
+                        }
+                        let id = db.create(if name.is_empty() { &fallback } else { &name })?;
+                        db.add(id, &tracks)?;
+                        db.save(&key, &id.to_string())?;
+                        Ok("Added to your library".into())
+                    })()
+                    .map_err(|e| e.to_string());
+                    let _ = tx.send(Message::Saved(result));
+                });
             }
             Action::Save => {
                 self.pending = Some(tracks);
@@ -467,14 +599,33 @@ impl CatalogView {
                                 self.filters = page
                                     .filters
                                     .iter()
-                                    .filter(|(label, _)| label != "All")
+                                    .filter(|(label, _)| label != "All" && !label.trim().is_empty())
                                     .cloned()
                                     .collect();
+                            }
+                            // Before the first search, chips have names but no service tokens.
+                            // Resolve the chosen category from the first response, then fetch it.
+                            if !append
+                                && self.view.item.is_none()
+                                && self.view.filter != "All"
+                                && self.view.destination.body.get("params").is_none()
+                                && let Some((_, destination)) = self
+                                    .filters
+                                    .iter()
+                                    .find(|(label, _)| label == &self.view.filter)
+                            {
+                                let mut destination = destination.clone();
+                                destination.body["query"] =
+                                    self.input.read(cx).value().trim().into();
+                                self.view.destination = destination;
+                                self.request(false, cx);
+                                continue;
                             }
                             if append {
                                 self.view.page.items.append(&mut page.items);
                                 self.view.page.more = page.more;
                             } else {
+                                self.view.selection.clear();
                                 self.view.page = page;
                             }
                             if self.view.item.is_none() {
@@ -571,7 +722,7 @@ fn cover(url: Option<&str>, size: f32) -> AnyElement {
         .size(px(size))
         .flex_shrink_0()
         .bg(color::canvas())
-        .border_1()
+        .border(border::strong())
         .border_color(color::ink())
         .overflow_hidden();
     if let Some(path) = url.map(catalog::thumbnail_path).filter(|p| p.is_file()) {
@@ -580,7 +731,7 @@ fn cover(url: Option<&str>, size: f32) -> AnyElement {
                 img(path)
                     .size_full()
                     .object_fit(ObjectFit::Cover)
-                    .with_fallback(|| div().child("♪").into_any_element()),
+                    .with_fallback(|| div().child(ui::icon("disc", false)).into_any_element()),
             )
             .into_any_element()
     } else {
@@ -588,35 +739,739 @@ fn cover(url: Option<&str>, size: f32) -> AnyElement {
             .flex()
             .items_center()
             .justify_center()
-            .child("♪")
+            .child(ui::icon("disc", false))
             .into_any_element()
     }
 }
-impl Render for CatalogView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut root = div()
-            .size_full()
+fn action_button(
+    id: impl Into<ElementId>,
+    label: &str,
+    icon: Option<&'static str>,
+    primary: bool,
+) -> Stateful<Div> {
+    button(
+        id,
+        "",
+        if primary {
+            color::lime()
+        } else {
+            color::surface()
+        },
+    )
+    .h(metrics::action())
+    .px(metrics::action_padding())
+    .gap(metrics::nav_gap())
+    .text_size(text::secondary())
+    .when_some(icon, |d, name| {
+        d.child(ui::icon(name, false).size(metrics::icon()))
+    })
+    .child(label.to_owned())
+}
+fn small_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> Stateful<Div> {
+    button(id, "", color::white())
+        .size(size::row_action())
+        .px(crate::theme::layout::zero())
+        .mr(crate::theme::layout::zero())
+        .mb(crate::theme::layout::zero())
+        .shadow(vec![])
+        .child(ui::icon(name, false).size(metrics::icon()))
+        .when(ui::icon_needs_tooltip(name), |d| {
+            d.tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(label).build(w, cx))
+        })
+}
+fn row_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> Stateful<Div> {
+    ui::track_action(small_icon(id, name, label))
+        .opacity(0.)
+        .group_hover("track-row", |s| s.opacity(1.))
+        .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
+}
+fn time_label(seconds: f64) -> String {
+    if seconds <= 0. {
+        return String::new();
+    }
+    let n = seconds as u64;
+    if n >= 3600 {
+        format!("{}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60)
+    } else {
+        format!("{}:{:02}", n / 60, n % 60)
+    }
+}
+fn trailing_metadata(item: &Item) -> String {
+    if item.duration > 0. {
+        return time_label(item.duration);
+    }
+    item.subtitle
+        .split(['·', '•'])
+        .map(str::trim)
+        .find(|s| s.ends_with(" tracks") || s.ends_with(" songs") || s.ends_with(" episodes"))
+        .unwrap_or("")
+        .to_owned()
+}
+fn description(item: &Item, include_kind: bool) -> String {
+    let trailing = trailing_metadata(item);
+    let mut parts: Vec<String> = item
+        .subtitle
+        .split(['·', '•'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != item.kind && *s != trailing)
+        .map(str::to_owned)
+        .collect();
+    if include_kind {
+        parts.insert(0, item.kind.clone());
+    }
+    parts.join(" · ")
+}
+impl CatalogView {
+    fn choose_all(&mut self, cx: &mut Context<Self>) {
+        self.view.filter = "All".into();
+        self.view.destination = catalog::search(self.input.read(cx).value().trim());
+        self.view.scroll = ScrollHandle::new();
+        self.request(false, cx);
+    }
+    fn more(&mut self, label: String, destination: Destination, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if destination.body.get("continuation").is_some() {
+            self.fetch_request(destination, true, cx);
+        } else {
+            self.open(
+                Item {
+                    title: label.trim_start_matches("More ").to_owned(),
+                    kind: "Collection".into(),
+                    destination: Some(destination),
+                    ..Default::default()
+                },
+                cx,
+            );
+        }
+    }
+    fn row(
+        &self,
+        item: Item,
+        index: usize,
+        number: Option<usize>,
+        album: bool,
+        table: TrackTable,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        let detail = number.is_some();
+        let playable = item.video.is_some() && !item.unavailable;
+        let open = item.clone();
+        let play = item.clone();
+        let queue = item.clone();
+        let save = item.clone();
+        let mut lead = div()
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(if detail {
+                metrics::number()
+            } else {
+                metrics::thumbnail()
+            })
+            .h(if detail {
+                metrics::track_row()
+            } else {
+                metrics::thumbnail()
+            });
+        if let Some(n) = number {
+            lead = lead.child(
+                div()
+                    .font_family(font::MONO)
+                    .font_weight(FontWeight::NORMAL)
+                    .child(n.to_string()),
+            );
+        } else {
+            lead = lead.child(cover(
+                item.thumbnail.as_deref(),
+                f32::from(metrics::thumbnail()),
+            ));
+        }
+        if playable {
+            lead = lead.child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        row_icon(("catalog-play", index), "player-play", "Play").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.activate_item(play.clone(), index, cx);
+                                cx.stop_propagation();
+                            }),
+                        ),
+                    ),
+            );
+        }
+        let mut row = div()
+            .id(("catalog-row", index))
+            .group("track-row")
+            .tab_index(0)
+            .h(if detail {
+                metrics::track_row()
+            } else {
+                metrics::result_row()
+            })
+            .flex_shrink_0()
+            .pr(space::md())
+            .when(!detail, |d| d.pl(space::sm()))
+            .border_b(border::hairline())
+            .border_color(color::ink())
+            .bg(color::surface())
+            .hover(|s| s.bg(color::white()))
+            .focus(|s| s.bg(color::white()).shadow(vec![shadow::focus_ring()]))
+            .flex()
+            .items_center()
+            .gap(space::md())
+            .cursor_pointer()
+            .child(lead)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(border::strong())
+                    .child(
+                        div()
+                            .text_size(text::body())
+                            .truncate()
+                            .child(item.title.clone()),
+                    )
+                    .when(!album, |d| {
+                        d.child(
+                            div()
+                                .text_size(text::secondary())
+                                .text_color(color::muted())
+                                .truncate()
+                                .child(if detail && !item.artist.is_empty() {
+                                    item.artist.clone()
+                                } else {
+                                    description(&item, !detail)
+                                }),
+                        )
+                    }),
+            )
+            .when(item.video.is_none(), |d| {
+                d.on_click(cx.listener(move |this, _, _, cx| this.open(open.clone(), cx)))
+            });
+        if item.video.is_some() {
+            row = ui::selectable_track_row(
+                row,
+                self.view
+                    .selection
+                    .get(&table)
+                    .is_some_and(|s| s.ids.contains(&(index as i64))),
+                false,
+                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                    let order = table.order(&this.view.page.items);
+                    if let Some(position) = order.iter().position(|id| *id == index as i64) {
+                        let selection = this.view.selection.entry(table.clone()).or_default();
+                        selection.retain(&order);
+                        selection.click(&order, position, e.modifiers.control, e.modifiers.shift);
+                        cx.notify();
+                    }
+                }),
+            );
+        }
+        if playable {
+            let mut actions = div().flex().gap(space::md());
+            actions = actions.child(
+                row_icon(("result-queue", index), "playlist-add", "Add to queue").on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        this.act(Action::Queue, Some(vec![queue.clone()]), cx);
+                        cx.stop_propagation();
+                    }),
+                ),
+            );
+            if !detail {
+                actions = actions.child(
+                    row_icon(("result-save", index), "plus", "Add to playlist").on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.act(Action::Save, Some(vec![save.clone()]), cx);
+                            cx.stop_propagation();
+                        }),
+                    ),
+                );
+            }
+            row = row.child(actions);
+        }
+        row.child(
+            div()
+                .w(if detail {
+                    metrics::track_duration()
+                } else {
+                    metrics::duration()
+                })
+                .flex_shrink_0()
+                .text_right()
+                .font_family(font::MONO)
+                .font_weight(FontWeight::NORMAL)
+                .text_size(text::body())
+                .child(if item.unavailable {
+                    "UNAVAILABLE".into()
+                } else {
+                    trailing_metadata(&item)
+                }),
+        )
+    }
+    fn details(&self, cx: &Context<Self>) -> Div {
+        let item = self.view.item.as_ref().unwrap();
+        let page = &self.view.page;
+        let artist = item.kind == "Artist";
+        let album = matches!(item.kind.as_str(), "Album" | "Single" | "EP");
+        let finite = album || matches!(item.kind.as_str(), "Playlist" | "Podcast");
+        let title = if page.title.is_empty() {
+            &item.title
+        } else {
+            &page.title
+        };
+        let mut actions = div().flex().flex_wrap().gap(space::md()).mt(space::md());
+        if finite {
+            for (id, label, icon, action, primary) in [
+                (
+                    "collection-play",
+                    "PLAY",
+                    Some("player-play"),
+                    Action::Play(0),
+                    true,
+                ),
+                (
+                    "collection-shuffle",
+                    "SHUFFLE",
+                    Some("arrows-shuffle"),
+                    Action::Shuffle,
+                    false,
+                ),
+                (
+                    "collection-queue",
+                    "QUEUE",
+                    Some("playlist-add"),
+                    Action::Queue,
+                    false,
+                ),
+                (
+                    "collection-save",
+                    if item.kind == "Playlist" {
+                        "ADD TO LIBRARY"
+                    } else {
+                        "SAVE TO PLAYLIST"
+                    },
+                    None,
+                    if item.kind == "Playlist" {
+                        Action::Library
+                    } else {
+                        Action::Save
+                    },
+                    false,
+                ),
+            ] {
+                actions = actions.child(
+                    action_button(id, label, icon, primary)
+                        .on_click(cx.listener(move |this, _, _, cx| this.act(action, None, cx))),
+                );
+            }
+        }
+        if artist {
+            actions = actions.child(
+                action_button("artist-shuffle", "SHUFFLE", Some("arrows-shuffle"), true)
+                    .on_click(cx.listener(|this, _, _, cx| this.act(Action::Shuffle, None, cx))),
+            );
+            let label = if self.subscription_busy {
+                "LOADING…"
+            } else if self.subscription.as_ref().is_some_and(Option::is_some) {
+                "UNSUBSCRIBE"
+            } else {
+                "SUBSCRIBE"
+            };
+            actions = actions.child(
+                action_button("artist-subscribe", label, Some("plus"), false)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_subscription(cx))),
+            );
+        }
+        let byline = if !page.byline.is_empty() {
+            page.byline.clone()
+        } else if !item.artist.is_empty() {
+            item.artist.clone()
+        } else {
+            item.subtitle
+                .split(['·', '•'])
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != item.kind)
+                .find(|s| !s.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or("")
+                .to_owned()
+        };
+        let meta = page
+            .subtitle
+            .split(['·', '•'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && *s != item.kind)
+            .chain(std::iter::once(page.metadata.as_str()).filter(|s| !s.is_empty()))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let mut info = div()
+            .flex_1()
+            .min_w_0()
             .flex()
             .flex_col()
-            .gap(space::md())
-            .p(space::xl())
-            .child(ui::input(&self.input, cx));
-        if let Some(error) = &self.error {
-            root = root.child(
+            .gap(space::sm())
+            .pb(space::xs())
+            .child(ui::caps(&item.kind.to_uppercase()))
+            .child(
                 div()
-                    .p(space::md())
-                    .bg(color::pink())
-                    .child(error.clone())
-                    .child(button("catalog-retry", "RETRY", color::surface()).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            if this.pending.is_none()
-                                && let Some((d, append)) = this.last_request.clone()
-                            {
-                                this.fetch_request(d, append, cx);
-                            }
-                        }),
-                    )),
+                    .text_size(text::page_title())
+                    .line_height(relative(1.1))
+                    .child(title.clone()),
             );
+        if !byline.is_empty() {
+            info = info.child(div().id("catalog-creator").child(byline.clone()).when_some(
+                page.creator.clone(),
+                |d, destination| {
+                    d.underline()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open(
+                                Item {
+                                    title: byline.clone(),
+                                    kind: "Artist".into(),
+                                    destination: Some(destination.clone()),
+                                    ..Default::default()
+                                },
+                                cx,
+                            )
+                        }))
+                },
+            ));
+        }
+        if !meta.is_empty() {
+            info = info.child(
+                div()
+                    .text_size(text::secondary())
+                    .text_color(color::muted())
+                    .child(meta),
+            );
+        }
+        info = info.child(actions);
+        let mut content = div()
+            .flex()
+            .flex_col()
+            .when(finite, |d| d.size_full().min_h_0())
+            .p(space::xxl())
+            .min_w_0()
+            .child(
+                div().flex().flex_shrink_0().child(
+                    action_button("catalog-back", "BACK", Some("arrow-left"), false)
+                        .h(size::control())
+                        .mb(space::xl())
+                        .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
+                ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_end()
+                    .gap(space::xxl())
+                    .child(div().flex_shrink_0().shadow(shadow::md()).child(cover(
+                        page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
+                        f32::from(if artist {
+                            metrics::portrait()
+                        } else {
+                            metrics::cover()
+                        }),
+                    )))
+                    .child(info),
+            );
+        if let Some(error) = &self.subscription_error {
+            content = content.child(
+                div()
+                    .mt(space::md())
+                    .text_color(color::muted())
+                    .child(error.clone()),
+            );
+        }
+        if !self.status.is_empty() {
+            content = content.child(div().mt(space::md()).child(self.status.clone()));
+        }
+        if self.preparing {
+            content = content.child(
+                button("cancel-loading", "CANCEL LOADING", color::surface()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.cancel_collection();
+                        this.status = "Cancelled".into();
+                        cx.notify();
+                    },
+                )),
+            );
+        }
+        if self.busy && page.items.is_empty() {
+            return content.child(div().mt(space::xxl()).child(ui::caps("LOADING…")));
+        }
+        if let Some(error) = &self.error {
+            content = content.child(self.error_panel(error, cx));
+        }
+        // Keep the collection header outside the bounded scrolling table.
+        let header = finite.then(|| std::mem::replace(&mut content, div()));
+        if finite {
+            let mut rows = div();
+            let mut n = 0;
+            for (index, row) in page
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.collection_member && i.video.is_some())
+            {
+                n += 1;
+                rows = rows.child(self.row(
+                    row.clone(),
+                    index,
+                    Some(n),
+                    album,
+                    TrackTable::Collection,
+                    cx,
+                ));
+            }
+            content = content.child(rows);
+        }
+        let mut sections: Vec<String> = Vec::new();
+        for row in &page.items {
+            if (!finite || !row.collection_member) && !sections.contains(&row.category) {
+                sections.push(row.category.clone());
+            }
+        }
+        for (section_index, category) in sections.iter().enumerate() {
+            let label = if artist && category == "Songs" {
+                "TOP SONGS".to_owned()
+            } else {
+                category.to_uppercase()
+            };
+            let mut heading = div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .h(size::row_action())
+                .mt(space::xxl())
+                .mb(space::md())
+                .child(ui::caps(&label));
+            if let Some((label, destination)) = page
+                .more
+                .iter()
+                .find(|(label, d)| {
+                    label == &format!("More {category}") && d.body.get("continuation").is_none()
+                })
+                .cloned()
+            {
+                heading = heading.child(
+                    button(("section-more", section_index), "SEE ALL", color::surface())
+                        .h(size::row_action())
+                        .text_size(text::secondary())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.more(label.clone(), destination.clone(), cx)
+                        })),
+                );
+            }
+            content = content.child(heading);
+            let rows: Vec<_> = page
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.category == *category && (!finite || !i.collection_member))
+                .collect();
+            let cards = rows.iter().all(|(_, i)| i.video.is_none());
+            if cards {
+                let mut grid = div().flex().flex_wrap().gap(space::xl());
+                for (index, row) in rows {
+                    let open = row.clone();
+                    grid =
+                        grid.child(
+                            div()
+                                .id(("catalog-card", index))
+                                .tab_index(0)
+                                .w(metrics::card())
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(space::sm())
+                                .cursor_pointer()
+                                .child(div().shadow(shadow::sm()).mb(space::sm()).child(cover(
+                                    row.thumbnail.as_deref(),
+                                    f32::from(metrics::card()),
+                                )))
+                                .child(div().truncate().child(row.title.clone()))
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(text::secondary())
+                                        .text_color(color::muted())
+                                        .child(description(row, true)),
+                                )
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.open(open.clone(), cx)),
+                                ),
+                        );
+                }
+                content = content.child(grid);
+            } else {
+                let mut table = div()
+                    .border(border::strong())
+                    .border_color(color::ink())
+                    .bg(color::surface());
+                for (n, (index, row)) in rows.into_iter().enumerate() {
+                    table = table.child(self.row(
+                        row.clone(),
+                        index,
+                        Some(n + 1),
+                        false,
+                        TrackTable::Section(category.clone(), finite),
+                        cx,
+                    ));
+                }
+                content = content.child(table);
+            }
+        }
+        for (index, (label, destination)) in page
+            .more
+            .iter()
+            .filter(|(_, d)| d.body.get("continuation").is_some())
+            .cloned()
+            .enumerate()
+        {
+            content = content.child(
+                button(("detail-more", index), "LOAD MORE", color::surface())
+                    .mt(space::lg())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.more(label.clone(), destination.clone(), cx)
+                    })),
+            );
+        }
+        if let Some(header) = header {
+            header.child(
+                div()
+                    .mt(space::xxl())
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .border(border::strong())
+                    .border_color(color::ink())
+                    .bg(color::surface())
+                    .child(
+                        div()
+                            .id("catalog-collection-tracks")
+                            .track_scroll(&self.view.scroll)
+                            .overflow_y_scroll()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(content),
+                    )
+                    .child(self.scrollbar.clone()),
+            )
+        } else {
+            content
+        }
+    }
+    fn error_panel(&self, error: &str, cx: &Context<Self>) -> Div {
+        div()
+            .border(border::strong())
+            .border_color(color::ink())
+            .bg(color::surface())
+            .p(metrics::state_padding())
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(space::md())
+            .child(ui::icon("plug-connected-x", false))
+            .child(
+                div()
+                    .text_size(text::track_title())
+                    .font_weight(FontWeight::BOLD)
+                    .child("Couldn’t reach YouTube"),
+            )
+            .child(
+                div()
+                    .text_size(text::secondary())
+                    .child("Check your connection and try again.")
+                    .id("error-explanation")
+                    .tooltip({
+                        let error = error.to_owned();
+                        move |w, cx| {
+                            gpui_component::tooltip::Tooltip::new(error.clone()).build(w, cx)
+                        }
+                    }),
+            )
+            .child(
+                action_button("catalog-retry", "RETRY", None, true)
+                    .h(size::control())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some((d, append)) = this.last_request.clone() {
+                            this.fetch_request(d, append, cx);
+                        }
+                    })),
+            )
+    }
+}
+impl Render for CatalogView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.restore_focus {
+            self.restore_focus = false;
+            if self.view.item.is_some() {
+                self.focus_handle.focus(window);
+            } else {
+                self.input.read(cx).focus_handle(cx).focus(window);
+            }
+        }
+        self.scrollbar
+            .update(cx, |bar, _| bar.scroll = self.view.scroll.clone());
+        let mut root = div()
+            .id("catalog-view")
+            .track_focus(&self.focus_handle)
+            .size_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .line_height(relative(1.2));
+        if self.view.item.is_some() && self.pending.is_none() {
+            if self.view.item.as_ref().is_some_and(|item| {
+                matches!(
+                    item.kind.as_str(),
+                    "Album" | "Single" | "EP" | "Playlist" | "Podcast"
+                )
+            }) {
+                return root.child(self.details(cx)).into_any_element();
+            }
+            return root
+                .flex_row()
+                .child(
+                    div()
+                        .id("catalog-detail")
+                        .track_scroll(&self.view.scroll)
+                        .overflow_y_scroll()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .child(self.details(cx)),
+                )
+                .child(self.scrollbar.clone())
+                .into_any_element();
+        }
+        root = root
+            .p(if self.standalone {
+                space::xxl()
+            } else {
+                space::lg()
+            })
+            .gap(space::lg())
+            .child(ui::search_input(&self.input, true, cx));
+        if self.pending.is_some() {
+            if let Some(error) = &self.error {
+                root = root.child(div().text_color(color::ink()).child(error.clone()));
+            }
         }
         if let Some(tracks) = &self.pending {
             let mut picker = div()
@@ -628,7 +1483,7 @@ impl Render for CatalogView {
                 .flex_col()
                 .gap(space::md())
                 .child(format!("SAVE {} TRACKS TO PLAYLIST", tracks.len()))
-                .child(ui::input(&self.picker_filter, cx));
+                .child(ui::search_input(&self.picker_filter, false, cx));
             let query = self.picker_filter.read(cx).value().to_lowercase();
             for playlist in self
                 .playlists
@@ -689,276 +1544,345 @@ impl Render for CatalogView {
                 );
             return root.child(picker).into_any_element();
         }
-        if self.view.item.is_none() {
-            let mut filters = div().flex().flex_wrap().gap(space::sm());
-            for (index, (label, mut destination)) in std::iter::once((
-                "All".to_owned(),
-                catalog::search(self.input.read(cx).value().trim()),
-            ))
-            .chain(self.filters.clone())
-            .enumerate()
+        let query = self.input.read(cx).value().trim().to_owned();
+        if query.is_empty()
+            || (!self.busy && self.error.is_none() && !self.view.page.items.is_empty())
+        {
+            let mut filters = self.filters.clone();
+            let order = [
+                "Songs",
+                "Videos",
+                "Albums",
+                "Artists",
+                "Community playlists",
+                "Featured playlists",
+                "Podcasts",
+                "Episodes",
+                "Profiles",
+            ];
+            if filters.is_empty() {
+                filters = order
+                    .iter()
+                    .map(|label| (label.to_string(), catalog::search(&query)))
+                    .collect();
+            }
+            filters.sort_by_key(|(name, _)| {
+                order
+                    .iter()
+                    .position(|s| s.eq_ignore_ascii_case(name))
+                    .unwrap_or(order.len())
+            });
+            let mut chips = div().flex().flex_wrap().gap(space::md());
+            for (index, (label, mut destination)) in
+                std::iter::once(("All".to_owned(), catalog::search(&query)))
+                    .chain(filters)
+                    .enumerate()
             {
-                destination.body["query"] = self.input.read(cx).value().trim().to_owned().into();
-                let active = self.view.filter == label;
-                filters = filters.child(
+                destination.body["query"] = query.clone().into();
+                chips = chips.child(
                     button(
                         ("catalog-filter", index),
                         label.to_uppercase(),
-                        if active {
+                        if self.view.filter == label {
                             color::ink()
                         } else {
                             color::surface()
                         },
                     )
+                    .text_size(text::secondary())
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if this.input.read(cx).value().trim().is_empty() {
-                            return;
-                        }
                         this.debounce = None;
                         this.cancel_collection();
                         this.view.filter = label.clone();
                         this.view.destination = destination.clone();
                         this.view.scroll = ScrollHandle::new();
-                        this.request(false, cx);
+                        if this.input.read(cx).value().trim().is_empty() {
+                            cx.notify();
+                        } else {
+                            this.request(false, cx);
+                        }
                     })),
                 );
             }
-            root = root.child(filters);
-        } else {
-            let item = self.view.item.as_ref().unwrap();
-            let title = if self.view.page.title.is_empty() {
-                item.title.clone()
-            } else {
-                self.view.page.title.clone()
-            };
-            let subtitle = if self.view.page.subtitle.is_empty() {
-                item.subtitle.clone()
-            } else {
-                self.view.page.subtitle.clone()
-            };
+            root = root.child(chips);
+        }
+        if query.is_empty() {
+            if self.recent.is_empty() {
+                return root.child(
+                    div().border(border::strong()).border_color(color::ink())
+                        .bg(color::surface()).p(space::xl()).flex().gap(metrics::state_padding())
+                        .items_start()
+                        .child(div().size(metrics::field()).flex_shrink_0()
+                            .border(border::strong()).border_color(color::ink()).bg(color::canvas())
+                            .flex().items_center().justify_center()
+                            .child(ui::icon("search", false).size(px(28.))))
+                        .child(div().flex_1().min_w_0().max_w(px(560.)).flex().flex_col().gap(space::sm())
+                            .child(div().text_size(px(18.)).font_weight(FontWeight::BOLD).child("Find something to play"))
+                            .child(div().text_size(text::body()).text_color(color::muted()).line_height(relative(1.4))
+                                .child("Search for songs, videos, albums, artists, playlists and episodes. Your recent searches will appear here.")))
+                ).into_any_element();
+            }
             root = root.child(
                 div()
                     .flex()
-                    .gap(space::md())
-                    .child(cover(
-                        self.view
-                            .page
-                            .thumbnail
-                            .as_deref()
-                            .or(item.thumbnail.as_deref()),
-                        90.,
-                    ))
+                    .items_center()
+                    .justify_between()
+                    .child(ui::caps("RECENT SEARCHES"))
                     .child(
-                        div()
-                            .flex_1()
-                            .child(item.kind.to_uppercase())
-                            .child(div().text_size(text::page_title()).child(title))
-                            .child(subtitle),
+                        button("clear-recent-searches", "CLEAR ALL", color::surface())
+                            .h(size::row_action())
+                            .text_size(text::secondary())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.recent.clear();
+                                this.save_recent();
+                                cx.notify();
+                            })),
                     ),
             );
-            let finite = matches!(
-                item.kind.as_str(),
-                "Album" | "Single" | "EP" | "Playlist" | "Podcast"
-            );
-            let artist = item.kind == "Artist";
-            let mut actions = div().flex().flex_wrap().gap(space::sm());
-            if finite {
-                for (id, label, action) in [
-                    ("collection-play", "PLAY", Action::Play(0)),
-                    ("collection-shuffle", "SHUFFLE", Action::Shuffle),
-                    ("collection-queue", "QUEUE", Action::Queue),
-                    ("collection-save", "SAVE TO PLAYLIST", Action::Save),
-                ] {
-                    actions =
-                        actions.child(button(id, label, color::surface()).on_click(
-                            cx.listener(move |this, _, _, cx| this.act(action, None, cx)),
-                        ));
-                }
-            }
-            if artist {
-                if self.view.page.shuffle.is_some() {
-                    actions = actions.child(
-                        button("artist-shuffle", "SHUFFLE", color::surface()).on_click(
-                            cx.listener(|this, _, _, cx| this.act(Action::Shuffle, None, cx)),
-                        ),
-                    );
-                }
-                let label = if self.subscription_busy {
-                    "LOADING SUBSCRIPTION…"
-                } else if self.subscription.as_ref().is_some_and(Option::is_some) {
-                    "UNSUBSCRIBE"
-                } else if self.subscription.is_some() {
-                    "SUBSCRIBE"
-                } else {
-                    "RETRY SUBSCRIPTION"
-                };
-                actions = actions.child(
-                    button("artist-subscribe", label, color::surface())
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_subscription(cx))),
-                );
-            }
-            root = root.child(actions);
-            if let Some(error) = &self.subscription_error {
-                root = root.child(div().text_size(text::secondary()).child(error.clone()));
-            }
-        }
-        if !self.status.is_empty() {
-            root = root.child(self.status.clone());
-        }
-        if self.preparing {
-            root = root.child(
-                button("collection-cancel", "CANCEL LOADING", color::surface()).on_click(
-                    cx.listener(|this, _, _, cx| {
-                        this.cancel_collection();
-                        this.status = "Cancelled".into();
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
-        if self.busy {
-            root = root.child("SEARCHING / LOADING…");
-        }
-        let mut list = div()
-            .id("catalog-results")
-            .track_scroll(&self.view.scroll)
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .bg(color::surface())
-            .border_1()
-            .border_color(color::ink())
-            .flex()
-            .flex_col();
-        if self.input.read(cx).value().trim().is_empty() && self.view.item.is_none() {
-            list = list.child("RECENT SEARCHES");
-            for (index, query) in self.recent.clone().into_iter().enumerate() {
-                let remove = query.clone();
-                list =
-                    list.child(
+            if !self.recent.is_empty() {
+                let mut history = div()
+                    .id("recent-searches")
+                    .overflow_y_scroll()
+                    .min_h_0()
+                    .border(border::strong())
+                    .border_color(color::ink())
+                    .bg(color::surface());
+                for (index, query) in self.recent.clone().into_iter().enumerate() {
+                    let remove = query.clone();
+                    history = history.child(
                         div()
+                            .id(("recent", index))
+                            .tab_index(0)
+                            .h(metrics::recent_row())
                             .flex()
-                            .gap(space::sm())
+                            .items_center()
+                            .gap(space::md())
+                            .pl(space::md())
+                            .pr(space::sm())
+                            .border_b(border::hairline())
+                            .border_color(color::ink())
+                            .cursor_pointer()
+                            .hover(|s| s.bg(color::white()))
+                            .child(ui::icon("clock", false).size(metrics::icon()))
+                            .child(div().flex_1().child(query.clone()))
                             .child(
-                                button(("recent", index), query.clone(), color::surface())
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.view.filter = "All".into();
-                                        this.input
-                                            .update(cx, |s, cx| s.set_value(query.clone(), w, cx));
-                                    })),
-                            )
-                            .child(
-                                button(("remove-recent", index), "REMOVE", color::surface())
+                                small_icon(("remove-recent", index), "x", "Remove from history")
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.recent.retain(|q| q != &remove);
                                         this.save_recent();
                                         cx.notify();
+                                        cx.stop_propagation();
                                     })),
-                            ),
+                            )
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                this.view.filter = "All".into();
+                                this.input
+                                    .update(cx, |s, cx| s.set_value(query.clone(), w, cx));
+                            })),
                     );
+                }
+                root = root.child(history);
             }
-        } else if !self.busy && self.view.page.items.is_empty() && self.error.is_none() {
-            list = list.child("No results. Check the spelling or search all types.");
+            return root.into_any_element();
         }
-        let mut category = String::new();
-        for (index, item) in self.view.page.items.iter().cloned().enumerate() {
-            if !item.category.is_empty() && item.category != category {
-                category = item.category.clone();
-                list = list.child(div().py(space::md()).child(ui::caps(&category)));
-            }
-            let open = item.clone();
-            let queue = item.clone();
-            let save = item.clone();
-            let playable = item.video.is_some() && !item.unavailable;
-            let mut row = div()
-                .id(("catalog-row", index))
-                .p(space::md())
-                .border_b_1()
+        if self.busy && self.view.page.items.is_empty() {
+            let mut skeleton = div()
+                .border(border::strong())
                 .border_color(color::ink())
-                .flex()
-                .items_center()
-                .gap(space::md())
-                .child(cover(
-                    item.thumbnail.as_deref().or_else(|| {
-                        self.view
-                            .item
-                            .as_ref()
-                            .filter(|parent| parent.kind == "Album")
-                            .and_then(|parent| {
-                                self.view
-                                    .page
-                                    .thumbnail
-                                    .as_deref()
-                                    .or(parent.thumbnail.as_deref())
-                            })
-                    }),
-                    52.,
-                ))
+                .bg(color::surface());
+            for width in [0.62, 0.48, 0.70] {
+                skeleton = skeleton.child(
+                    div()
+                        .h(metrics::result_row())
+                        .flex()
+                        .items_center()
+                        .gap(space::md())
+                        .px(space::sm())
+                        .border_b(border::hairline())
+                        .border_color(color::ink())
+                        .child(div().size(metrics::thumbnail()).bg(color::canvas()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .gap(space::sm())
+                                .child(
+                                    div()
+                                        .w(relative(width))
+                                        .h(metrics::skeleton_title())
+                                        .bg(color::canvas()),
+                                )
+                                .child(
+                                    div()
+                                        .w(relative(width / 2.))
+                                        .h(metrics::skeleton_subtitle())
+                                        .bg(color::canvas()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w(metrics::track_duration())
+                                .h(space::xl())
+                                .bg(color::canvas()),
+                        ),
+                );
+            }
+            return root
+                .child(ui::caps("SEARCHING…"))
+                .child(skeleton)
+                .into_any_element();
+        }
+        if let Some(error) = &self.error {
+            return root.child(self.error_panel(error, cx)).into_any_element();
+        }
+        if self.view.page.items.is_empty() {
+            let filter = if self.view.filter == "All" {
+                "results".into()
+            } else {
+                self.view.filter.to_lowercase()
+            };
+            let icon = match self.view.filter.as_str() {
+                "Videos" => "video",
+                "Artists" | "Profiles" => "user",
+                "Playlists" | "Community playlists" | "Featured playlists" => "playlist",
+                "Episodes" | "Podcasts" => "microphone",
+                _ => "search",
+            };
+            return root
                 .child(
                     div()
-                        .id(("catalog-open", index))
-                        .tab_index(0)
-                        .cursor_pointer()
-                        .flex_1()
-                        .min_w_0()
-                        .child(item.title.clone())
+                        .border(border::strong())
+                        .border_color(color::ink())
+                        .bg(color::surface())
+                        .p(metrics::state_padding())
+                        .flex()
+                        .flex_col()
+                        .items_start()
+                        .gap(space::md())
+                        .child(ui::icon(icon, false))
+                        .child(
+                            div()
+                                .text_size(text::track_title())
+                                .font_weight(FontWeight::BOLD)
+                                .child(format!("No {filter} for “{query}”")),
+                        )
                         .child(
                             div()
                                 .text_size(text::secondary())
-                                .child(item.subtitle.clone()),
+                                .child("Check the spelling, or search all types."),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.activate_item(open.clone(), index, cx)
-                        })),
+                        .child(
+                            action_button("search-all", "SEARCH ALL TYPES", None, true)
+                                .h(size::control())
+                                .on_click(cx.listener(|this, _, _, cx| this.choose_all(cx))),
+                        ),
                 )
-                .child(
-                    div()
-                        .text_size(text::secondary())
-                        .child(item.kind.to_uppercase()),
-                );
-            if playable {
-                row = row
-                    .child(
-                        button(("result-queue", index), "+ QUEUE", color::surface()).on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.act(Action::Queue, Some(vec![queue.clone()]), cx)
-                            }),
-                        ),
-                    )
-                    .child(
-                        button(("result-save", index), "+ PLAYLIST", color::surface()).on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.act(Action::Save, Some(vec![save.clone()]), cx)
-                            }),
-                        ),
-                    );
-            }
-            list = list.child(row);
+                .into_any_element();
         }
-        for (index, (label, destination)) in self.view.page.more.clone().into_iter().enumerate() {
+        root = root
+            .child(ui::caps(&format!("RESULTS FOR “{}”", query.to_uppercase())).mt(space::xs()));
+        if !self.status.is_empty() {
+            root = root.child(self.status.clone());
+        }
+        let mut list = div()
+            .id("catalog-results")
+            .track_scroll(&self.view.scroll)
+            .overflow_y_scroll()
+            .flex_1()
+            .min_w_0()
+            .h_full();
+        for (index, item) in self.view.page.items.iter().cloned().enumerate() {
+            list = list.child(self.row(item, index, None, false, TrackTable::Results, cx));
+        }
+        for (index, (label, destination)) in self.view.page.more.iter().cloned().enumerate() {
             list = list.child(
-                button(("catalog-more", index), label.clone(), color::surface()).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        if this.busy {
-                            return;
-                        }
-                        if destination.body.get("continuation").is_some() {
-                            this.fetch_request(destination.clone(), true, cx);
-                        } else {
-                            this.open(
-                                Item {
-                                    title: label.clone(),
-                                    kind: "Collection".into(),
-                                    destination: Some(destination.clone()),
-                                    ..Default::default()
-                                },
-                                cx,
-                            );
-                        }
-                    }),
-                ),
+                button(
+                    ("catalog-more", index),
+                    label.to_uppercase(),
+                    color::surface(),
+                )
+                .m(space::md())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.more(label.clone(), destination.clone(), cx)
+                })),
             );
         }
-        root.child(list).into_any_element()
+        root.child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .border(border::strong())
+                .border_color(color::ink())
+                .bg(color::surface())
+                .child(list)
+                .child(self.scrollbar.clone()),
+        )
+        .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::{description, time_label, trailing_metadata};
+    use crate::catalog::Item;
+    #[test]
+    fn result_metadata_keeps_category_in_description_and_duration_in_trailing_column() {
+        let item = Item {
+            kind: "Song".into(),
+            subtitle: "Song • Karl Richter • 5:12 • Bach: Motets".into(),
+            duration: 312.,
+            ..Default::default()
+        };
+        assert_eq!(
+            description(&item, true),
+            "Song · Karl Richter · Bach: Motets"
+        );
+        assert_eq!(trailing_metadata(&item), "5:12");
+        assert_eq!(time_label(3721.), "1:02:01");
+    }
+    #[test]
+    fn collection_count_is_not_repeated_in_description() {
+        let item = Item {
+            kind: "Playlist".into(),
+            subtitle: "Playlist • Classical Focus • 214 tracks".into(),
+            ..Default::default()
+        };
+        assert_eq!(description(&item, true), "Playlist · Classical Focus");
+        assert_eq!(trailing_metadata(&item), "214 tracks");
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::TrackTable;
+    use crate::catalog::Item;
+    #[test]
+    fn ranges_follow_visible_tracks_and_keep_sections_separate() {
+        let song = |category: &str, collection_member| Item {
+            video: Some("same-video".into()),
+            category: category.into(),
+            collection_member,
+            ..Default::default()
+        };
+        let items = vec![
+            song("Songs", false),
+            Item::default(),
+            song("Videos", false),
+            song("Songs", false),
+            song("", true),
+        ];
+        assert_eq!(TrackTable::Results.order(&items), [0, 2, 3, 4]);
+        assert_eq!(
+            TrackTable::Section("Songs".into(), false).order(&items),
+            [0, 3]
+        );
+        assert_eq!(TrackTable::Collection.order(&items), [4]);
+        let mut selection = crate::track_selection::TrackSelection::default();
+        let order = TrackTable::Results.order(&items);
+        selection.click(&order, 0, false, false);
+        selection.click(&order, 2, false, true);
+        assert_eq!(selection.ids.into_iter().collect::<Vec<_>>(), [0, 2, 3]);
     }
 }

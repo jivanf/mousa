@@ -88,5 +88,16 @@ try {
     $shortcut.IconLocation = "$installed,0"
     $shortcut.Save()
     Write-Host "Installed Mousa to $InstallDir (Start menu: Mousa)."
-    if ($Launch) { Start-Process -FilePath $installed -WorkingDirectory $InstallDir }
+    if ($Launch) {
+        # A child of an MSIX-packaged terminal (including Codex) inherits its
+        # AppData virtualization. WMI launches outside that package context,
+        # matching a user's Start menu launch instead of a private library.
+        $launchResult = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+            CommandLine = ('"{0}"' -f $installed)
+            CurrentDirectory = $InstallDir
+        }
+        if ($launchResult.ReturnValue -ne 0) {
+            throw "Mousa installed, but Windows could not launch it (WMI code $($launchResult.ReturnValue)). Open Mousa from the Start menu."
+        }
+    }
 } finally { Pop-Location }
