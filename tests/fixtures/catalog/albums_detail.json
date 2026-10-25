@@ -1,0 +1,1203 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "secondaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "musicShelfRenderer": {
+                "contents": [
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "overlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "0",
+                                "0"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "kwWAQX3CzR4",
+                                  "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                  "index": 0,
+                                  "playerParams": "ygYQNkIxNTY3QzFBOUQxM0MzNA%3D%3D",
+                                  "playlistSetVideoId": "6B1567C1A9D13C34",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                    }
+                                  }
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 0,
+                              "activeBackgroundColor": 0,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 0,
+                              "activeScaleFactor": 1,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Orchestral Suite No. 3 in D Major, BWV 1068: II. Air",
+                                  "navigationEndpoint": {
+                                    "watchEndpoint": {
+                                      "videoId": "kwWAQX3CzR4",
+                                      "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                      "watchEndpointMusicSupportedConfigs": {
+                                        "watchEndpointMusicConfig": {
+                                          "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Bohdan Warchal",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UC6G9Z6o4V0voNuPMAjxdKfA",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Slovak Chamber Orchestra",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCXMfA0P6xIwQGXX2iYFyzqg",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " & "
+                                },
+                                {
+                                  "text": "Johann Sebastian Bach",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "114K plays"
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        }
+                      ],
+                      "fixedColumns": [
+                        {
+                          "musicResponsiveListItemFixedColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "5:01"
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+                          }
+                        }
+                      ],
+                      "playlistItemData": {
+                        "playlistSetVideoId": "6B1567C1A9D13C34",
+                        "videoId": "kwWAQX3CzR4"
+                      },
+                      "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_MEDIUM",
+                      "index": {
+                        "runs": [
+                          {
+                            "text": "1"
+                          }
+                        ]
+                      },
+                      "multiSelectCheckbox": {
+                        "checkboxRenderer": {
+                          "onSelectionChangeCommand": {
+                            "updateMultiSelectStateCommand": {
+                              "multiSelectParams": "CAMSKU9MQUs1dXlfbFNSTkdtZW0zVE1Ka2w3ejVYVWFSOUY0eGM1b1ZzSEJF",
+                              "multiSelectItem": "Ch8KC2t3V0FRWDNDelI0EhA2QjE1NjdDMUE5RDEzQzM0"
+                            }
+                          },
+                          "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "overlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "0",
+                                "0"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "43yePDrZYXc",
+                                  "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                  "index": 1,
+                                  "playerParams": "ygYQNTI0MUYzRkYxNTE3OTVFRA%3D%3D",
+                                  "playlistSetVideoId": "5241F3FF151795ED",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                                    }
+                                  }
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 0,
+                              "activeBackgroundColor": 0,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 0,
+                              "activeScaleFactor": 1,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Brandenburg Concerto No. 4 in G Major, BWV 1049: I. Allegro",
+                                  "navigationEndpoint": {
+                                    "watchEndpoint": {
+                                      "videoId": "43yePDrZYXc",
+                                      "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                      "watchEndpointMusicSupportedConfigs": {
+                                        "watchEndpointMusicConfig": {
+                                          "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Bohdan Warchal",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UC6G9Z6o4V0voNuPMAjxdKfA",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Slovak Chamber Orchestra",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCXMfA0P6xIwQGXX2iYFyzqg",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " & "
+                                },
+                                {
+                                  "text": "Johann Sebastian Bach",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "62K plays"
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                          }
+                        }
+                      ],
+                      "fixedColumns": [
+                        {
+                          "musicResponsiveListItemFixedColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "7:18"
+                                }
+                              ]
+                            },
+                            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+                          }
+                        }
+                      ],
+                      "playlistItemData": {
+                        "playlistSetVideoId": "5241F3FF151795ED",
+                        "videoId": "43yePDrZYXc"
+                      },
+                      "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_MEDIUM",
+                      "index": {
+                        "runs": [
+                          {
+                            "text": "2"
+                          }
+                        ]
+                      },
+                      "multiSelectCheckbox": {
+                        "checkboxRenderer": {
+                          "onSelectionChangeCommand": {
+                            "updateMultiSelectStateCommand": {
+                              "multiSelectParams": "CAMSKU9MQUs1dXlfbFNSTkdtZW0zVE1Ka2w3ejVYVWFSOUY0eGM1b1ZzSEJF",
+                              "multiSelectItem": "Ch8KCzQzeWVQRHJaWVhjEhA1MjQxRjNGRjE1MTc5NUVE"
+                            }
+                          },
+                          "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "shelfDivider": {
+                  "musicShelfDividerRenderer": {
+                    "hidden": true
+                  }
+                },
+                "contentsMultiSelectable": true
+              }
+            },
+            {
+              "musicCarouselShelfRenderer": {
+                "header": {
+                  "musicCarouselShelfBasicHeaderRenderer": {
+                    "title": {
+                      "runs": [
+                        {
+                          "text": "Releases for you"
+                        }
+                      ]
+                    },
+                    "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DEFAULT"
+                  }
+                },
+                "contents": [
+                  {
+                    "musicTwoRowItemRenderer": {
+                      "thumbnailRenderer": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.googleusercontent.com/_MPp2lKulfOpBhCXfhebbLnXwu4RzwuWSWdQX67lD5L-jV2TWt3cGjpg-8n9y1SCBM9b8gmbQJeG54E=w226-h226-s-l90-rj",
+                                "width": 226,
+                                "height": 226
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/_MPp2lKulfOpBhCXfhebbLnXwu4RzwuWSWdQX67lD5L-jV2TWt3cGjpg-8n9y1SCBM9b8gmbQJeG54E=w544-h544-s-l90-rj",
+                                "width": 544,
+                                "height": 544
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                        }
+                      },
+                      "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Bach, J.S.: Brandenburg Concertos",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "MPREb_SGhQhx2VZnn",
+                                "params": "ggMrGilPTEFLNXV5X25PQnJReG5MZE1VSExHWjFyUU9QdWFyaTRjTTJoRjFGaw%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "subtitle": {
+                        "runs": [
+                          {
+                            "text": "Album"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "Berliner Philharmoniker",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCW084_r6OKr3YB9OWxydhHw",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "text": ", "
+                          },
+                          {
+                            "text": "Herbert von Karajan",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UC18YWw4LNQ-Poo4DgdlUgCA",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "text": " & "
+                          },
+                          {
+                            "text": "Johann Sebastian Bach",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPREb_SGhQhx2VZnn",
+                          "params": "ggMrGilPTEFLNXV5X25PQnJReG5MZE1VSExHWjFyUU9QdWFyaTRjTTJoRjFGaw%3D%3D",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                            }
+                          }
+                        }
+                      },
+                      "thumbnailOverlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "2147483648",
+                                "0",
+                                "0"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchPlaylistEndpoint": {
+                                  "playlistId": "OLAK5uy_nOBrQxnLdMUHLGZ1rQOPuari4cM2hF1Fk"
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 2566914048,
+                              "activeBackgroundColor": 4278190080,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 1308622847,
+                              "activeScaleFactor": 1.2,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "musicTwoRowItemRenderer": {
+                      "thumbnailRenderer": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BdYjdWRV8lk8K0_CCSxZtuX1vlET7bafZttFNxcRe9UqOhkVSRNMOabzeV4OTSGSias3q39qT6wLsPvMQ=w226-h226-s-l90-rj",
+                                "width": 226,
+                                "height": 226
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BdYjdWRV8lk8K0_CCSxZtuX1vlET7bafZttFNxcRe9UqOhkVSRNMOabzeV4OTSGSias3q39qT6wLsPvMQ=w544-h544-s-l90-rj",
+                                "width": 544,
+                                "height": 544
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                        }
+                      },
+                      "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Bach, J.S.: Orchestral Suites 1-4",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "MPREb_9U6W48OgoUl",
+                                "params": "ggMrGilPTEFLNXV5X2xtdl9zd3FkMWdHU09UbkZSa0tIcnU3NXpNSFNQTVdaZw%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "subtitle": {
+                        "runs": [
+                          {
+                            "text": "Album"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "Academy of St Martin in the Fields",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCE2aX7TxU1Rse2c2nZd_3mA",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "text": ", "
+                          },
+                          {
+                            "text": "Sir Neville Marriner",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCFP56nYQHJmyYGot-9_Vi1A",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "text": " & "
+                          },
+                          {
+                            "text": "Johann Sebastian Bach",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPREb_9U6W48OgoUl",
+                          "params": "ggMrGilPTEFLNXV5X2xtdl9zd3FkMWdHU09UbkZSa0tIcnU3NXpNSFNQTVdaZw%3D%3D",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                            }
+                          }
+                        }
+                      },
+                      "thumbnailOverlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "2147483648",
+                                "0",
+                                "0"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchPlaylistEndpoint": {
+                                  "playlistId": "OLAK5uy_lmv_swqd1gGSOTnFRkKHru75zMHSPMWZg"
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 2566914048,
+                              "activeBackgroundColor": 4278190080,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 1308622847,
+                              "activeScaleFactor": 1.2,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "itemSize": "COLLECTION_STYLE_ITEM_SIZE_SMALL"
+              }
+            }
+          ]
+        }
+      },
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicResponsiveHeaderRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w60-h60-l90-rj",
+                                "width": 60,
+                                "height": 60
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w120-h120-l90-rj",
+                                "width": 120,
+                                "height": 120
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w226-h226-l90-rj",
+                                "width": 226,
+                                "height": 226
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w544-h544-l90-rj",
+                                "width": 544,
+                                "height": 544
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+                        }
+                      },
+                      "buttons": [
+                        {
+                          "toggleButtonRenderer": {
+                            "isToggled": false,
+                            "isDisabled": false,
+                            "defaultIcon": {
+                              "iconType": "BOOKMARK_BORDER"
+                            },
+                            "toggledIcon": {
+                              "iconType": "BOOKMARK"
+                            },
+                            "defaultNavigationEndpoint": {
+                              "modalEndpoint": {
+                                "modal": {
+                                  "modalWithTitleAndButtonRenderer": {
+                                    "title": {
+                                      "runs": [
+                                        {
+                                          "text": "Save this for later"
+                                        }
+                                      ]
+                                    },
+                                    "content": {
+                                      "runs": [
+                                        {
+                                          "text": "Save favorites to your library after signing in"
+                                        }
+                                      ]
+                                    },
+                                    "button": {
+                                      "buttonRenderer": {
+                                        "style": "STYLE_BLUE_TEXT",
+                                        "isDisabled": false,
+                                        "text": {
+                                          "runs": [
+                                            {
+                                              "text": "Sign in"
+                                            }
+                                          ]
+                                        },
+                                        "navigationEndpoint": {}
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "toggledAccessibilityData": {}
+                          }
+                        },
+                        {
+                          "musicPlayButtonRenderer": {
+                            "playNavigationEndpoint": {
+                              "watchPlaylistEndpoint": {
+                                "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE"
+                              }
+                            },
+                            "playIcon": {
+                              "iconType": "PLAY_ARROW"
+                            },
+                            "pauseIcon": {
+                              "iconType": "PAUSE"
+                            },
+                            "iconColor": 4278387459,
+                            "backgroundColor": 0,
+                            "activeBackgroundColor": 0,
+                            "loadingIndicatorColor": 14745645,
+                            "playingIcon": {
+                              "iconType": "PAUSE"
+                            },
+                            "iconLoadingColor": 0,
+                            "activeScaleFactor": 1,
+                            "accessibilityPlayData": {},
+                            "accessibilityPauseData": {}
+                          }
+                        },
+                        {
+                          "menuRenderer": {
+                            "items": [
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Shuffle play"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "MUSIC_SHUFFLE"
+                                  },
+                                  "navigationEndpoint": {
+                                    "watchPlaylistEndpoint": {
+                                      "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                      "params": "wAEB8gECKAE%3D"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Start mix"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "MIX"
+                                  },
+                                  "navigationEndpoint": {
+                                    "watchPlaylistEndpoint": {
+                                      "playlistId": "RDAMPLOLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                      "params": "wAEB"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuServiceItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Play next"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "QUEUE_PLAY_NEXT"
+                                  },
+                                  "serviceEndpoint": {
+                                    "queueAddEndpoint": {
+                                      "queueTarget": {
+                                        "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                        "onEmptyQueue": {
+                                          "watchEndpoint": {
+                                            "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE"
+                                          }
+                                        }
+                                      },
+                                      "queueInsertPosition": "INSERT_AFTER_CURRENT_VIDEO",
+                                      "commands": [
+                                        {
+                                          "addToToastAction": {
+                                            "item": {
+                                              "notificationTextRenderer": {
+                                                "successResponseText": {
+                                                  "runs": [
+                                                    {
+                                                      "text": "Album will play next"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuServiceItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Add to queue"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "ADD_TO_REMOTE_QUEUE"
+                                  },
+                                  "serviceEndpoint": {
+                                    "queueAddEndpoint": {
+                                      "queueTarget": {
+                                        "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+                                        "onEmptyQueue": {
+                                          "watchEndpoint": {
+                                            "playlistId": "OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE"
+                                          }
+                                        }
+                                      },
+                                      "queueInsertPosition": "INSERT_AT_END",
+                                      "commands": [
+                                        {
+                                          "addToToastAction": {
+                                            "item": {
+                                              "notificationTextRenderer": {
+                                                "successResponseText": {
+                                                  "runs": [
+                                                    {
+                                                      "text": "Album added to queue"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Save to playlist"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "ADD_TO_PLAYLIST"
+                                  },
+                                  "navigationEndpoint": {
+                                    "modalEndpoint": {
+                                      "modal": {
+                                        "modalWithTitleAndButtonRenderer": {
+                                          "title": {
+                                            "runs": [
+                                              {
+                                                "text": "Save this for later"
+                                              }
+                                            ]
+                                          },
+                                          "content": {
+                                            "runs": [
+                                              {
+                                                "text": "Make playlists and share them after signing in"
+                                              }
+                                            ]
+                                          },
+                                          "button": {
+                                            "buttonRenderer": {
+                                              "style": "STYLE_BLUE_TEXT",
+                                              "isDisabled": false,
+                                              "text": {
+                                                "runs": [
+                                                  {
+                                                    "text": "Sign in"
+                                                  }
+                                                ]
+                                              },
+                                              "navigationEndpoint": {}
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Go to artist"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "ARTIST"
+                                  },
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Share"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "SHARE"
+                                  },
+                                  "navigationEndpoint": {
+                                    "shareEntityEndpoint": {
+                                      "serializedShareEntity": "EilPTEFLNXV5X2xTUk5HbWVtM1RNSmtsN3o1WFVhUjlGNHhjNW9Wc0hCRQ%3D%3D",
+                                      "sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Bach Masterworks"
+                          }
+                        ]
+                      },
+                      "subtitle": {
+                        "runs": [
+                          {
+                            "text": "Album"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "2025"
+                          }
+                        ]
+                      },
+                      "straplineTextOne": {
+                        "runs": [
+                          {
+                            "text": "Johann Sebastian Bach",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCFtSXTlIMFFkyJbHO3V5b7A",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "straplineThumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://lh3.googleusercontent.com/C5hLBPYdwgyQEKjwZXfOM-0MCgn619Ja_WgljDeIO-fjNHi-SsYzGr_c5piG46OaRj_ROZqhuCYhucmf=w60-h60-p-l90-rj",
+                                "width": 60,
+                                "height": 60
+                              },
+                              {
+                                "url": "https://lh3.googleusercontent.com/C5hLBPYdwgyQEKjwZXfOM-0MCgn619Ja_WgljDeIO-fjNHi-SsYzGr_c5piG46OaRj_ROZqhuCYhucmf=w120-h120-p-l90-rj",
+                                "width": 120,
+                                "height": 120
+                              },
+                              {
+                                "url": "https://lh3.googleusercontent.com/C5hLBPYdwgyQEKjwZXfOM-0MCgn619Ja_WgljDeIO-fjNHi-SsYzGr_c5piG46OaRj_ROZqhuCYhucmf=w226-h226-p-l90-rj",
+                                "width": 226,
+                                "height": 226
+                              },
+                              {
+                                "url": "https://lh3.googleusercontent.com/C5hLBPYdwgyQEKjwZXfOM-0MCgn619Ja_WgljDeIO-fjNHi-SsYzGr_c5piG46OaRj_ROZqhuCYhucmf=w544-h544-p-l90-rj",
+                                "width": 544,
+                                "height": 544
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+                        }
+                      },
+                      "secondSubtitle": {
+                        "runs": [
+                          {
+                            "text": "30 songs"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "2 hours, 38 minutes"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "microformat": {
+    "microformatDataRenderer": {
+      "urlCanonical": "https://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE",
+      "title": "Bach Masterworks",
+      "thumbnail": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w544-h544-l90-rj",
+            "width": 544,
+            "height": 544
+          }
+        ]
+      },
+      "siteName": "YouTube Music",
+      "appName": "YouTube Music",
+      "androidPackage": "com.google.android.apps.youtube.music",
+      "iosAppStoreId": "1017492454",
+      "ogType": "music.album",
+      "urlApplinksWeb": "https://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE&feature=applinks",
+      "urlApplinksIos": "vnd.youtube.music://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE&feature=applinks",
+      "urlApplinksAndroid": "vnd.youtube.music://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE&feature=applinks",
+      "urlTwitterIos": "vnd.youtube.music://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE&feature=twitter-deep-link",
+      "urlTwitterAndroid": "vnd.youtube.music://music.youtube.com/playlist?list=OLAK5uy_lSRNGmem3TMJkl7z5XUaR9F4xc5oVsHBE&feature=twitter-deep-link",
+      "twitterCardType": "summary",
+      "twitterSiteHandle": "@youtubemusic"
+    }
+  },
+  "background": {
+    "musicThumbnailRenderer": {
+      "thumbnail": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w60-h60-l90-rj",
+            "width": 60,
+            "height": 60
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w120-h120-l90-rj",
+            "width": 120,
+            "height": 120
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w226-h226-l90-rj",
+            "width": 226,
+            "height": 226
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/uMHIzbOeKeTd3ymIMZpOBVQq2VwOe_YNLOHZKM0Ye_fnyiE6EnpUvkp9z5zY3-gg_hgliO6wYTY0b88=w544-h544-l90-rj",
+            "width": 544,
+            "height": 544
+          }
+        ]
+      },
+      "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+      "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+    }
+  }
+}

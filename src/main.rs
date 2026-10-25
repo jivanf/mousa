@@ -30,6 +30,7 @@ actions!(
         NextTrack,
         PreviousTrack,
         FocusSearch,
+        OpenCatalog,
         SeekBack,
         SeekForward,
         ToggleShuffle,
@@ -54,7 +55,6 @@ enum Form {
     None,
     Create,
     Rename,
-    Import,
     Delete,
 }
 #[derive(Clone)]
@@ -69,6 +69,8 @@ struct TrackDrag {
     generation: u64,
 }
 struct Mousa {
+    catalog: Entity<mousa::catalog_view::CatalogView>,
+    catalog_open: bool,
     track_drag: Option<TrackDrag>,
     track_selection: mousa::track_selection::TrackSelection,
     selection_playlist: Option<i64>,
@@ -143,11 +145,10 @@ impl Mousa {
         let volume_slider =
             cx.new(|cx| Bar::new("Volume · Arrow keys adjust; Home mutes", 0.05, cx));
         let seek = cx.new(|cx| Bar::new("Seek · Arrow keys adjust; Home / End jump", 0.01, cx));
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search this playlist…"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tracks…"));
         let playlist_search =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Find a playlist…"));
-        let field =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name or YouTube URL"));
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists…"));
+        let field = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
         search.update(cx, |s, cx| {
             s.set_value(
                 saved
@@ -166,7 +167,11 @@ impl Mousa {
         sidebar_scroll.set_offset(point(px(0.), px(saved.library_scroll.min(0.))));
         let track_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
         let queue_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
+        let catalog =
+            cx.new(|cx| mousa::catalog_view::CatalogView::new(player.clone(), window, cx));
         let mut app = Self {
+            catalog: catalog.clone(),
+            catalog_open: false,
             track_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(track_list.clone(), cx)),
             queue_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(queue_list.clone(), cx)),
             sidebar_scroll,
@@ -258,6 +263,21 @@ impl Mousa {
             }));
         app.subscriptions
             .push(cx.subscribe(&playlist_search, |_, _, _: &InputEvent, cx| cx.notify()));
+        app.subscriptions.push(
+            cx.subscribe_in(&catalog, window, |this, _, event, window, cx| {
+                match event {
+                    mousa::catalog_view::Event::Close => {
+                        this.catalog_open = false;
+                        this.focus.focus(window);
+                    }
+                    mousa::catalog_view::Event::Saved => {
+                        this.refresh_library();
+                        this.refresh_tracks(cx);
+                    }
+                }
+                cx.notify();
+            }),
+        );
         app.refresh_library();
         app.refresh_tracks(cx);
         if app.google_name.is_some() {
@@ -451,6 +471,8 @@ impl Mousa {
                     match result {
                         Ok(name) => {
                             if google {
+                                self.catalog.update(cx, |view, cx| view.reset_account(cx));
+                                self.catalog_open = false;
                                 self.google_name = name;
                                 self.form = Form::None;
                                 if self.google_name.is_some() {
@@ -633,6 +655,7 @@ impl Mousa {
         }
     }
     fn show_form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
+        self.catalog_open = false;
         self.form = form;
         let value = if form == Form::Rename {
             self.playlists
@@ -646,7 +669,6 @@ impl Mousa {
         self.field.update(cx, |s, cx| {
             s.set_placeholder(
                 match form {
-                    Form::Import => "YouTube video or playlist URL",
                     _ => "Playlist name",
                 },
                 window,
@@ -677,13 +699,6 @@ impl Mousa {
                 Ok(Reply::Done(
                     "Playlist deleted; the current queue is preserved".into(),
                 ))
-            }
-            Form::Import => {
-                let id = selected.ok_or_else(|| anyhow::anyhow!("Create a playlist first"))?;
-                let tracks = integrations::import_url(&text)?;
-                let n = tracks.len();
-                sync::add(id, &tracks)?;
-                Ok(Reply::Done(format!("Added {n} tracks")))
             }
             _ => Ok(Reply::Done(String::new())),
         });
@@ -1465,13 +1480,14 @@ impl Render for Mousa {
                 button(
                     "library",
                     "YOUR LIBRARY",
-                    if !self.queue_view {
+                    if !self.queue_view && !self.catalog_open {
                         color::ink()
                     } else {
                         color::surface()
                     },
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
+                    this.catalog_open = false;
                     this.queue_view = false;
                     cx.notify();
                 })),
@@ -1480,14 +1496,32 @@ impl Render for Mousa {
                 button(
                     "queue",
                     format!("QUEUE  /  {}", self.queue.len()),
-                    if self.queue_view {
+                    if self.queue_view && !self.catalog_open {
                         color::ink()
                     } else {
                         color::surface()
                     },
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
+                    this.catalog_open = false;
                     this.queue_view = true;
+                    cx.notify();
+                })),
+            )
+            .child(
+                button(
+                    "catalog",
+                    "SEARCH",
+                    if self.catalog_open {
+                        color::ink()
+                    } else {
+                        color::surface()
+                    },
+                )
+                .on_click(cx.listener(|this, _, w, cx| {
+                    this.catalog_open = true;
+                    this.track_drag = None;
+                    this.catalog.read(cx).focus(w, cx);
                     cx.notify();
                 })),
             )
@@ -1515,12 +1549,13 @@ impl Render for Mousa {
                 ui::playlist_item(
                     id,
                     p.name.clone(),
-                    self.selected == Some(id) && !self.queue_view,
+                    self.selected == Some(id) && !self.queue_view && !self.catalog_open,
                 )
                 .on_click(cx.listener(move |this, _, w, cx| {
                     this.remember_view(cx);
                     this.tracks_ready = false;
                     this.selected = Some(id);
+                    this.catalog_open = false;
                     this.queue_view = false;
                     let position = this
                         .view_state
@@ -1565,10 +1600,6 @@ impl Render for Mousa {
             .child(
                 button("refresh-current", "REFRESH", color::surface())
                     .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
-            )
-            .child(
-                button("import", "ADD YOUTUBE", color::surface())
-                    .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Import, w, cx))),
             );
         let mut content = div()
             .flex_1()
@@ -1639,7 +1670,6 @@ impl Render for Mousa {
             let label = match self.form {
                 Form::Create => "NEW PLAYLIST",
                 Form::Rename => "RENAME PLAYLIST",
-                Form::Import => "ADD A VIDEO OR AN ENTIRE PLAYLIST",
                 Form::Delete => {
                     if self
                         .playlists
@@ -1740,7 +1770,7 @@ impl Render for Mousa {
                         .child(if !self.search.read(cx).value().is_empty() {
                             "Try a different title or artist."
                         } else {
-                            "Create a playlist, then add a YouTube link."
+                            "Open Search to find music and add it to a playlist."
                         })
                 })
                 .when(n > 0, |d| d.child(self.rows(self.queue_view, cx))),
@@ -1901,6 +1931,7 @@ impl Render for Mousa {
             this.queue = state.queue.clone();
             this.queue_index = state.index;
             drop(state);
+            this.catalog_open = false;
             this.queue_view = true;
             this.form = Form::None;
             if !this.queue.is_empty() {
@@ -1913,7 +1944,10 @@ impl Render for Mousa {
         }));
         div()
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
-                if e.keystroke.key == "escape" && this.track_drag.is_some() {
+                if e.keystroke.key == "escape" && this.catalog_open {
+                    this.catalog.update(cx, |view, cx| view.back(cx));
+                    cx.stop_propagation();
+                } else if e.keystroke.key == "escape" && this.track_drag.is_some() {
                     this.track_drag = None;
                     cx.stop_propagation();
                     cx.notify();
@@ -1930,7 +1964,17 @@ impl Render for Mousa {
                 cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
             )
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
-                this.search.read(cx).focus_handle(cx).focus(window)
+                if this.catalog_open {
+                    this.catalog.read(cx).focus(window, cx);
+                } else {
+                    this.search.read(cx).focus_handle(cx).focus(window);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &OpenCatalog, window, cx| {
+                this.catalog_open = true;
+                this.track_drag = None;
+                this.catalog.read(cx).focus(window, cx);
+                cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SeekBack, _, _| {
                 this.player.send(Command::Seek(this.position - 10.))
@@ -1959,7 +2003,16 @@ impl Render for Mousa {
                     .min_h_0()
                     .flex()
                     .child(sidebar)
-                    .child(content),
+                    .child(if self.catalog_open {
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(self.catalog.clone())
+                            .into_any_element()
+                    } else {
+                        content.into_any_element()
+                    }),
             )
             .child(player)
             .into_any_element()
@@ -1973,6 +2026,7 @@ fn main() {
             KeyBinding::new("ctrl-right", NextTrack, Some("Mousa")),
             KeyBinding::new("ctrl-left", PreviousTrack, Some("Mousa")),
             KeyBinding::new("ctrl-f", FocusSearch, Some("Mousa")),
+            KeyBinding::new("ctrl-k", OpenCatalog, Some("Mousa")),
             KeyBinding::new("ctrl-j", SeekBack, Some("Mousa")),
             KeyBinding::new("ctrl-l", SeekForward, Some("Mousa")),
             KeyBinding::new("ctrl-s", ToggleShuffle, Some("Mousa")),

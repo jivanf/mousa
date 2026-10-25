@@ -1,0 +1,892 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "secondaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "musicShelfRenderer": {
+                "contents": [
+                  {
+                    "musicMultiRowListItemRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://i.ytimg.com/vi/w6y7wTBTJ0I/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ntQRVgYcdaUVwi40KbudsH3n0HmQ",
+                                "width": 400,
+                                "height": 225
+                              },
+                              {
+                                "url": "https://i.ytimg.com/vi/w6y7wTBTJ0I/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3myZpiXwEXdghcBJbE3qpx-fQLNDQ",
+                                "width": 800,
+                                "height": 450
+                              },
+                              {
+                                "url": "https://i.ytimg.com/vi/w6y7wTBTJ0I/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3kP_MWb5O1v4vbrEyRlJF-U3qvaJg",
+                                "width": 853,
+                                "height": 479
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                        }
+                      },
+                      "overlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "3422552064",
+                                "3422552064"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "w6y7wTBTJ0I",
+                                  "params": "8gEDmAEI",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                                    }
+                                  }
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 0,
+                              "activeBackgroundColor": 0,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 0,
+                              "activeScaleFactor": 1,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+                        }
+                      },
+                      "onTap": {
+                        "watchEndpoint": {
+                          "videoId": "w6y7wTBTJ0I",
+                          "params": "8gEDmAEI",
+                          "watchEndpointMusicSupportedConfigs": {
+                            "watchEndpointMusicConfig": {
+                              "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                            }
+                          }
+                        }
+                      },
+                      "subtitle": {
+                        "runs": [
+                          {
+                            "text": "177 views"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "Mar 17"
+                          }
+                        ]
+                      },
+                      "playbackProgress": {
+                        "musicPlaybackProgressRenderer": {
+                          "playbackProgressPercentage": 0,
+                          "playbackProgressText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "32 min"
+                              }
+                            ]
+                          },
+                          "durationText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "32 min"
+                              }
+                            ]
+                          },
+                          "playedText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "Played",
+                                "textColor": 4294921797
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "The Land Investing Strategy No One Is Talking About | Robin Seib",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "MPEDw6y7wTBTJ0I",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_DETAILED"
+                    }
+                  },
+                  {
+                    "musicMultiRowListItemRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://i.ytimg.com/vi/9qBkCNR09U8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mhS-xGxqjUo5r5c2rSaXCyXJmGgQ",
+                                "width": 400,
+                                "height": 225
+                              },
+                              {
+                                "url": "https://i.ytimg.com/vi/9qBkCNR09U8/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kaoiAuZ-IwMnltrs8CWUGc_ouHsA",
+                                "width": 800,
+                                "height": 450
+                              },
+                              {
+                                "url": "https://i.ytimg.com/vi/9qBkCNR09U8/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3l8NB73Hv_Kza3P92J6qS4x0SXeCg",
+                                "width": 853,
+                                "height": 479
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                        }
+                      },
+                      "overlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "background": {
+                            "verticalGradient": {
+                              "gradientLayerColors": [
+                                "3422552064",
+                                "3422552064"
+                              ]
+                            }
+                          },
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "9qBkCNR09U8",
+                                  "params": "8gEDmAEI",
+                                  "playerParams": "0gcJCQkB-iE-y48-",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                                    }
+                                  }
+                                }
+                              },
+                              "playIcon": {
+                                "iconType": "PLAY_ARROW"
+                              },
+                              "pauseIcon": {
+                                "iconType": "PAUSE"
+                              },
+                              "iconColor": 4294967295,
+                              "backgroundColor": 0,
+                              "activeBackgroundColor": 0,
+                              "loadingIndicatorColor": 14745645,
+                              "playingIcon": {
+                                "iconType": "VOLUME_UP"
+                              },
+                              "iconLoadingColor": 0,
+                              "activeScaleFactor": 1,
+                              "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                              "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                              "accessibilityPlayData": {},
+                              "accessibilityPauseData": {}
+                            }
+                          },
+                          "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                          "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+                        }
+                      },
+                      "onTap": {
+                        "watchEndpoint": {
+                          "videoId": "9qBkCNR09U8",
+                          "params": "8gEDmAEI",
+                          "watchEndpointMusicSupportedConfigs": {
+                            "watchEndpointMusicConfig": {
+                              "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                            }
+                          }
+                        }
+                      },
+                      "subtitle": {
+                        "runs": [
+                          {
+                            "text": "108 views"
+                          },
+                          {
+                            "text": " \u2022 "
+                          },
+                          {
+                            "text": "Mar 7"
+                          }
+                        ]
+                      },
+                      "playbackProgress": {
+                        "musicPlaybackProgressRenderer": {
+                          "playbackProgressPercentage": 0,
+                          "playbackProgressText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "38 min"
+                              }
+                            ]
+                          },
+                          "durationText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "38 min"
+                              }
+                            ]
+                          },
+                          "playedText": {
+                            "runs": [
+                              {
+                                "text": " \u2022 "
+                              },
+                              {
+                                "text": "Played",
+                                "textColor": 4294921797
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "How One Conversation Turned Into a $120M Opportunity | Mark Vincent Fansler",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "MPED9qBkCNR09U8",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_DETAILED"
+                    }
+                  }
+                ],
+                "continuations": [
+                  {
+                    "nextContinuationData": {
+                      "continuation": "4qmFsgJmEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRo8ZWg1UVZEcERRbEZwUlVSU1ExSlVaRWROUlVsNVQwUk9RbEZxVFRKUFJGbVNBUU1JMlFqYUNBUUlBaEFC",
+                      "autoloadEnabled": true,
+                      "autoloadImmediately": true
+                    }
+                  }
+                ],
+                "shelfDivider": {
+                  "musicShelfDividerRenderer": {
+                    "hidden": true
+                  }
+                }
+              }
+            }
+          ],
+          "header": {
+            "chipCloudRenderer": {
+              "chips": [
+                {
+                  "chipCloudChipRenderer": {
+                    "style": {
+                      "styleType": "STYLE_ICON_SECOND"
+                    },
+                    "text": {
+                      "runs": [
+                        {
+                          "text": "Latest"
+                        }
+                      ]
+                    },
+                    "navigationEndpoint": {
+                      "openPopupAction": {
+                        "popup": {
+                          "menuPopupRenderer": {
+                            "items": [
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "simpleText": "Latest"
+                                  },
+                                  "icon": {
+                                    "iconType": "CHECK"
+                                  },
+                                  "navigationEndpoint": {
+                                    "browseSectionListReloadEndpoint": {
+                                      "continuation": {
+                                        "reloadContinuationData": {
+                                          "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBSVFBUSUzRCUzRA%3D%3D",
+                                          "showSpinnerOverlay": true
+                                        }
+                                      },
+                                      "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "simpleText": "Oldest"
+                                  },
+                                  "navigationEndpoint": {
+                                    "browseSectionListReloadEndpoint": {
+                                      "continuation": {
+                                        "reloadContinuationData": {
+                                          "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBRVFBUSUzRCUzRA%3D%3D",
+                                          "showSpinnerOverlay": true
+                                        }
+                                      },
+                                      "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "simpleText": "Popular"
+                                  },
+                                  "navigationEndpoint": {
+                                    "browseSectionListReloadEndpoint": {
+                                      "continuation": {
+                                        "reloadContinuationData": {
+                                          "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBSVFBZyUzRCUzRA%3D%3D",
+                                          "showSpinnerOverlay": true
+                                        }
+                                      },
+                                      "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "simpleText": "Creator provided"
+                                  },
+                                  "navigationEndpoint": {
+                                    "browseSectionListReloadEndpoint": {
+                                      "continuation": {
+                                        "reloadContinuationData": {
+                                          "continuation": "4qmFsgI2EiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoMa2dFRENOa0lvQVlC",
+                                          "showSpinnerOverlay": true
+                                        }
+                                      },
+                                      "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        "popupType": "DIALOG",
+                        "reusePopup": true
+                      }
+                    },
+                    "icon": {
+                      "iconType": "EXPAND"
+                    },
+                    "uniqueId": "YTM SDP Sort Chip",
+                    "notSelectable": true
+                  }
+                },
+                {
+                  "chipCloudChipRenderer": {
+                    "text": {
+                      "simpleText": "In progress"
+                    },
+                    "navigationEndpoint": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJKEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoga2dFRENOa0lvQVlCMmdnRUNBSVFBWWdKQXclM0QlM0Q%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "isSelected": false,
+                    "onDeselectedCommand": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBSVFBUSUzRCUzRA%3D%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "uniqueId": "YTM SDP In progress Chip"
+                  }
+                },
+                {
+                  "chipCloudChipRenderer": {
+                    "text": {
+                      "simpleText": "Unplayed"
+                    },
+                    "navigationEndpoint": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJKEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoga2dFRENOa0lvQVlCMmdnRUNBSVFBWWdKQVElM0QlM0Q%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "isSelected": false,
+                    "onDeselectedCommand": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBSVFBUSUzRCUzRA%3D%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "uniqueId": "YTM SDP Unplayed Chip"
+                  }
+                },
+                {
+                  "chipCloudChipRenderer": {
+                    "text": {
+                      "simpleText": "Played"
+                    },
+                    "navigationEndpoint": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJKEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoga2dFRENOa0lvQVlCMmdnRUNBSVFBWWdKQWclM0QlM0Q%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "isSelected": false,
+                    "onDeselectedCommand": {
+                      "browseSectionListReloadEndpoint": {
+                        "continuation": {
+                          "reloadContinuationData": {
+                            "continuation": "4qmFsgJGEiZNUFNQUExOSUJKZFZ4SFB1UE45VVlaZy1FRFYzbk8xb29tQkVNLRoca2dFRENOa0lvQVlCMmdnRUNBSVFBUSUzRCUzRA%3D%3D",
+                            "showSpinnerOverlay": true
+                          }
+                        },
+                        "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                      }
+                    },
+                    "uniqueId": "YTM SDP Played Chip"
+                  }
+                }
+              ],
+              "horizontalScrollable": true,
+              "selectionBehavior": "CHIP_CLOUD_SELECTION_BEHAVIOR_SINGLE_SELECT"
+            }
+          },
+          "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+        }
+      },
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicResponsiveHeaderRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+                                "width": 60,
+                                "height": 60
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+                                "width": 120,
+                                "height": 120
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w226-c-h226-k-c0x00ffffff-no-l90-rj",
+                                "width": 226,
+                                "height": 226
+                              },
+                              {
+                                "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+                                "width": 544,
+                                "height": 544
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+                        }
+                      },
+                      "buttons": [
+                        {
+                          "buttonRenderer": {
+                            "style": "STYLE_DARK_ON_WHITE",
+                            "icon": {
+                              "iconType": "SHARE"
+                            },
+                            "command": {
+                              "shareEntityEndpoint": {
+                                "serializedShareEntity": "EiJQTE5JQkpkVnhIUHVQTjlVWVpnLUVEVjNuTzFvb21CRU0t",
+                                "sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "toggleButtonRenderer": {
+                            "isToggled": false,
+                            "isDisabled": false,
+                            "defaultIcon": {
+                              "iconType": "BOOKMARK_BORDER"
+                            },
+                            "defaultText": {
+                              "runs": [
+                                {
+                                  "text": "Save to library"
+                                }
+                              ]
+                            },
+                            "toggledIcon": {
+                              "iconType": "BOOKMARK"
+                            },
+                            "toggledText": {
+                              "runs": [
+                                {
+                                  "text": "Saved to library"
+                                }
+                              ]
+                            },
+                            "defaultNavigationEndpoint": {
+                              "modalEndpoint": {
+                                "modal": {
+                                  "modalWithTitleAndButtonRenderer": {
+                                    "title": {
+                                      "runs": [
+                                        {
+                                          "text": "Save this for later"
+                                        }
+                                      ]
+                                    },
+                                    "content": {
+                                      "runs": [
+                                        {
+                                          "text": "Save favorites to your library after signing in"
+                                        }
+                                      ]
+                                    },
+                                    "button": {
+                                      "buttonRenderer": {
+                                        "style": "STYLE_BLUE_TEXT",
+                                        "isDisabled": false,
+                                        "text": {
+                                          "runs": [
+                                            {
+                                              "text": "Sign in"
+                                            }
+                                          ]
+                                        },
+                                        "navigationEndpoint": {}
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "menuRenderer": {
+                            "items": [
+                              {
+                                "menuServiceItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Find in show"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "SEARCH"
+                                  },
+                                  "serviceEndpoint": {
+                                    "playlistFilterSearchEndpoint": {
+                                      "playlistId": "PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "toggleMenuServiceItemRenderer": {
+                                  "defaultText": {
+                                    "runs": [
+                                      {
+                                        "text": "Save to library"
+                                      }
+                                    ]
+                                  },
+                                  "defaultIcon": {
+                                    "iconType": "BOOKMARK_BORDER"
+                                  },
+                                  "defaultServiceEndpoint": {
+                                    "modalEndpoint": {
+                                      "modal": {
+                                        "modalWithTitleAndButtonRenderer": {
+                                          "title": {
+                                            "runs": [
+                                              {
+                                                "text": "Save this for later"
+                                              }
+                                            ]
+                                          },
+                                          "content": {
+                                            "runs": [
+                                              {
+                                                "text": "Save favorites to your library after signing in"
+                                              }
+                                            ]
+                                          },
+                                          "button": {
+                                            "buttonRenderer": {
+                                              "style": "STYLE_BLUE_TEXT",
+                                              "isDisabled": false,
+                                              "text": {
+                                                "runs": [
+                                                  {
+                                                    "text": "Sign in"
+                                                  }
+                                                ]
+                                              },
+                                              "navigationEndpoint": {}
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "toggledText": {
+                                    "runs": [
+                                      {
+                                        "text": "Remove from library"
+                                      }
+                                    ]
+                                  },
+                                  "toggledIcon": {
+                                    "iconType": "BOOKMARK"
+                                  },
+                                  "toggledServiceEndpoint": {
+                                    "likeEndpoint": {
+                                      "status": "INDIFFERENT",
+                                      "target": {
+                                        "playlistId": "PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-"
+                                      }
+                                    }
+                                  },
+                                  "isToggled": false
+                                }
+                              },
+                              {
+                                "menuNavigationItemRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Share"
+                                      }
+                                    ]
+                                  },
+                                  "icon": {
+                                    "iconType": "SHARE"
+                                  },
+                                  "navigationEndpoint": {
+                                    "shareEntityEndpoint": {
+                                      "serializedShareEntity": "EiJQTE5JQkpkVnhIUHVQTjlVWVpnLUVEVjNuTzFvb21CRU0t",
+                                      "sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "The Science of Flipping Podcast"
+                          }
+                        ]
+                      },
+                      "subtitle": {},
+                      "straplineTextOne": {
+                        "runs": [
+                          {
+                            "text": "Justin Colby",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCiSw81DxHpEEH8OzqemcVkw",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "straplineThumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.ggpht.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=s48-c-k-c0x00000000-no-cc-rj-rp",
+                                "width": 48,
+                                "height": 48
+                              },
+                              {
+                                "url": "https://yt3.ggpht.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=s96-c-k-c0x00000000-no-cc-rj-rp",
+                                "width": 96,
+                                "height": 96
+                              }
+                            ]
+                          },
+                          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "targetId": "browse-feedMPSPPLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-_header"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "microformat": {
+    "microformatDataRenderer": {
+      "urlCanonical": "https://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-",
+      "title": "The Science of Flipping Podcast",
+      "thumbnail": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+            "width": 544,
+            "height": 544
+          }
+        ]
+      },
+      "siteName": "YouTube Music",
+      "appName": "YouTube Music",
+      "androidPackage": "com.google.android.apps.youtube.music",
+      "iosAppStoreId": "1017492454",
+      "ogType": "video.other",
+      "urlApplinksWeb": "https://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-&feature=applinks",
+      "urlApplinksIos": "vnd.youtube.music://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-&feature=applinks",
+      "urlApplinksAndroid": "vnd.youtube.music://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-&feature=applinks",
+      "urlTwitterIos": "vnd.youtube.music://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-&feature=twitter-deep-link",
+      "urlTwitterAndroid": "vnd.youtube.music://music.youtube.com/playlist?list=PLNIBJdVxHPuPN9UYZg-EDV3nO1oomBEM-&feature=twitter-deep-link",
+      "twitterCardType": "summary",
+      "twitterSiteHandle": "@youtubemusic"
+    }
+  },
+  "background": {
+    "musicThumbnailRenderer": {
+      "thumbnail": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+            "width": 60,
+            "height": 60
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+            "width": 120,
+            "height": 120
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w226-c-h226-k-c0x00ffffff-no-l90-rj",
+            "width": 226,
+            "height": 226
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/1BGnezZQS3sOkNo68LAc7OTAm1tWGsXFLwxEHizp3NwNJbHDItFp4hu1sGomRIPvJEFWnTzr=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+            "width": 544,
+            "height": 544
+          }
+        ]
+      },
+      "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+      "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_UNSPECIFIED"
+    }
+  }
+}

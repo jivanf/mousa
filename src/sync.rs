@@ -13,6 +13,75 @@ use std::{
 };
 
 static OPERATIONS: Mutex<()> = Mutex::new(());
+type SubscriptionCache = HashMap<(String, String), (std::time::Instant, Option<String>)>;
+static SUBSCRIPTIONS: std::sync::OnceLock<Mutex<SubscriptionCache>> = std::sync::OnceLock::new();
+
+pub fn clear_subscription_cache() {
+    if let Some(cache) = SUBSCRIPTIONS.get() {
+        cache.lock().unwrap().clear();
+    }
+}
+
+/// Only called when an artist page is opened, never for search result rows.
+pub fn artist_subscription(channel: &str) -> Result<Option<String>> {
+    let _guard = OPERATIONS.lock().unwrap();
+    let token = integrations::google_access()?;
+    // The refresh-token fingerprint scopes cached state without storing credentials.
+    use sha2::{Digest, Sha256};
+    let account = format!(
+        "{:x}",
+        Sha256::digest(integrations::get_secret("google-refresh")?.as_bytes())
+    );
+    let key = (account, channel.to_owned());
+    let cache = SUBSCRIPTIONS.get_or_init(Default::default);
+    if let Some((at, value)) = cache.lock().unwrap().get(&key)
+        && at.elapsed() < Duration::from_secs(300)
+    {
+        return Ok(value.clone());
+    }
+    let g = Google {
+        client: Client::builder().timeout(Duration::from_secs(30)).build()?,
+        token,
+        account: String::new(),
+        background: false,
+    };
+    let v = g.request(
+        Method::GET,
+        "subscriptions",
+        &[("part", "id"), ("mine", "true"), ("forChannelId", channel)],
+        None,
+    )?;
+    let id = v["items"][0]["id"].as_str().map(str::to_owned);
+    cache
+        .lock()
+        .unwrap()
+        .insert(key, (std::time::Instant::now(), id.clone()));
+    Ok(id)
+}
+
+pub fn set_artist_subscription(channel: &str, existing: Option<&str>) -> Result<Option<String>> {
+    let _guard = OPERATIONS.lock().unwrap();
+    let g = Google::connect()?;
+    let id = if let Some(id) = existing {
+        g.request(Method::DELETE, "subscriptions", &[("id", id)], None)?;
+        None
+    } else {
+        let v = g.request(
+            Method::POST,
+            "subscriptions",
+            &[("part", "snippet")],
+            Some(json!({"snippet":{"resourceId":{"kind":"youtube#channel","channelId":channel}}})),
+        )?;
+        Some(
+            v["id"]
+                .as_str()
+                .context("Subscription saved without an ID; reopen this artist to refresh")?
+                .to_owned(),
+        )
+    };
+    clear_subscription_cache();
+    Ok(id)
+}
 const API: &str = "https://www.googleapis.com/youtube/v3";
 fn decode_response(response: reqwest::blocking::Response, quota_db: &Library) -> Result<Value> {
     let status = response.status();

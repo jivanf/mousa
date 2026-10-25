@@ -9,9 +9,11 @@ A native Linux and Windows music player for YouTube.
 - Create, rename, delete, and reorder local and YouTube playlists.
 - Ctrl-click toggles track selection; Shift-click selects a range; Ctrl+Shift-click adds a range. Drag any selected row to move the entire selection in playlist order.
 - Drag a track row to reorder a playlist; use the play button revealed over its number to play it. Reordering is disabled during search.
-- Search playlists, track titles, and artists.
-- Play a search result and continue from that entry in the full playlist.
-- Add tracks or entire playlists from YouTube URLs.
+- Search YouTube Music from the sidebar or Ctrl+K: songs, videos, albums, artists, playlists, podcasts, episodes, and profiles.
+- Filter your existing playlists and tracks independently of catalog search.
+- Play a filtered playlist track and continue from that entry in the full playlist.
+- Browse catalog detail pages, play or queue tracks and collections, and save them to local or owned YouTube playlists.
+- Subscribe to artists from their detail pages.
 - Play/pause, previous/next, seeking, volume, shuffle, and repeat.
 - Manage your queue and restore it across restarts. Playback starts paused.
 - Resume the last playlist or queue view, including per-playlist searches and scroll positions.
@@ -71,7 +73,9 @@ Install a local binary, icon, and desktop launcher:
 - Ctrl+S: toggle shuffle
 - Ctrl+R: toggle repeat
 - Ctrl+M: mute/unmute
-- Ctrl+F: focus track search
+- Ctrl+K: open catalog search and focus its input
+- Ctrl+F: focus the current search/filter field
+- Esc in catalog search: close the destination picker, return from details, or restore the previous library/queue view
 - Alt+Up / Alt+Down: move the selected group, or the focused playlist track (with search cleared)
 - Esc: cancel a track drag; releasing outside the track list also cancels
 - Tab / Shift+Tab: move between controls
@@ -132,3 +136,13 @@ The report separates `origin=resume` (pressing Play on an unloaded saved/current
 Compare `preparation=ready` automatic transitions with `pending`, `failed`, `expired`, or `not_requested`. `fallback` means a prepared load failed and normal resolution was retried. For automatic transitions, `first_progress_ms` measures from the observed end event to advancing playback position on the next track; `file_loaded_ms` and `playback_restart_ms` distinguish opening from playback readiness. User pauses/seeks during startup are marked `interrupted` and excluded from the report. Buffering before first progress is separate from stalls during playback. The playback loop samples at a nominal 50 ms interval; these values approximate audible gaps, not hardware output latency, and very short cache waits can be missed.
 
 If prepared transitions are consistently quick and stall-free, further audio prebuffering is unlikely to help much. Persistent delays above roughly 200–300 ms **with cache waits**, or frequent playback stalls, justify a prebuffering experiment. URL-resolution failures or slow preparation call for resolver improvements first. Use a reasonable sample across tracks and network conditions; this comparison is observational, not a controlled benchmark.
+
+## Catalog search
+
+Catalog search and detail browsing use YouTube Music’s unofficial internal API. They do not consume official YouTube Data API quota and require no additional browser login. Category filters come from the service, including community and featured playlists; result ordering may differ from the YouTube Music website. Requests use the public English/US catalog context. Upstream changes can require compatibility updates.
+
+Search waits 300 ms after typing. Successful responses are cached in memory for five minutes; thumbnails are cached locally. The most recent 20 distinct searches are stored on this device and can be removed individually. Missing metadata does not cause a per-result official API lookup.
+
+Search replaces the main content view while preserving playback and the current queue. Clicking a playable result starts playback; opening a collection does not. Collection actions load remaining pages before changing the queue or saving tracks, and loading can be cancelled. Save actions use the existing remote-first playlist path: quota exhaustion or a partial remote failure is shown explicitly, and additions are never automatically retried.
+
+Artist subscription state is fetched through the official API only when the artist detail page opens, with a five-minute account-scoped cache. Subscription changes, playlist mutations, and existing library refreshes continue to use official API quota.
