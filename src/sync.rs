@@ -211,6 +211,16 @@ impl Google {
         if db.recently_written(id)? {
             return Ok(());
         }
+        self.refresh_after_write(db, id, remote, durations)
+    }
+
+    fn refresh_after_write(
+        &self,
+        db: &mut Library,
+        id: i64,
+        remote: &str,
+        durations: &mut HashMap<String, f64>,
+    ) -> Result<()> {
         policy::init(db)?;
         let now = integrations::now();
         policy::attempted(db, id, now)?;
@@ -553,28 +563,50 @@ pub fn add(id: i64, tracks: &[Track]) -> Result<()> {
     };
     let g = Google::connect()?;
     g.check(&account)?;
-    for (added, t) in tracks.iter().enumerate() {
-        let url = url::Url::parse(&t.url)?;
-        let video = url
-            .query_pairs()
-            .find(|(k, _)| k == "v")
-            .map(|(_, v)| v.into_owned())
-            .context("Track has no YouTube video ID")?;
-        let result = g.request(Method::POST,"playlistItems",&[("part","snippet")],Some(json!({"snippet":{"playlistId":remote,"resourceId":{"kind":"youtube#video","videoId":video}}})));
-        let value = match result {
-            Ok(v) => v,
-            Err(e) => bail!(
-                "Added {added} of {} tracks before an error: {e}. Refresh before retrying to avoid duplicates.",
-                tracks.len()
-            ),
-        };
-        let remote_item = value["id"]
-            .as_str()
-            .context("YouTube accepted an addition without an item ID. Refresh before retrying.")?;
-        db.append_google(id, remote_item, t)
-            .context("Track added on YouTube but cache update failed. Refresh before retrying.")?;
+    let addition = (|| -> Result<()> {
+        for (added, t) in tracks.iter().enumerate() {
+            let url = url::Url::parse(&t.url)?;
+            let video = url
+                .query_pairs()
+                .find(|(k, _)| k == "v")
+                .map(|(_, v)| v.into_owned())
+                .context("Track has no YouTube video ID")?;
+            let result = g.request(Method::POST,"playlistItems",&[("part","snippet")],Some(json!({"snippet":{"playlistId":remote,"resourceId":{"kind":"youtube#video","videoId":video}}})));
+            let value = match result {
+                Ok(v) => v,
+                Err(e) => bail!(
+                    "Added {added} of {} tracks before an error: {e}. Refresh before retrying to avoid duplicates.",
+                    tracks.len()
+                ),
+            };
+            let remote_item = value["id"].as_str().context(
+                "YouTube accepted an addition without an item ID. Refresh before retrying.",
+            )?;
+            db.append_google(id, remote_item, t).context(
+                "Track added on YouTube but cache update failed. Refresh before retrying.",
+            )?;
+        }
+        Ok(())
+    })();
+    finish_addition(addition, || {
+        // The normal refresh skips recently written playlists, but additions
+        // must also fetch entries that were never present in the local cache.
+        g.refresh_after_write(&mut db, id, &remote, &mut HashMap::new())
+    })
+}
+
+fn finish_addition(addition: Result<()>, refresh: impl FnOnce() -> Result<()>) -> Result<()> {
+    let refreshed = refresh();
+    match (addition, refreshed) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.context(
+            "Tracks added, but playlist refresh failed. Refresh before retrying to avoid duplicates",
+        )),
+        (Err(addition), Err(refresh)) => {
+            bail!("{addition}. Playlist refresh also failed: {refresh}")
+        }
     }
-    Ok(())
 }
 
 pub fn remove(id: i64) -> Result<()> {
@@ -801,6 +833,36 @@ fn youtube_duration(value: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod duration_tests {
+    #[test]
+    fn additions_refresh_on_success_and_partial_failure() {
+        for failed in [false, true] {
+            let mut refreshed = false;
+            let addition = if failed {
+                Err(anyhow::anyhow!("Partial addition"))
+            } else {
+                Ok(())
+            };
+            let result = super::finish_addition(addition, || {
+                refreshed = true;
+                Ok(())
+            });
+            assert!(refreshed);
+            assert_eq!(result.is_err(), failed);
+        }
+    }
+
+    #[test]
+    fn addition_refresh_failures_warn_against_duplicate_retries() {
+        let error = super::finish_addition(Ok(()), || anyhow::bail!("Offline")).unwrap_err();
+        assert!(error.to_string().contains("avoid duplicates"));
+        let error = super::finish_addition(Err(anyhow::anyhow!("Partial addition")), || {
+            anyhow::bail!("Offline")
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("Partial addition"));
+        assert!(error.to_string().contains("Offline"));
+    }
+
     #[test]
     fn quota_error_is_readable_and_persistently_stops_requests() {
         let db = crate::db::Library::open(":memory:").unwrap();
