@@ -57,7 +57,7 @@ impl TrackTable {
             .filter(|(_, item)| {
                 (item.video.is_some() || item.unavailable)
                     && match self {
-                        Self::Results => true,
+                        Self::Results => false,
                         Self::Collection => item.collection_member,
                         Self::Section(category, exclude_collection) => {
                             (!exclude_collection || !item.collection_member)
@@ -78,6 +78,7 @@ enum Action {
     Library,
 }
 enum Message {
+    SongAlbum(u64, Result<Option<Item>, String>),
     Page(u64, bool, Result<Page, String>),
     Images,
     Subscription(u64, Result<Option<String>, String>),
@@ -419,6 +420,45 @@ impl CatalogView {
         self.request(false, cx);
         self.load_subscription();
     }
+    fn open_search_result(&mut self, item: Item, cx: &mut Context<Self>) {
+        if let Some(target) = item.search_target() {
+            self.open(target, cx);
+            return;
+        }
+        if item.kind != "Song" {
+            return;
+        }
+        let Some(video) = item.video else { return };
+        self.debounce = None;
+        self.cancel_collection();
+        self.invalidate();
+        self.status = "Loading song album…".into();
+        self.error = None;
+        let generation = self.generation;
+        let ticket = self.ticket.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = catalog::fetch_cancellable(
+                &Destination {
+                    api: "next".into(),
+                    body: serde_json::json!({"videoId": video}),
+                },
+                || ticket.load(Ordering::Relaxed) != generation,
+            )
+            .map(|page| {
+                page.items
+                    .into_iter()
+                    .find(|i| i.video.as_deref() == Some(video.as_str()))
+                    .and_then(|mut song| {
+                        song.kind = "Song".into();
+                        song.search_target()
+                    })
+            })
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Message::SongAlbum(generation, result));
+        });
+        cx.notify();
+    }
     fn load_subscription(&mut self) {
         self.subscription = None;
         self.subscription_error = None;
@@ -627,6 +667,19 @@ impl CatalogView {
         while let Ok(message) = self.rx.try_recv() {
             changed = true;
             match message {
+                Message::SongAlbum(g, result) if g == self.generation => {
+                    self.busy = false;
+                    match result {
+                        Ok(Some(album)) => self.open(album, cx),
+                        Ok(None) => {
+                            self.status = "Album information is unavailable for this song.".into()
+                        }
+                        Err(error) => {
+                            self.status.clear();
+                            self.error = Some(error);
+                        }
+                    }
+                }
                 Message::Page(g, append, result) if g == self.generation => {
                     self.busy = false;
                     match result {
@@ -975,7 +1028,7 @@ impl CatalogView {
         cx: &Context<Self>,
     ) -> Stateful<Div> {
         let detail = number.is_some();
-        let selection = self.view.selection.get(&table);
+        let selection = self.view.selection.get(&table).filter(|_| detail);
         let selected = selection.is_some_and(|s| s.ids.contains(&(index as i64)));
         let selecting = selection.is_some_and(|s| !s.ids.is_empty());
         let playable = item.video.is_some() && !item.unavailable;
@@ -1104,10 +1157,19 @@ impl CatalogView {
                         )
                     }),
             )
-            .when(item.video.is_none() && !item.unavailable, |d| {
-                d.on_click(cx.listener(move |this, _, _, cx| this.open(open.clone(), cx)))
-            });
-        if item.video.is_some() || item.unavailable {
+            .when(
+                !detail || (item.video.is_none() && !item.unavailable),
+                |d| {
+                    d.on_click(cx.listener(move |this, _, _, cx| {
+                        if !detail {
+                            this.open_search_result(open.clone(), cx);
+                        } else {
+                            this.open(open.clone(), cx);
+                        }
+                    }))
+                },
+            );
+        if detail && (item.video.is_some() || item.unavailable) {
             row = ui::selectable_track_row(
                 row,
                 selected,
@@ -1980,10 +2042,6 @@ impl Render for CatalogView {
                 })),
             );
         }
-        root = root.when_some(
-            self.selection_strip(TrackTable::Results, false, cx),
-            |d, bar| d.child(bar),
-        );
         root.child(
             div()
                 .flex_1()
@@ -2093,16 +2151,16 @@ mod selection_tests {
             song("Songs", false),
             song("", true),
         ];
-        assert_eq!(TrackTable::Results.order(&items), [0, 2, 3, 4]);
+        assert!(TrackTable::Results.order(&items).is_empty());
         assert_eq!(
             TrackTable::Section("Songs".into(), false).order(&items),
             [0, 3]
         );
         assert_eq!(TrackTable::Collection.order(&items), [4]);
         let mut selection = crate::track_selection::TrackSelection::default();
-        let order = TrackTable::Results.order(&items);
+        let order = TrackTable::Section("Songs".into(), false).order(&items);
         selection.click(&order, 0, false, false);
-        selection.click(&order, 2, false, true);
-        assert_eq!(selection.ids.into_iter().collect::<Vec<_>>(), [0, 2, 3]);
+        selection.click(&order, 1, false, true);
+        assert_eq!(selection.ids.into_iter().collect::<Vec<_>>(), [0, 3]);
     }
 }

@@ -206,3 +206,76 @@ fn detail_metadata_and_creator_navigation_survive_parsing() {
     assert_eq!(page.creator.unwrap().body["browseId"], "UCcreator");
     assert_eq!(page.metadata, "12 tracks");
 }
+
+#[test]
+fn song_results_navigate_to_their_album_not_the_watch_or_artist_endpoint() {
+    for name in ["songs", "all"] {
+        let page = fixture(name);
+        let songs: Vec<_> = page.items.iter().filter(|i| i.kind == "Song").collect();
+        assert!(!songs.is_empty());
+        for song in songs {
+            let Some(album) = song.album.as_ref() else {
+                assert_eq!(name, "all", "filtered songs include album links");
+                assert!(song.search_target().is_none());
+                continue;
+            };
+            assert!(!album.title.is_empty());
+            let target = song.search_target().unwrap();
+            assert_eq!(target.kind, "Album");
+            assert_eq!(target.title, album.title);
+            assert_eq!(target.destination.as_ref().unwrap(), &album.destination);
+            assert_eq!(album.destination.api, "browse");
+            assert!(target.video.is_none());
+            assert!(song.video.is_some(), "explicit Play remains available");
+        }
+    }
+    let album = fixture("albums").items.remove(0);
+    assert_eq!(
+        album.search_target().unwrap().destination,
+        album.destination
+    );
+}
+
+#[test]
+fn missing_album_metadata_never_falls_back_to_playback_navigation() {
+    let song = Item {
+        kind: "Song".into(),
+        video: Some("song".into()),
+        destination: Some(catalog::Destination {
+            api: "next".into(),
+            body: json!({"videoId":"song"}),
+        }),
+        ..Default::default()
+    };
+    assert!(song.search_target().is_none());
+    assert!(song.track().is_some());
+    let old_cache = serde_json::to_value(&song).unwrap();
+    let mut old_cache = old_cache.as_object().unwrap().clone();
+    old_cache.remove("album");
+    assert!(
+        serde_json::from_value::<Item>(old_cache.into())
+            .unwrap()
+            .album
+            .is_none()
+    );
+}
+
+#[test]
+fn next_metadata_preserves_the_current_songs_album_link() {
+    let page = catalog::parse(
+        &json!({"playlistPanelVideoRenderer": {
+            "title": {"runs":[{"text":"Song"}]}, "videoId":"current",
+            "longBylineText":{"runs":[{"text":"Album title", "navigationEndpoint":{
+                "browseEndpoint":{"browseId":"album-id", "browseEndpointContextSupportedConfigs":{
+                    "browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}
+                }}
+            }}]}
+        }}),
+        "next",
+    );
+    let song = &page.items[0];
+    assert_eq!(song.video.as_deref(), Some("current"));
+    let album = song.album.as_ref().unwrap();
+    assert_eq!(album.title, "Album title");
+    assert_eq!(album.destination.body["browseId"], "album-id");
+}
