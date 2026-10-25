@@ -81,7 +81,7 @@ x-shadows:
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
-  catalog-collection-detail: table
+  catalog-collection-detail: page-with-sticky-selection
   catalog-artist-detail: page
 components:
   playlist-editor:
@@ -192,6 +192,14 @@ components:
   track-row-playing:
     backgroundColor: "{colors.tertiary}"
     textColor: "{colors.on-tertiary}"
+  selection-bar:
+    height: 66px
+    backgroundColor: "{colors.canvas}"
+    padding: 16px
+  selection-bar-unavailable:
+    height: 90px
+  selection-summary:
+    width: 128px
   track-row-selected:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.primary}"
@@ -428,7 +436,7 @@ the left of the duration, retaining their space so neither metadata nor duration
 shifts on hover; each action is also revealed on keyboard focus.
 Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
-Playing row is tertiary. Selected row is inverted.
+Playing row is tertiary. Multi-selected rows use canvas with a 6px ink left rule.
 
 **Track scrollbar.** Playlist and queue lists reserve a 20px white rail with a
 3px ink divider on the left. The square ink thumb has 3px side insets and a
@@ -585,14 +593,43 @@ icon placeholders; bundled icons are fallbacks only. Use the persistent 20px
 white scrollbar rail with an ink divider and a thumb proportional to actual
 overflow; illustrative fixed mock thumb lengths are not normative.
 
+### Multi-selection actions
+
+Source: the final **Multi-selection bar** and **Selection bar variants** boards.
+The first selected occurrence reveals a minimum 66px canvas strip directly above its
+track table. It has a 3px ink outline in flow; when pinned it spans the content
+viewport with only its 3px bottom rule. It remains reachable during wheel,
+scrollbar, and programmatic scrolling. Clear removes the selection and the strip.
+Library and queue keep their bounded virtualized lists; their strip stays above
+the scrolling rows. Search uses the same stationary strip above results.
+
+The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal /
+4px vertical padding. Neutral 36px Play, Queue, and Save to playlist buttons use
+13px bold mono text and 18px icons, with 12px gaps. Clear sits at the far right.
+The header retains its lime primary. Owned library playlists add pink Remove,
+separated by 24px; removal asks for confirmation and reports partial failures.
+Unavailable selected tracks count toward selection and show `N UNAVAILABLE,
+SKIPPED`; playback, queueing, and saving use the remaining available occurrences
+in displayed order, including duplicates. No available tracks makes those actions
+inactive. Single-selection uses the identical bar with `1 SELECTED`.
+Unavailable summaries use a 128px column and a 90px strip so the note can wrap
+without displacing Clear. At narrow library widths, action buttons wrap within
+their group and the strip grows vertically; Clear remains at the far right.
+Count tags retain their intrinsic width. Shared actions have no bottom margin;
+the strip's 12px vertical inset provides clearance for their hard shadows.
+
+Hide per-row queue/save/remove actions while that table has a selection. Keep
+single-track hover Play. Compensate the 6px left selection rule in the number
+slot (or result inset) to preserve title alignment. Collection and artist cards
+are not selectable; mixed search selection includes track-like items only.
+
 ### Detail pages
 
-Detail pages replace the search field with Back. **User-authorized deviation
-from the mock:** album, single, EP, playlist, and podcast detail pages keep Back,
-artwork, metadata, and actions fixed. Their bordered track table fills the remaining
-height and scrolls internally, using the same persistent scrollbar as search
-results. Continuation controls and any supplementary sections remain reachable
-inside this scrolling area. Artist detail pages retain whole-page scrolling. Use
+Detail pages replace the search field with Back. The latest approved selection
+mock supersedes the earlier fixed-header exception: album, single, EP, playlist,
+and podcast details scroll as a whole page. The selection strip starts in flow
+above the table and pins to the top of the content viewport when reached.
+Artist pages also retain whole-page scrolling. Use
 32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
 have 3px borders and 5px hard shadows. Align header information to the cover's

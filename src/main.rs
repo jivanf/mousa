@@ -40,6 +40,7 @@ actions!(
 );
 
 enum Reply {
+    SelectionRemoved(usize, Option<String>),
     Reordered(Result<(), String>),
     Library(Vec<Playlist>),
     Tracks(u64, Vec<Track>, String),
@@ -68,6 +69,8 @@ struct TrackDrag {
     generation: u64,
 }
 struct Mousa {
+    remove_selection: Option<Vec<i64>>,
+    removing_selection: bool,
     playlist_editor: Option<Entity<mousa::playlist_editor::PlaylistEditor>>,
     editor_subscription: Option<Subscription>,
     catalog: Entity<mousa::catalog_view::CatalogView>,
@@ -183,6 +186,8 @@ impl Mousa {
             sidebar_scroll,
             view_state: saved.clone(),
             track_drag: None,
+            remove_selection: None,
+            removing_selection: false,
             track_selection: Default::default(),
             queue_selection: Default::default(),
             selection_playlist: saved.playlist,
@@ -393,6 +398,7 @@ impl Mousa {
         }
     }
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
+        self.remove_selection = None;
         self.track_selection.clear();
         self.track_drag = None;
         self.generation += 1; // Invalidate an in-flight result as soon as input changes.
@@ -405,6 +411,7 @@ impl Mousa {
     }
     fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
         if self.selection_playlist != self.selected {
+            self.remove_selection = None;
             self.track_selection.clear();
             self.track_drag = None;
             self.selection_playlist = self.selected;
@@ -568,6 +575,14 @@ impl Mousa {
                         self.tracks = Arc::new(t);
                         self.freshness = freshness;
                     }
+                }
+                Reply::SelectionRemoved(count, error) => {
+                    self.removing_selection = false;
+                    self.remove_selection = None;
+                    self.status = format!("Removed {count} tracks");
+                    self.error = error;
+                    self.refresh_library();
+                    self.refresh_tracks(cx);
                 }
                 Reply::Done(s) => {
                     self.status = s;
@@ -793,6 +808,118 @@ impl Mousa {
             height * (boundary as f32 - scroll.item_ix as f32) - scroll.offset_in_item,
         ))
     }
+    fn selection_strip(&self, cx: &Context<Self>) -> Option<Div> {
+        let queue = self.queue_view;
+        let tracks = if queue { &self.queue } else { &self.tracks };
+        let selection = if queue {
+            &self.queue_selection
+        } else {
+            &self.track_selection
+        };
+        let selected: Vec<_> = tracks
+            .iter()
+            .enumerate()
+            .filter(|(i, t)| {
+                selection
+                    .ids
+                    .contains(&if queue { *i as i64 } else { t.id })
+            })
+            .map(|(_, t)| t.clone())
+            .collect();
+        if selected.is_empty() {
+            return None;
+        }
+        let count = selected.len();
+        let playable: Vec<_> = selected
+            .iter()
+            .filter(|t| t.unavailable.is_none())
+            .cloned()
+            .collect();
+        let unavailable = count - playable.len();
+        let mut actions = div().flex().items_center().gap(space::md());
+        for (id, label) in [
+            ("selection-play", "PLAY"),
+            ("selection-queue", "QUEUE"),
+            ("selection-save", "SAVE TO PLAYLIST"),
+        ] {
+            let tracks = playable.clone();
+            actions = actions.child(
+                ui::selection_action(
+                    id,
+                    label,
+                    match id {
+                        "selection-play" => "player-play",
+                        "selection-queue" => "playlist-add",
+                        _ => "plus",
+                    },
+                    false,
+                )
+                .when(tracks.is_empty(), |d| {
+                    d.bg(color::canvas())
+                        .text_color(color::muted())
+                        .shadow(vec![])
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if tracks.is_empty() {
+                        return;
+                    }
+                    match id {
+                        "selection-play" => {
+                            this.player.send(Command::SetShuffle(false));
+                            this.player.send(Command::Queue(tracks.clone(), 0));
+                        }
+                        "selection-queue" => {
+                            for track in &tracks {
+                                this.player.send(Command::Append(track.clone()));
+                            }
+                        }
+                        _ => {
+                            this.catalog
+                                .update(cx, |catalog, cx| catalog.save_tracks(tracks.clone(), cx));
+                            this.catalog_open = true;
+                        }
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        if !queue && self.selected.is_some() {
+            let ids: Vec<_> = selected.iter().map(|t| t.id).collect();
+            actions = actions.child(
+                ui::selection_action(
+                    "selection-remove",
+                    if self.removing_selection {
+                        "REMOVING…"
+                    } else {
+                        "REMOVE"
+                    },
+                    "x",
+                    true,
+                )
+                .ml(space::xl())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if !this.removing_selection {
+                        this.remove_selection = Some(ids.clone());
+                        cx.notify();
+                    }
+                })),
+            );
+        }
+        let clear = ui::selection_action("selection-clear", "CLEAR", "x", false).on_click(
+            cx.listener(move |this, _, _, cx| {
+                if queue {
+                    this.queue_selection.clear();
+                } else {
+                    this.track_selection.clear();
+                }
+                this.remove_selection = None;
+                this.unavailable_selection = None;
+                cx.notify();
+            }),
+        );
+        Some(ui::selection_bar(count, unavailable, true, actions, clear))
+    }
+
     fn rows(&self, queue: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let tracks = if queue {
             self.queue.clone()
@@ -925,10 +1052,16 @@ impl Mousa {
                     }))
                     .map(|d| {
                         ui::selectable_track_row(
-                            d.when(can_move, |d| d.cursor(CursorStyle::OpenHand)),
+                            d.when(can_move, |d| d.cursor(CursorStyle::OpenHand)).when(
+                                selected_ids.contains(&if queue { i as i64 } else { id }),
+                                |d| d.pl(space::lg() - mousa::theme::selection::marker()),
+                            ),
                             selected_ids.contains(&if queue { i as i64 } else { id }),
                             is_active || inverted,
                             cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                if !this.removing_selection {
+                                    this.remove_selection = None;
+                                }
                                 if queue {
                                     let order: Vec<_> = (0..this.queue.len() as i64).collect();
                                     this.queue_selection.click(
@@ -1100,7 +1233,7 @@ impl Mousa {
                                     .child(artist),
                             ),
                     )
-                    .when(!unavailable || queue, |d| {
+                    .when((!unavailable || queue) && selected_ids.is_empty(), |d| {
                         d.child(
                             icon_button(
                                 ("enqueue", i),
@@ -1162,7 +1295,7 @@ impl Mousa {
                             )),
                         )
                     })
-                    .when(!queue, |d| {
+                    .when(!queue && selected_ids.is_empty(), |d| {
                         d.child(
                             icon_button(
                                 ("remove", i),
@@ -1769,10 +1902,59 @@ impl Render for Mousa {
             );
             content = content.child(form);
         }
+        if let Some(ids) = self.remove_selection.clone().filter(|_| !self.queue_view) {
+            let count = ids.len();
+            content = content.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(space::md())
+                    .child(format!(
+                        "Remove {count} selected tracks from this playlist?"
+                    ))
+                    .child(
+                        button("confirm-remove-selection", "REMOVE TRACKS", color::pink())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if this.removing_selection {
+                                    return;
+                                }
+                                this.removing_selection = true;
+                                let ids = ids.clone();
+                                this.job(move || {
+                                    let mut removed = 0;
+                                    for id in ids {
+                                        if let Err(error) = sync::remove(id) {
+                                            return Ok(Reply::SelectionRemoved(
+                                                removed,
+                                                Some(error.to_string()),
+                                            ));
+                                        }
+                                        removed += 1;
+                                    }
+                                    Ok(Reply::SelectionRemoved(removed, None))
+                                });
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        button("cancel-remove-selection", "CANCEL", color::surface()).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                if !this.removing_selection {
+                                    this.remove_selection = None;
+                                    cx.notify();
+                                }
+                            }),
+                        ),
+                    ),
+            );
+        }
         content = content.child(
             div()
                 .flex_1()
                 .min_h_0()
+                .flex()
+                .flex_col()
+                .when_some(self.selection_strip(cx), |d, bar| d.child(bar))
                 .border(border::strong())
                 .border_color(color::ink())
                 .when(n == 0, |d| {
@@ -1799,7 +1981,14 @@ impl Render for Mousa {
                             "Open Search to find music and add it to a playlist."
                         })
                 })
-                .when(n > 0, |d| d.child(self.rows(self.queue_view, cx))),
+                .when(n > 0, |d| {
+                    d.child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.rows(self.queue_view, cx)),
+                    )
+                }),
         );
         let controls = div()
             .flex()
