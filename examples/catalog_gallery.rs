@@ -1,5 +1,6 @@
 //! Offline visual review of the production catalog components.
-//! Usage: cargo run --release --example catalog_gallery -- [search|album|playlist|artist|empty|first-use|loading|no-results|error]
+//! Usage: cargo run --release --example catalog_gallery -- [search|search-navigation|album|playlist|artist|empty|first-use|loading|no-results|error]
+//! search-navigation uses recorded songs with real album links; clicking navigates via the service.
 use gpui::{prelude::*, *};
 use gpui_component::Root;
 use mousa::{
@@ -26,6 +27,11 @@ impl Render for Gallery {
     }
 }
 fn sample(state: &str) -> (Page, Option<Item>) {
+    if state == "search-navigation" {
+        let raw =
+            serde_json::from_str(include_str!("../tests/fixtures/catalog/songs.json")).unwrap();
+        return (catalog::parse(&raw, "search"), None);
+    }
     let state = if state.starts_with("selection") {
         "album"
     } else {

@@ -237,6 +237,8 @@ components:
     typography: "{typography.catalog-control}"
   catalog-result:
     height: 64px
+    x-interaction: navigation-only
+    x-multi-selection: false
   catalog-thumbnail:
     size: 48px
   catalog-result-trailing:
@@ -581,7 +583,7 @@ separate badge**—the user's approved exception. Durations or collection counts
 occupy an 84px trailing column in 14px regular Space Mono. Do not duplicate this
 metadata in the description or invent missing values.
 
-All track tables use plain click to select one occurrence, Ctrl-click to toggle
+Track tables in library, queue, and catalog details use plain click to select one occurrence, Ctrl-click to toggle
 an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
 range. Selection is independent per table. Clicking a track row never starts
 playback; its Play button does. Row actions do not change selection or start
@@ -606,7 +608,7 @@ track table. It has a 3px ink outline in flow; when pinned it spans the content
 viewport with only its 3px bottom rule. It remains reachable during wheel,
 scrollbar, and programmatic scrolling. Clear removes the selection and the strip.
 Library and queue keep their bounded virtualized lists; their strip stays above
-the scrolling rows. Search uses the same stationary strip above results.
+the scrolling rows. Search results have no selection strip.
 
 The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal
 padding. Its height matches the 36px action buttons, with text vertically centered,
@@ -627,8 +629,14 @@ the strip's 12px vertical inset provides clearance for their hard shadows.
 
 Hide per-row queue/save/remove actions while that table has a selection. Keep
 single-track hover Play. Compensate the 6px left selection rule in the number
-slot (or result inset) to preserve title alignment. Collection and artist cards
-are not selectable; mixed search selection includes track-like items only.
+slot to preserve title alignment. Collection and artist cards are not selectable.
+Search results, including filtered song results, are navigation-only and never
+support multi-selection. Clicking an album opens its details; clicking a song
+opens the album linked in its metadata. If search omits that link, resolve it
+from the song’s next metadata without starting playback; stale responses cannot
+replace newer navigation. If the service still provides no album, report that
+album information is unavailable. Play, Queue, and Save
+remain independent row actions and do not trigger navigation.
 
 ### Detail pages
 

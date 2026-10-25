@@ -25,10 +25,31 @@ pub struct Item {
     pub duration: f64,
     pub artist: String,
     pub destination: Option<Destination>,
+    #[serde(default)]
+    pub album: Option<AlbumLink>,
     pub unavailable: bool,
     pub collection_member: bool,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AlbumLink {
+    pub title: String,
+    pub destination: Destination,
+}
 impl Item {
+    /// Search rows navigate; watch endpoints are reserved for explicit playback.
+    pub fn search_target(&self) -> Option<Self> {
+        if self.kind == "Song" {
+            let album = self.album.as_ref()?;
+            return Some(Self {
+                title: album.title.clone(),
+                kind: "Album".into(),
+                destination: Some(album.destination.clone()),
+                ..Default::default()
+            });
+        }
+        self.destination.as_ref().filter(|d| d.api == "browse")?;
+        Some(self.clone())
+    }
     pub fn track(&self) -> Option<crate::db::Track> {
         let video = self.video.as_ref()?;
         if self.unavailable {
@@ -208,6 +229,26 @@ fn seconds(s: &str) -> Option<f64> {
         })
         .map(|n| n as f64)
 }
+fn album_link(v: &Value) -> Option<AlbumLink> {
+    if let Some(destination) = endpoint(&v["navigationEndpoint"])
+        && destination.api == "browse"
+        && find(&destination.body, "pageType").and_then(Value::as_str)
+            == Some("MUSIC_PAGE_TYPE_ALBUM")
+    {
+        return Some(AlbumLink {
+            title: v["text"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| text(v)),
+            destination,
+        });
+    }
+    match v {
+        Value::Object(values) => values.values().find_map(album_link),
+        Value::Array(values) => values.iter().find_map(album_link),
+        _ => None,
+    }
+}
 fn item(v: &Value, category: &str) -> Option<Item> {
     let title = if v.get("flexColumns").is_some() {
         text(&v["flexColumns"][0]["musicResponsiveListItemFlexColumnRenderer"]["text"])
@@ -325,6 +366,9 @@ fn item(v: &Value, category: &str) -> Option<Item> {
         duration,
         artist: artists.join(" · "),
         destination: dest.or(play),
+        album: album_link(&v["flexColumns"])
+            .or_else(|| album_link(&v["subtitle"]))
+            .or_else(|| album_link(&v["longBylineText"])),
         unavailable: v["isPlayable"].as_bool() == Some(false)
             || v["musicItemRendererDisplayPolicy"] == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT",
         collection_member: true,
