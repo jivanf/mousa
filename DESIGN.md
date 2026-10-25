@@ -39,6 +39,18 @@ typography:
     fontSize: 12px
     fontWeight: 700
     letterSpacing: 0.08em
+  catalog-control:
+    fontFamily: Space Mono
+    fontSize: 13px
+    fontWeight: 700
+  catalog-number:
+    fontFamily: Space Mono
+    fontSize: 14px
+    fontWeight: 400
+  catalog-query:
+    fontFamily: Space Grotesk
+    fontSize: 18px
+    fontWeight: 500
   mono-md:
     fontFamily: Space Mono
     fontSize: 14px
@@ -168,7 +180,66 @@ components:
   sidebar:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.primary}"
-    width: 260px
+    width: 272px
+  catalog-nav:
+    height: 40px
+    gap: 10px
+  catalog-search:
+    height: 56px
+    typography: "{typography.catalog-query}"
+    padding: 16px
+  catalog-filter:
+    height: 36px
+    gap: 12px
+    typography: "{typography.catalog-control}"
+  catalog-result:
+    height: 64px
+  catalog-thumbnail:
+    size: 48px
+  catalog-result-trailing:
+    width: 84px
+  catalog-icon:
+    size: 18px
+  catalog-detail:
+    padding: 32px
+    gap: 32px
+  catalog-cover:
+    size: 192px
+  catalog-portrait:
+    size: 160px
+  catalog-album-card:
+    width: 176px
+    gap: 24px
+  catalog-action:
+    height: 44px
+    padding: 18px
+    gap: 10px
+    typography: "{typography.catalog-control}"
+  catalog-track:
+    height: 56px
+  catalog-track-number:
+    width: 56px
+    typography: "{typography.catalog-number}"
+  catalog-track-duration:
+    width: 60px
+    typography: "{typography.catalog-number}"
+  catalog-recent:
+    height: 48px
+  catalog-state:
+    padding: 20px
+  catalog-first-use:
+    padding: 24px
+    gap: 20px
+  catalog-first-use-icon-frame:
+    size: 56px
+  catalog-first-use-icon:
+    size: 28px
+  catalog-first-use-copy:
+    width: 560px
+  catalog-skeleton-title:
+    height: 12px
+  catalog-skeleton-subtitle:
+    height: 10px
   player-bar:
     backgroundColor: "{colors.neutral}"
     textColor: "{colors.primary}"
@@ -176,7 +247,7 @@ components:
 
 ## Overview
 
-Mousa is a native Rust desktop app built on GPUI, currently targeting Linux.
+Mousa is a native Rust desktop app built on GPUI, targeting Linux and Windows.
 Nothing in this file is HTML or CSS: components are GPUI elements (`div()`,
 `svg()`, virtualized `list`, stateful elements with `.id()`). Token values in the
 front matter are normative. The Rust constants in `theme.rs` implement them
@@ -196,8 +267,9 @@ Principles:
 5. Prefer quiet rows with actions revealed on hover over repeated buttons.
 
 Read this file and use only tokens from it. Check every change in the
-gallery (`cargo run --example gallery`). A mockup, if one exists, shows the
-look only. Do not port its markup.
+gallery (`cargo run --example gallery`). Approved designer mocks define the visual target. Implement them with native
+components rather than porting their markup. Record user-approved exceptions here;
+do not reinterpret a final design without authorization.
 
 ## Colors
 
@@ -244,12 +316,14 @@ coverage) and no emoji.
 ## Layout
 
 Desktop and mouse first, so controls are denser than touch targets.
-Spacing scale: xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. Do not use other
-values.
+Spacing scale: xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. Use these values
+or the explicitly documented component-specific catalog measurements below.
 
 Control sizes: row actions 32px, default controls and inputs 36px, transport
 buttons 44px, hero 72px, bar track 22px, bar thumb 28px, track row minimum 56px,
-sidebar 300px.
+sidebar 272px. The sidebar token includes the panel width; its controls use
+16px side insets. Library, Queue, and Search navigation is 40px high with
+10px gaps and left-aligned labels.
 
 Player bar, docked at the bottom, three zones: track info (left), transport
 and timeline (center), volume (right). The timeline sits directly under the
@@ -264,8 +338,8 @@ Depth is created only by hard offset shadows: sm (3px) for buttons, md (5px)
 for the hero control, lg (8px) for cards, dialogs, and the player bar. Blur is
 visually zero. The color is ink, except the active toggle shadow, which is lime.
 
-The pinned GPUI Linux renderer has no zero-sigma branch in its shadow shader.
-`theme.rs` uses a 0.01px raster sigma on Linux to avoid division by zero while
+The pinned GPUI Linux and Windows renderers have no zero-sigma branch in their shadow shaders.
+`theme.rs` uses a 0.01px raster sigma on those platforms to avoid division by zero while
 rendering a visually hard edge. This is a renderer workaround, not a blur token.
 
 Shadows paint outside the element. Reserve margin equal to the offset, and do
@@ -347,6 +421,110 @@ Volume reuses Bar plus a mute button.
 **Page header.** page-title in ink, a secondary metadata line, and actions at
 top right (Rename default, Delete destructive).
 
+## Catalog search and browsing
+
+Source: the approved [Claude artifact](https://claude.ai/chat/517ad159-e9a2-4198-8264-048db6d51b55?artifact=c4853a45-6ad1-438a-8052-0db787d8db8e), from Search through the detail, integration, and no-query artboards. The final designer layouts govern these components.
+
+### Entry and shared fields
+
+Search is a sidebar navigation destination beside Your Library and Queue.
+It replaces the main content while preserving the player, queue, and prior
+library browsing context. Ctrl+K opens/focuses catalog search; Back/Escape
+returns through detail navigation. The existing full player retains its seek
+controls and account panels; integration mocks illustrate their placement.
+The Add YouTube workaround is removed. Sidebar and track inputs are explicitly
+labeled “Filter playlists…” and “Filter tracks…”, distinct from catalog search.
+
+The catalog field is 56px high with a leading search icon and the placeholder
+“Search songs, videos, albums, artists…”. Search content has a 16px inset in the
+application, 32px in standalone component previews. All search/filter fields,
+including the destination picker, have an inline × only while their input is
+nonempty. Clearing retains field focus and updates its results. The clear control
+is 32px in the catalog field, 24px in compact 36px fields, with an 18px icon,
+3px border, and no shadow or redundant tooltip. Name-entry fields are not searches.
+
+Category chips are 36px controls with 13px bold Space Mono labels, 12px gaps,
+and the standard 3px hard shadow. Selection uses ink/lime inversion. Chips wrap
+without clipping. Show actual service categories, including Songs, Videos,
+Albums, Artists, Community playlists, Featured playlists, Podcasts, Episodes,
+and Profiles, plus All. Preserve additional named service categories; omit empty
+labels. The category set is a functional exception to the mock, not a closed list.
+
+### No-query and request states
+
+With no query, show the chips. With no saved history, show the first-use panel:
+3px ink outline, surface fill, 24px padding, a 56px canvas icon frame containing
+a 28px search icon, and a 20px gap to text. The heading is 18px bold Space Grotesk,
+“Find something to play”. Supporting copy is 14px medium, muted, line height 1.4,
+with a maximum width of 560px and an 8px heading gap:
+“Search for songs, videos, albums, artists, playlists and episodes. Your recent
+searches will appear here.” Do not show an empty Recent searches heading.
+Opening this state or selecting a chip without a query does not fetch results.
+
+With history, show Recent searches and a right-aligned Clear all action above
+48px rows with clock icons and individual remove controls. Clear all, or removing
+the last entry, restores the first-use panel. Clearing a query restores the
+appropriate no-query state; the field’s × disappears.
+
+Loading uses Searching… and three 64px skeleton rows, with 48px thumbnail blocks
+and 12px/10px text bars. No-results and connection-error states use bordered
+surface panels with 20px padding, a 24px semantic icon, 18px bold heading,
+13px muted explanation, and a 36px lime recovery action. No-results offers
+Search all types; connection failure offers Retry. Hide result chips during
+these request states as in the Search states mock. Error detail remains available
+where useful. These catalog recovery panels are distinct from pink error banners.
+
+### Results
+
+Mixed results have a Results for heading and a ruled surface list. Rows are
+64px high, with 48px bordered real thumbnails, 14px medium titles, and 13px muted
+secondary descriptions. **Put the record category in the description, not in a
+separate badge**—the user's approved exception. Durations or collection counts
+occupy an 84px trailing column in 14px regular Space Mono. Do not duplicate this
+metadata in the description or invent missing values.
+
+Playable rows reveal a play overlay on the thumbnail and 32px queue/save actions
+with 18px icons on hover or keyboard focus. Reserve action space to prevent text
+movement. Collections open their detail page. Real thumbnails replace the mocks'
+icon placeholders; bundled icons are fallbacks only. Use the persistent 20px
+white scrollbar rail with an ink divider and a thumb proportional to actual
+overflow; illustrative fixed mock thumb lengths are not normative.
+
+### Detail pages
+
+Detail pages replace the search field with Back and scroll as one page. Use
+32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
+Album and playlist covers are 192px squares; artist portraits are 160px. Covers
+have 3px borders and 5px hard shadows. Align header information to the cover's
+bottom edge. Titles use page-title with 1.1 line height; category labels use
+label-caps, and byline/metadata use body-md/body-sm. Navigable creator credits
+are underlined. Metadata reflects the service; missing values are omitted.
+
+Header actions are 44px high, with 18px horizontal padding, 10px icon/text gaps,
+18px icons, and 13px bold Space Mono labels. Allow wrapping. Album actions are
+Play, Shuffle, Queue, and Save to playlist; playlist actions replace the latter
+with Add to library. Artist actions are Shuffle and Subscribe. Play or artist
+Shuffle is the single lime primary action. Add to library saves a local playlist
+snapshot; Save to playlist opens the destination picker.
+
+Collection tables start 32px below the header, with a 3px outer border and 56px
+rows separated by 1px rules. Number columns are 56px, duration columns 60px,
+both 14px regular Space Mono. Album rows omit redundant artist subtitles;
+playlist rows retain them. These catalog rows are distinct from the existing
+variable-height library/queue rows.
+
+Artist pages separate Top songs and Albums. Section headings have 32px height,
+32px top spacing, 12px before their content, and a right-aligned See all control.
+Songs use the numbered table. Album cards have 176px square covers, 24px gaps,
+and title/secondary metadata below. Additional service sections retain their
+appropriate row or card presentation. Catalog body line height is 1.2 unless
+an explicit heading or first-use-copy rule overrides it.
+
+Preview these production components with `cargo run --release --example
+catalog_gallery -- search` and the `album`, `playlist`, `artist`, `first-use`,
+`empty` (history), `loading`, `no-results`, and `error` states. Verification outcomes belong in the task or PR summary; this specification and
+`AGENTS.md` retain the enduring design and contributor rules.
+
 ## Do's and Don'ts
 
 | Do | Don't |
@@ -357,7 +535,7 @@ top right (Rename default, Delete destructive).
 | Reveal row actions on hover | Repeat four buttons on every row |
 | Embed fonts and icons as assets | Rely on system fonts or unicode glyphs |
 | Keep shadows on controls only | Put shadows on rows or scroll content |
-| Add a tooltip and keyboard action to icon-only buttons | Rely on a label attribute, GPUI has none |
+| Preserve keyboard access; add tooltips only when they clarify ambiguity | Repeat obvious actions or visible labels in tooltips |
 | Add a token here before using a new value | Introduce one-off values in components |
 
 ## GPUI Implementation
@@ -382,7 +560,9 @@ visual direction, not a requirement to scale every control with window size.
 Fonts and Tabler SVGs are bundled with their licenses. Label tracking is
 implemented by the shared `caps` component because GPUI 0.2.2 lacks a text
 letter-spacing property. Keyboard activation uses native GPUI Enter/Space
-handling; all icon actions also have descriptive tooltips.
+handling. Tooltips explain ambiguous actions, destinations, errors, or truncated
+content; obvious Play, Pause, and clear-input controls do not need them.
+Accessibility labels and keyboard behavior are independent of tooltips.
 
 ## Verification
 
