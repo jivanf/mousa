@@ -47,6 +47,7 @@ fn main() {
         vec![Track {
             id: 1,
             playlist_index: 0,
+            unavailable: None,
             url: path.to_string_lossy().into(),
             title: "Silent playback probe".into(),
             artist: "Mousa QA".into(),
@@ -90,4 +91,31 @@ fn main() {
     }
     p.send(Command::Stop);
     println!("Playback, pause and seek during a database write; session-save retry; stop: passed");
+    p.send(Command::Queue(
+        vec![Track {
+            id: 2,
+            playlist_index: 0,
+            unavailable: None,
+            url: path.with_file_name("missing.wav").to_string_lossy().into(),
+            title: "Missing file probe".into(),
+            artist: "".into(),
+            duration: 10.,
+        }],
+        0,
+    ));
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let state = p.state.lock().unwrap();
+        if !state.error.is_empty() {
+            assert!(state.paused);
+            break;
+        }
+        drop(state);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Failed load was ignored"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    println!("Failed load reports an error without waiting for the startup timeout: passed");
 }

@@ -30,7 +30,7 @@ pub mod color {
     } // playing / primary action
     pub fn pink() -> Hsla {
         rgb(0xFF8FC7).into()
-    } // destructive only; accepted designer palette
+    } // destructive actions and error banners; accepted designer palette
     pub fn white() -> Hsla {
         rgb(0xFFFFFF).into()
     } // input fields, bar tracks
@@ -165,6 +165,12 @@ pub mod space {
 
 /// Control sizes. Desktop and mouse first, so denser than touch targets.
 pub mod size {
+    pub fn availability_width() -> gpui::Pixels {
+        gpui::px(150.)
+    }
+    pub fn availability_height() -> gpui::Pixels {
+        gpui::px(28.)
+    }
     use super::*;
     pub fn row_action() -> Pixels {
         px(32.)
@@ -256,5 +262,35 @@ pub mod landing {
     }
     pub fn title() -> Pixels {
         px(56.)
+    }
+}
+
+pub mod scrollbar {
+    use super::*;
+    pub fn width() -> Pixels {
+        px(20.)
+    }
+    pub fn min_thumb() -> Pixels {
+        px(48.)
+    }
+    pub fn readout_height() -> Pixels {
+        px(30.)
+    }
+}
+
+/// Playlist drag geometry, kept independent of playback's lime treatment.
+pub mod reorder {
+    use super::*;
+    pub fn drag_threshold() -> Pixels {
+        px(6.)
+    }
+    pub fn line() -> Pixels {
+        px(6.)
+    }
+    pub fn cap() -> Pixels {
+        px(16.)
+    }
+    pub fn scroll_step() -> Pixels {
+        px(8.)
     }
 }

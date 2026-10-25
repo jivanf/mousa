@@ -6,11 +6,19 @@ description: Rebuild Mousa and update its locally installed application after ev
 # Update the installed Mousa build
 
 After every successful commit in this repository, run `./scripts/install.sh`
-from the repository root and wait for it to finish before reporting completion.
+on Linux or `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1`
+on Windows from the repository root and wait for it to finish before reporting completion.
 Repeat this after any follow-up or amended commit. This applies even when the
 commit changes only documentation or skills.
 
-The installer builds with `cargo build --release --locked`, installs the binary
+Both installers build with `cargo build --release --locked`. On Windows, the
+installer installs `mousa.exe` and its runtime dependencies in
+`%LOCALAPPDATA%\Programs\Mousa`, creates a Start menu shortcut, and verifies the
+installed executable's SHA-256 against the release build. Close the running
+Windows app before replacing its executable; preserve playback unless the user
+has authorized a restart.
+
+On Linux, the installer installs the binary
 at `$HOME/.local/bin/mousa`, and updates the desktop launcher and icon. Building
 or launching `target/debug/mousa` alone does not update the app-menu version.
 
@@ -30,4 +38,5 @@ compilation alone.
 
 Updating the installed file does not update a running process. Do not interrupt
 playback or restart Mousa solely because of a commit. When the user asks to launch
-or restart it, use `$HOME/.local/bin/mousa` so they test the installed version.
+or restart it, use `$HOME/.local/bin/mousa` on Linux or
+`%LOCALAPPDATA%\Programs\Mousa\mousa.exe` on Windows so they test the installed version.

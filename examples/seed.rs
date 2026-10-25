@@ -15,6 +15,7 @@ fn main() -> anyhow::Result<()> {
         .map(|i| Track {
             id: 0,
             playlist_index: 0,
+            unavailable: None,
             url: "https://www.youtube.com/watch?v=jNQXAC9IVRw".into(),
             title: format!("Synthetic track {:04}", i + 1),
             artist: format!("Test artist {:02}", i % 50),

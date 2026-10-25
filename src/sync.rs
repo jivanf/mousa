@@ -176,6 +176,7 @@ impl Google {
                 Track {
                     id: 0,
                     playlist_index: 0,
+                    unavailable: crate::db::unavailable_status(s["title"].as_str(), None),
                     url: format!("https://www.youtube.com/watch?v={video}"),
                     title: crate::titles::from_snippet(s),
                     artist: crate::artists::resolve(s),
@@ -443,6 +444,63 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     g.request(Method::PUT,"playlistItems",&[("part","snippet")],Some(json!({"id":db.google_entry(id)?,"snippet":{"playlistId":remote,"position":target,"resourceId":{"kind":"youtube#video","videoId":video}}})))?;
     db.move_entry(id, delta)?;
     db.mark_written(playlist)?;
+    Ok(())
+}
+
+/// Use entry identity as the drop anchor so remote refreshes cannot shift the target.
+pub fn move_entry_before(id: i64, before: Option<i64>) -> Result<()> {
+    move_entries_before(&[id], before)
+}
+
+/// YouTube has no batch reorder API. Persist each confirmed move so a partial
+/// failure leaves the cache consistent with the successful remote writes.
+pub fn move_entries_before(selected: &[i64], before: Option<i64>) -> Result<()> {
+    let _guard = OPERATIONS.lock().unwrap();
+    let mut db = db::library()?;
+    let id = *selected.first().context("No tracks selected")?;
+    let playlist = db.entry_playlist(id)?;
+    let Some((remote, account)) = db.google_playlist(playlist)? else {
+        return db.move_entries_before(selected, before);
+    };
+    let g = Google::connect()?;
+    g.check(&account)?;
+    g.refresh(&mut db, playlist, &remote, &mut HashMap::new())?;
+    let tracks = db.tracks(playlist, "", Sort::Position)?;
+    let mut order: Vec<_> = tracks.iter().map(|t| t.id).collect();
+    let desired = crate::track_selection::moved_order(&order, selected, before)?;
+    if order == desired {
+        return Ok(());
+    }
+    let moving: Vec<_> = order
+        .iter()
+        .filter(|id| selected.contains(id))
+        .copied()
+        .collect();
+    let end = desired
+        .iter()
+        .rposition(|id| selected.contains(id))
+        .unwrap();
+    let mut anchor = desired.get(end + 1).copied();
+    for id in moving.into_iter().rev() {
+        let next = crate::track_selection::moved_order(&order, &[id], anchor)?;
+        if next != order {
+            let target = next.iter().position(|entry| *entry == id).unwrap();
+            let source = tracks.iter().find(|t| t.id == id).unwrap();
+            let video = url::Url::parse(&source.url)?
+                .query_pairs()
+                .find(|(k, _)| k == "v")
+                .context("Missing video ID")?
+                .1
+                .into_owned();
+            g.request(Method::PUT, "playlistItems", &[("part", "snippet")],
+                Some(json!({"id":db.google_entry(id)?,"snippet":{"playlistId":remote,"position":target,
+                "resourceId":{"kind":"youtube#video","videoId":video}}})))?;
+            db.move_entry_before(id, anchor)?;
+            db.mark_written(playlist)?;
+        }
+        order = next;
+        anchor = Some(id);
+    }
     Ok(())
 }
 

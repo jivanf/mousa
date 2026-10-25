@@ -152,6 +152,12 @@ components:
   track-row-selected:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.on-primary}"
+  track-scrollbar:
+    width: 20px
+  track-scrollbar-thumb:
+    height: 48px
+  track-scrollbar-readout:
+    height: 30px
   playlist-item:
     backgroundColor: "{colors.neutral}"
     textColor: "{colors.primary}"
@@ -204,7 +210,7 @@ look only. Do not port its markup.
   the player bar.
 - **Canvas (#E6DFD0):** window and panel background, including the sidebar.
 - **Field (#FFFFFF):** inputs, bar tracks, thumbs, and the hover fill.
-- **Danger (#FF8FC7), pink:** destructive actions only (Delete, Remove).
+- **Danger (#FF8FC7), pink:** destructive actions (Delete, Remove) and error banner backgrounds.
   This replaces the original prototype pink.
 - **On-primary (#C8F560):** text and icons on an ink fill.
 
@@ -310,6 +316,18 @@ shifts on hover; each action is also revealed on keyboard focus.
 Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
 Playing row is tertiary. Selected row is inverted.
+
+**Track scrollbar.** Playlist and queue lists reserve a 20px white rail with a
+3px ink divider on the left. The square ink thumb has 3px side insets and a
+proportional height with a 48px minimum (capped to the viewport). While dragging,
+the thumb becomes white with a 3px ink outline; a 30px-high ink readout sits
+8px to the left, showing the first visible row position and filtered list total
+as `612 / 1230` in bold 12px Space Mono, lime. The readout appears only during
+dragging and stays within the viewport vertically. No shadows or explanatory
+labels. The thumb follows wheel scrolling and programmatic navigation. Clicking
+the rail seeks; dragging continues outside the rail. Arrow keys, Page Up/Down,
+and Home/End work when focused. Non-overflowing lists have no thumb or readout.
+Preview with `cargo run --example gallery -- --scrollbar`.
 
 **Playlist item.** Neutral card with 3px border: name over a mono label of
 `count . source`. Selected is inverted. No shadow.

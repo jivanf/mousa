@@ -11,9 +11,9 @@ pub fn read(queue: &[Track]) -> anyhow::Result<Vec<(Track, Track)>> {
 }
 
 fn read_from(db: &db::Library, queue: &[Track]) -> anyhow::Result<Vec<(Track, Track)>> {
-    let mut stmt = db
-        .conn
-        .prepare_cached("SELECT title,artist,duration FROM entries WHERE id=?1 AND url=?2")?;
+    let mut stmt = db.conn.prepare_cached(
+        "SELECT title,artist,duration,unavailable FROM entries WHERE id=?1 AND url=?2",
+    )?;
     let mut updates = Vec::new();
     for old in queue {
         let new = stmt
@@ -24,6 +24,7 @@ fn read_from(db: &db::Library, queue: &[Track]) -> anyhow::Result<Vec<(Track, Tr
                     title: row.get(0)?,
                     artist: row.get(1)?,
                     duration: row.get(2)?,
+                    unavailable: row.get(3)?,
                     ..old.clone()
                 })
             })
@@ -46,6 +47,9 @@ pub fn apply(s: &mut Snapshot, updates: Vec<(Track, Track)>) {
     for track in queue.iter_mut() {
         if let Some((old, new)) = updates.get(&(track.id, track.url.clone())) {
             // An older background result must not overwrite a newer update.
+            if track.unavailable == old.unavailable {
+                track.unavailable.clone_from(&new.unavailable);
+            }
             if track.title == old.title {
                 track.title.clone_from(&new.title);
             }
@@ -75,6 +79,7 @@ mod tests {
             artist: "Artist".into(),
             duration,
             playlist_index: 1,
+            unavailable: None,
         }
     }
     #[test]

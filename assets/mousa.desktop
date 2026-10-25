@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Mousa
-Comment=A fast, native YouTube music player
+Comment=Just a fast music player
 Exec=mousa
 Icon=mousa
 Terminal=false

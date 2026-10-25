@@ -14,6 +14,8 @@ pub struct Track {
     /// Complete artist credit, resolved centrally by `artists::resolve`.
     pub artist: String,
     pub duration: f64,
+    #[serde(default)]
+    pub unavailable: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct Playlist {
@@ -57,9 +59,18 @@ impl Library {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        anyhow::ensure!(version <= 1, "Library was created by a newer Mousa version");
+        anyhow::ensure!(version <= 2, "Library was created by a newer Mousa version");
         if version == 0 {
             Self::initialize(&mut conn)?;
+        }
+        if version < 2 {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if tx.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? < 2 {
+                tx.execute_batch("ALTER TABLE entries ADD COLUMN unavailable TEXT;
+                    UPDATE entries SET unavailable=CASE lower(title) WHEN 'private video' THEN 'PRIVATE' WHEN 'deleted video' THEN 'REMOVED' ELSE 'UNAVAILABLE' END WHERE lower(title) IN ('private video','deleted video','unavailable video','unavailable track');
+                    PRAGMA user_version=2;")?;
+            }
+            tx.commit()?;
         }
         Ok(Self { conn })
     }
@@ -134,7 +145,7 @@ impl Library {
             |r| r.get(0),
         )?;
         {
-            let mut stmt=tx.prepare("INSERT INTO entries(playlist_id,url,title,artist,duration,position) VALUES(?,?,?,?,?,?)")?;
+            let mut stmt=tx.prepare("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) VALUES(?,?,?,?,?,?,?)")?;
             for (i, t) in tracks.iter().enumerate() {
                 stmt.execute(params![
                     playlist,
@@ -142,7 +153,8 @@ impl Library {
                     t.title,
                     t.artist,
                     t.duration,
-                    start + i as i64
+                    start + i as i64,
+                    t.unavailable
                 ])?;
             }
         }
@@ -171,6 +183,38 @@ impl Library {
             .optional()?;
         if let Some((other_id, other_position)) = other {
             tx.execute("UPDATE entries SET position=CASE id WHEN ?1 THEN ?2 ELSE ?3 END WHERE id IN (?1,?4)",params![id,other_position,position,other_id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Move an entry before another entry, or to the end, atomically.
+    pub fn move_entry_before(&mut self, id: i64, before: Option<i64>) -> Result<()> {
+        self.move_entries_before(&[id], before)
+    }
+    /// Persist a whole selection in one transaction.
+    pub fn move_entries_before(&mut self, selected: &[i64], before: Option<i64>) -> Result<()> {
+        let id = selected
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("No tracks selected"))?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let playlist: i64 =
+            tx.query_row("SELECT playlist_id FROM entries WHERE id=?", [id], |r| {
+                r.get(0)
+            })?;
+        let order = {
+            let mut stmt =
+                tx.prepare("SELECT id FROM entries WHERE playlist_id=? ORDER BY position,id")?;
+            stmt.query_map([playlist], |r| r.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let ids = crate::track_selection::moved_order(&order, selected, before)?;
+        for (position, entry) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE entries SET position=? WHERE id=?",
+                params![position, entry],
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -205,7 +249,7 @@ impl Library {
                 SELECT id,row_number() OVER (ORDER BY position,id) AS ordinal
                 FROM entries WHERE playlist_id=?1
              )
-             SELECT e.id,e.url,e.title,e.artist,e.duration,p.ordinal
+             SELECT e.id,e.url,e.title,e.artist,e.duration,p.ordinal,e.unavailable
              FROM {source} JOIN playlist_indexes p ON p.id=e.id
              WHERE e.playlist_id=?1{filter} ORDER BY {order}"
         );
@@ -218,6 +262,7 @@ impl Library {
                 title: r.get(2)?,
                 artist: r.get(3)?,
                 duration: r.get(4)?,
+                unavailable: r.get(6)?,
             })
         };
         let rows = if query.is_empty() {
@@ -289,10 +334,10 @@ impl Library {
         for (position, (remote, t)) in tracks.iter().enumerate() {
             let existing: Option<i64> = tx.query_row("SELECT entry_id FROM google_entries g JOIN entries e ON e.id=g.entry_id WHERE remote_id=? AND playlist_id=?",params![remote,playlist],|r|r.get(0)).optional()?;
             let id = if let Some(id) = existing {
-                tx.execute("UPDATE entries SET url=?,title=?,artist=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![t.url,t.title,t.artist,t.duration,t.duration,position,id])?;
+                tx.execute("UPDATE entries SET url=?,title=CASE WHEN ? IS NULL THEN ? ELSE title END,artist=CASE WHEN ? IS NULL THEN ? ELSE artist END,unavailable=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![t.url,t.unavailable,t.title,t.unavailable,t.artist,t.unavailable,t.duration,t.duration,position,id])?;
                 id
             } else {
-                tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position) VALUES(?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position])?;
+                tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) VALUES(?,?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position,t.unavailable])?;
                 let id = tx.last_insert_rowid();
                 tx.execute(
                     "INSERT INTO google_entries VALUES(?,?)",
@@ -326,7 +371,7 @@ impl Library {
     }
     pub fn append_google(&self, playlist: i64, remote: &str, t: &Track) -> Result<()> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        self.conn.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position) SELECT ?1,?2,?3,?4,?5,coalesce(max(position),-1)+1 FROM entries WHERE playlist_id=?1",params![playlist,t.url,t.title,t.artist,t.duration])?;
+        self.conn.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) SELECT ?1,?2,?3,?4,?5,coalesce(max(position),-1)+1,?6 FROM entries WHERE playlist_id=?1",params![playlist,t.url,t.title,t.artist,t.duration,t.unavailable])?;
         self.conn.execute(
             "INSERT INTO google_entries VALUES(?,?)",
             params![self.conn.last_insert_rowid(), remote],
@@ -390,4 +435,20 @@ pub fn data_dir() -> std::path::PathBuf {
 }
 pub fn library() -> Result<Library> {
     Library::open(data_dir().join("library.db"))
+}
+
+/// Only explicit source metadata establishes unavailability; zero duration does not.
+pub fn unavailable_status(title: Option<&str>, availability: Option<&str>) -> Option<String> {
+    let label = match (
+        title.unwrap_or("").to_ascii_lowercase().as_str(),
+        availability,
+    ) {
+        ("private video", _) | (_, Some("private")) => "PRIVATE",
+        ("deleted video", _) => "REMOVED",
+        (_, Some("region_blocked")) => "REGION BLOCKED",
+        ("unavailable video" | "unavailable track", _)
+        | (_, Some("needs_auth" | "premium_only" | "subscriber_only")) => "UNAVAILABLE",
+        _ => return None,
+    };
+    Some(label.into())
 }

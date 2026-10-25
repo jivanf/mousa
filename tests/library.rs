@@ -3,6 +3,7 @@ fn track(title: &str) -> Track {
     Track {
         id: 0,
         playlist_index: 0,
+        unavailable: None,
         url: "https://www.youtube.com/watch?v=test".into(),
         title: title.into(),
         artist: "Test artist".into(),
@@ -412,14 +413,16 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         id = db.create("Keep me").unwrap();
         db.add(id, &[track("Preserved")]).unwrap();
         db.save("session", "saved queue").unwrap();
-        db.conn.execute_batch("PRAGMA user_version=0;").unwrap();
+        db.conn
+            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=0;")
+            .unwrap();
     }
     let db = Library::open(&path).unwrap();
     assert_eq!(
         db.conn
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        1
+        2
     );
     assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
     assert_eq!(db.load("session").as_deref(), Some("saved queue"));
@@ -511,4 +514,170 @@ fn full_artist_credit_survives_storage_search_and_queue_serialization() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn arbitrary_reorder_persists_duplicate_identity_and_handles_gaps() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.db");
+    let mut db = Library::open(path.to_str().unwrap()).unwrap();
+    let playlist = db.create("Reorder").unwrap();
+    db.add(
+        playlist,
+        &[
+            track("Same"),
+            track("Deleted"),
+            track("Same"),
+            track("Last"),
+        ],
+    )
+    .unwrap();
+    let original = db.tracks(playlist, "", Sort::Position).unwrap();
+    let ids: Vec<_> = original.iter().map(|t| t.id).collect();
+    db.remove(ids[1]).unwrap();
+    db.move_entry_before(ids[3], Some(ids[0])).unwrap();
+    assert_eq!(
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>(),
+        vec![ids[3], ids[0], ids[2]]
+    );
+    db.move_entry_before(ids[0], None).unwrap();
+    db.move_entry_before(ids[2], Some(ids[2])).unwrap();
+    drop(db);
+    let mut db = Library::open(path.to_str().unwrap()).unwrap();
+    let reordered = db.tracks(playlist, "", Sort::Position).unwrap();
+    assert_eq!(
+        reordered.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![ids[3], ids[2], ids[0]]
+    );
+    assert_eq!(
+        reordered
+            .iter()
+            .map(|t| t.playlist_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let other = db.create("Other").unwrap();
+    db.add(other, &[track("Elsewhere")]).unwrap();
+    let foreign = db.tracks(other, "", Sort::Position).unwrap()[0].id;
+    assert!(db.move_entry_before(ids[0], Some(foreign)).is_err());
+    assert!(db.move_entry_before(ids[0], Some(ids[1])).is_err());
+    assert_eq!(
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>(),
+        vec![ids[3], ids[2], ids[0]]
+    );
+}
+
+#[test]
+fn unavailable_tracks_preserve_metadata_and_recover() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("availability.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Availability").unwrap();
+    let original = track("Original song");
+    db.reconcile_entries(playlist, &[("remote".into(), original.clone())])
+        .unwrap();
+    let mut private = track("Private video");
+    private.artist.clear();
+    private.duration = 0.;
+    private.unavailable = Some("PRIVATE".into());
+    db.reconcile_entries(playlist, &[("remote".into(), private)])
+        .unwrap();
+    drop(db);
+    let mut db = Library::open(&path).unwrap();
+    let saved = db.tracks(playlist, "", Sort::Position).unwrap().remove(0);
+    assert_eq!(saved.title, original.title);
+    assert_eq!(saved.artist, original.artist);
+    assert_eq!(saved.duration, original.duration);
+    assert_eq!(saved.unavailable.as_deref(), Some("PRIVATE"));
+    db.reconcile_entries(playlist, &[("remote".into(), original)])
+        .unwrap();
+    assert!(
+        db.tracks(playlist, "", Sort::Position).unwrap()[0]
+            .unavailable
+            .is_none()
+    );
+}
+
+#[test]
+fn old_library_migrates_explicit_unavailable_titles_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Old").unwrap();
+    let mut unknown = track("Duration unknown");
+    unknown.duration = 0.;
+    db.add(
+        playlist,
+        &[track("Private video"), track("Deleted video"), unknown],
+    )
+    .unwrap();
+    db.conn
+        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=1;")
+        .unwrap();
+    drop(db);
+    let db = Library::open(path).unwrap();
+    let tracks = db.tracks(playlist, "", Sort::Position).unwrap();
+    assert_eq!(tracks[0].unavailable.as_deref(), Some("PRIVATE"));
+    assert_eq!(tracks[1].unavailable.as_deref(), Some("REMOVED"));
+    assert_eq!(tracks[2].unavailable, None);
+}
+
+#[test]
+fn multiselect_reorder_is_atomic_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("multiselect.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Selection").unwrap();
+    db.add(
+        playlist,
+        &[
+            track("Duplicate"),
+            track("Gap"),
+            track("Duplicate"),
+            track("Fourth"),
+            track("Fifth"),
+        ],
+    )
+    .unwrap();
+    let ids: Vec<_> = db
+        .tracks(playlist, "", Sort::Position)
+        .unwrap()
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    db.remove(ids[1]).unwrap();
+    db.move_entries_before(&[ids[4], ids[0]], Some(ids[3]))
+        .unwrap();
+    let expected = vec![ids[2], ids[0], ids[4], ids[3]];
+    let read = |db: &Library| {
+        db.tracks(playlist, "", Sort::Position)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(read(&db), expected);
+    assert!(db.move_entries_before(&[ids[0], ids[1]], None).is_err());
+    assert_eq!(read(&db), expected);
+    let other = db.create("Other").unwrap();
+    db.add(other, &[track("Other")]).unwrap();
+    let foreign = db.tracks(other, "", Sort::Position).unwrap()[0].id;
+    assert!(db.move_entries_before(&[ids[0], foreign], None).is_err());
+    assert_eq!(read(&db), expected);
+    drop(db);
+    let mut db = Library::open(&path).unwrap();
+    assert_eq!(read(&db), expected);
+    db.move_entries_before(&[ids[0], ids[4]], None).unwrap();
+    assert_eq!(read(&db), [ids[2], ids[3], ids[0], ids[4]]);
+    db.move_entries_before(&[ids[0], ids[4]], Some(ids[2]))
+        .unwrap();
+    assert_eq!(read(&db), [ids[0], ids[4], ids[2], ids[3]]);
 }
