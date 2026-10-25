@@ -1305,6 +1305,7 @@ impl CatalogView {
         let mut content = div()
             .flex()
             .flex_col()
+            .when(finite, |d| d.size_full().min_h_0())
             .p(space::xxl())
             .min_w_0()
             .child(
@@ -1359,7 +1360,7 @@ impl CatalogView {
         if let Some(error) = &self.error {
             content = content.child(self.error_panel(error, cx));
         }
-        // Header and table share one scroll viewport; only the selection strip pins.
+        // Collection headers and selection controls stay outside the track viewport.
         let header = finite.then(|| std::mem::replace(&mut content, div()));
         if finite {
             let mut rows = div();
@@ -1380,24 +1381,7 @@ impl CatalogView {
                     cx,
                 ));
             }
-            content = content
-                .when_some(
-                    self.selection_strip(TrackTable::Collection, true, cx),
-                    |d, bar| d.child(bar),
-                )
-                .child(
-                    rows.border_x(border::strong())
-                        .border_b(border::strong())
-                        .border_color(color::ink())
-                        .when(
-                            !self
-                                .view
-                                .selection
-                                .get(&TrackTable::Collection)
-                                .is_some_and(|s| !s.ids.is_empty()),
-                            |d| d.border_t(border::strong()),
-                        ),
-                );
+            content = content.child(rows);
         }
         let mut sections: Vec<String> = Vec::new();
         for row in &page.items {
@@ -1522,7 +1506,45 @@ impl CatalogView {
             );
         }
         if let Some(header) = header {
-            header.child(content.mt(space::xxl()))
+            header.child(
+                div()
+                    .mt(space::xxl())
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .when_some(
+                        self.selection_strip(TrackTable::Collection, false, cx),
+                        |d, bar| d.child(div().flex_shrink_0().child(bar)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .border(border::strong())
+                            .border_color(color::ink())
+                            .bg(color::surface())
+                            .when(
+                                self.view
+                                    .selection
+                                    .get(&TrackTable::Collection)
+                                    .is_some_and(|s| !s.ids.is_empty()),
+                                |d| d.border_t_0(),
+                            )
+                            .child(
+                                div()
+                                    .id("catalog-collection-tracks")
+                                    .track_scroll(&self.view.scroll)
+                                    .overflow_y_scroll()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .child(content),
+                            )
+                            .child(self.scrollbar.clone()),
+                    ),
+            )
         } else {
             content
         }
@@ -1588,6 +1610,14 @@ impl Render for CatalogView {
             .flex_col()
             .line_height(relative(1.2));
         if self.view.item.is_some() && self.pending.is_none() {
+            if self.view.item.as_ref().is_some_and(|item| {
+                matches!(
+                    item.kind.as_str(),
+                    "Album" | "Single" | "EP" | "Playlist" | "Podcast"
+                )
+            }) {
+                return root.child(self.details(cx)).into_any_element();
+            }
             return root
                 .flex_row()
                 .child(
