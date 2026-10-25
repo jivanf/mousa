@@ -918,6 +918,7 @@ pub fn landing(sign_in: impl IntoElement, error: Option<&str>) -> Div {
 pub struct TrackScrollbar {
     list: ListState,
     grab: Option<Pixels>,
+    show_rail: bool,
     bounds: Bounds<Pixels>,
     focus: FocusHandle,
 }
@@ -926,6 +927,7 @@ impl TrackScrollbar {
         Self {
             list,
             grab: None,
+            show_rail: false,
             bounds: Bounds::default(),
             focus: cx.focus_handle(),
         }
@@ -997,9 +999,9 @@ impl Render for TrackScrollbar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let weak = entity.downgrade();
-        div().id("track-scrollbar").relative().w(crate::theme::scrollbar::width()).h_full().flex_shrink_0()
-            .bg(color::white()).border_l(border::strong()).border_color(color::ink())
-            .track_focus(&self.focus).tab_index(0).focus(|s| s.shadow(vec![shadow::focus_ring()]))
+        div().id("track-scrollbar").relative().w(if self.show_rail { crate::theme::scrollbar::width() } else { px(0.) }).h_full().flex_shrink_0()
+            .when(self.show_rail, |s| s.bg(color::white()).border_l(border::strong()).border_color(color::ink())
+                .track_focus(&self.focus).tab_index(0).focus(|s| s.shadow(vec![shadow::focus_ring()])))
             .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, window, cx| {
                 if !this.overflowing() { return; }
                 this.focus.focus(window);
@@ -1026,6 +1028,12 @@ impl Render for TrackScrollbar {
             .child(canvas(move |bounds, window, cx| {
                 entity.update(cx, |this, cx| {
                     this.bounds = bounds;
+                    let overflowing = this.overflowing();
+                    if this.show_rail != overflowing {
+                        this.show_rail = overflowing;
+                        if !overflowing && this.grab.take().is_some() { this.list.scrollbar_drag_ended(); }
+                        cx.notify();
+                    }
                     let (top, height) = this.geometry();
                     let mut content = div().relative().size_full();
                     if this.overflowing() {
@@ -1088,6 +1096,7 @@ pub struct CatalogScrollbar {
     pub scroll: ScrollHandle,
     bounds: Bounds<Pixels>,
     grab: Option<Pixels>,
+    show_rail: bool,
 }
 impl CatalogScrollbar {
     pub fn new() -> Self {
@@ -1095,6 +1104,7 @@ impl CatalogScrollbar {
             scroll: ScrollHandle::new(),
             bounds: Bounds::default(),
             grab: None,
+            show_rail: false,
         }
     }
     fn geometry(&self) -> (Pixels, Pixels) {
@@ -1133,12 +1143,10 @@ impl Render for CatalogScrollbar {
         div()
             .id("catalog-scrollbar")
             .relative()
-            .w(crate::theme::scrollbar::width())
+            .w(if self.show_rail { crate::theme::scrollbar::width() } else { px(0.) })
             .h_full()
             .flex_shrink_0()
-            .bg(color::white())
-            .border_l(border::strong())
-            .border_color(color::ink())
+            .when(self.show_rail, |s| s.bg(color::white()).border_l(border::strong()).border_color(color::ink()))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e: &MouseDownEvent, _, cx| {
@@ -1158,6 +1166,12 @@ impl Render for CatalogScrollbar {
                     move |bounds, window, cx| {
                         entity.update(cx, |this, cx| {
                             this.bounds = bounds;
+                            let overflowing = this.scroll.max_offset().height > px(0.);
+                            if this.show_rail != overflowing {
+                                this.show_rail = overflowing;
+                                if !overflowing { this.grab = None; }
+                                cx.notify();
+                            }
                             let (top, height) = this.geometry();
                             let mut d = div().relative().size_full();
                             if this.scroll.max_offset().height > px(0.) {

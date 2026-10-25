@@ -81,6 +81,7 @@ x-shadows:
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
+  scrollbar-gutter: overflow-only
   catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
 components:
@@ -440,7 +441,7 @@ Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
 Playing row is tertiary. Multi-selected rows use canvas with a 6px ink left rule.
 
-**Track scrollbar.** Playlist and queue lists reserve a 20px white rail with a
+**Track scrollbar.** Overflowing playlist and queue lists reserve a 20px white rail with a
 3px ink divider on the left. The square ink thumb has 3px side insets and a
 proportional height with a 48px minimum (capped to the viewport). While dragging,
 the thumb becomes white with a 3px ink outline; a 30px-high ink readout sits
@@ -449,7 +450,9 @@ as `612 / 1230` in bold 12px Space Mono, lime. The readout appears only during
 dragging and stays within the viewport vertically. No shadows or explanatory
 labels. The thumb follows wheel scrolling and programmatic navigation. Clicking
 the rail seeks; dragging continues outside the rail. Arrow keys, Page Up/Down,
-and Home/End work when focused. Non-overflowing lists have no thumb or readout.
+and Home/End work when focused. Non-overflowing lists have no rail, divider, thumb, readout, or reserved gutter.
+This user-authorized correction also applies to catalog and description scrollbars.
+The rail updates when content or viewport size changes.
 Preview with `cargo run --example gallery -- --scrollbar`.
 
 **Playlist item.** Neutral card with 3px border: name over a mono label of
