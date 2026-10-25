@@ -26,6 +26,11 @@ impl Render for Gallery {
     }
 }
 fn sample(state: &str) -> (Page, Option<Item>) {
+    let state = if state.starts_with("selection") {
+        "album"
+    } else {
+        state
+    };
     let raw: serde_json::Value =
         serde_json::from_str(include_str!("../tests/fixtures/catalog/all.json")).unwrap();
     let live = catalog::parse(&raw, "search");

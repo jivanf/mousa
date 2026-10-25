@@ -556,6 +556,121 @@ impl Render for Bar {
     }
 }
 
+pub fn selection_action(
+    id: impl Into<ElementId>,
+    label: &str,
+    icon_name: &'static str,
+    destructive: bool,
+) -> Stateful<Div> {
+    button(
+        id,
+        "",
+        if destructive {
+            color::pink()
+        } else {
+            color::surface()
+        },
+    )
+    .text_size(text::secondary())
+    .mb(px(0.))
+    .child(icon(icon_name, false).size(crate::theme::catalog::icon()))
+    .child(label.to_owned())
+}
+
+/// The same neutral action strip is used by catalog, library and queue tables.
+pub fn selection_bar(
+    count: usize,
+    unavailable: usize,
+    pinned: bool,
+    actions: Div,
+    clear: Stateful<Div>,
+) -> Div {
+    div()
+        .min_h(crate::theme::selection::bar_height(unavailable))
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .gap(space::md())
+        .px(space::lg())
+        .py(space::md())
+        .bg(color::canvas())
+        .border_color(color::ink())
+        .border_b(border::strong())
+        .when(!pinned, |d| {
+            d.border_t(border::strong()).border_x(border::strong())
+        })
+        .child(
+            div()
+                .flex_shrink_0()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(space::xs())
+                .child(
+                    caps(&format!("{count} SELECTED"))
+                        .px(space::sm())
+                        .py(space::xs())
+                        .bg(color::ink())
+                        .text_color(color::lime()),
+                )
+                .when(unavailable > 0, |d| {
+                    d.w(crate::theme::selection::summary_width()).child(
+                        div()
+                            .font_family(font::MONO)
+                            .text_size(text::label())
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!("{unavailable} UNAVAILABLE, SKIPPED")),
+                    )
+                }),
+        )
+        .child(actions.flex_1().min_w_0().flex_wrap())
+        .child(clear)
+}
+
+/// Lay out a placeholder in the document, but paint and hit-test the strip at
+/// the viewport's top once its natural position scrolls out of view. Measuring
+/// in prepaint also follows scrollbar dragging and programmatic scrolling.
+pub fn sticky_selection_bar(
+    scroll: ScrollHandle,
+    unavailable: usize,
+    build: impl FnOnce(bool) -> Div + 'static,
+) -> impl IntoElement {
+    deferred(
+        canvas(
+            move |bounds, window, cx| {
+                let viewport = scroll.bounds();
+                let pinned = bounds.top() <= viewport.top();
+                let origin = if pinned {
+                    viewport.origin
+                } else {
+                    bounds.origin
+                };
+                let width = if pinned {
+                    viewport.size.width
+                } else {
+                    bounds.size.width
+                };
+                let mut element = build(pinned).into_any_element();
+                element.layout_as_root(
+                    size(
+                        AvailableSpace::Definite(width),
+                        AvailableSpace::Definite(crate::theme::selection::bar_height(unavailable)),
+                    ),
+                    window,
+                    cx,
+                );
+                element.prepaint_at(origin, window, cx);
+                element
+            },
+            |_, mut element, window, cx| element.paint(window, cx),
+        )
+        .h(crate::theme::selection::bar_height(unavailable))
+        .w_full()
+        .flex_shrink_0(),
+    )
+}
+
 /// Shared selection surface; layout and optional drag handling belong to the caller.
 pub fn selectable_track_row(
     row: Stateful<Div>,
@@ -565,11 +680,7 @@ pub fn selectable_track_row(
 ) -> Stateful<Div> {
     row.when(selected, |d| {
         d.border_l(crate::theme::selection::marker())
-            .when(!playing, |d| {
-                d.bg(color::canvas())
-                    .hover(|s| s.bg(color::canvas()))
-                    .focus(|s| s.bg(color::canvas()))
-            })
+            .when(!playing, |d| d.bg(color::canvas()))
     })
     .on_mouse_down(MouseButton::Left, move |event, window, cx| {
         if !window.default_prevented() {

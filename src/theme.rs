@@ -384,6 +384,12 @@ pub mod scrollbar {
 /// Shared track multi-selection marker (track-row-selected in DESIGN.md).
 pub mod selection {
     use super::*;
+    pub fn bar_height(unavailable: usize) -> Pixels {
+        if unavailable > 0 { px(90.) } else { px(66.) }
+    }
+    pub fn summary_width() -> Pixels {
+        px(128.)
+    }
     pub fn marker() -> Pixels {
         px(6.)
     }

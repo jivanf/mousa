@@ -32,19 +32,30 @@ struct View {
     selection: std::collections::BTreeMap<TrackTable, crate::track_selection::TrackSelection>,
 }
 /// A page can contain several independently selectable track tables.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TrackTable {
     Results,
     Collection,
     Section(String, bool),
 }
 impl TrackTable {
+    fn selected_items(
+        &self,
+        items: &[Item],
+        selection: &crate::track_selection::TrackSelection,
+    ) -> Vec<Item> {
+        self.order(items)
+            .into_iter()
+            .filter(|id| selection.ids.contains(id))
+            .map(|id| items[id as usize].clone())
+            .collect()
+    }
     fn order(&self, items: &[Item]) -> Vec<i64> {
         items
             .iter()
             .enumerate()
             .filter(|(_, item)| {
-                item.video.is_some()
+                (item.video.is_some() || item.unavailable)
                     && match self {
                         Self::Results => true,
                         Self::Collection => item.collection_member,
@@ -95,6 +106,7 @@ pub struct CatalogView {
     tx: Sender<Message>,
     rx: Receiver<Message>,
     pending: Option<Vec<Track>>,
+    external_picker: bool,
     playlists: Vec<Playlist>,
     save_busy: bool,
     create_google: bool,
@@ -140,6 +152,25 @@ impl CatalogView {
         view.filters = page.filters.clone();
         view.view.page = page;
         view.view.item = item;
+        if state.starts_with("selection") {
+            let order = TrackTable::Collection.order(&view.view.page.items);
+            let mut selection = crate::track_selection::TrackSelection::default();
+            selection
+                .ids
+                .extend(
+                    order
+                        .into_iter()
+                        .take(if state == "selection-single" { 1 } else { 4 }),
+                );
+            if state == "selection-unavailable" {
+                if let Some(item) = view.view.page.items.get_mut(1) {
+                    item.unavailable = true;
+                }
+            }
+            view.view
+                .selection
+                .insert(TrackTable::Collection, selection);
+        }
         view.recent = vec![
             "bach cantatas".into(),
             "harnoncourt".into(),
@@ -219,6 +250,7 @@ impl CatalogView {
             tx,
             rx,
             pending: None,
+            external_picker: false,
             playlists: vec![],
             save_busy: false,
             create_google: true,
@@ -255,6 +287,7 @@ impl CatalogView {
         self.preparing = false;
     }
     pub fn reset_account(&mut self, cx: &mut Context<Self>) {
+        self.external_picker = false;
         self.invalidate();
         self.cancel_collection();
         self.debounce = None;
@@ -269,7 +302,10 @@ impl CatalogView {
         if self.save_busy {
             return;
         }
-        if self.pending.take().is_some() {
+        if self.pending.take().is_some() || self.external_picker {
+            if std::mem::take(&mut self.external_picker) {
+                cx.emit(Event::Close);
+            }
             self.restore_focus = true;
             self.status.clear();
             cx.notify();
@@ -679,6 +715,9 @@ impl CatalogView {
                         Err(e) => self.error = Some(e),
                     }
                     cx.emit(Event::Saved);
+                    if self.error.is_none() && std::mem::take(&mut self.external_picker) {
+                        cx.emit(Event::Close);
+                    }
                 }
                 _ => (),
             }
@@ -846,6 +885,86 @@ impl CatalogView {
             );
         }
     }
+    /// Reuse the catalog destination picker for a selection from the library.
+    pub fn save_tracks(&mut self, tracks: Vec<Track>, cx: &mut Context<Self>) {
+        self.external_picker = true;
+        self.pending = Some(tracks);
+        self.playlists.clear();
+        self.error = None;
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(Message::Playlists(
+                db::library()
+                    .and_then(|db| db.playlists())
+                    .map_err(|e| e.to_string()),
+            ));
+        });
+        cx.notify();
+    }
+
+    fn selection_strip(
+        &self,
+        table: TrackTable,
+        sticky: bool,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let selection = self.view.selection.get(&table)?;
+        let scope: SharedString = format!("selection-{table:?}").into();
+        let items = table.selected_items(&self.view.page.items, selection);
+        if items.is_empty() {
+            return None;
+        }
+        let count = items.len();
+        let unavailable = items.iter().filter(|i| i.track().is_none()).count();
+        let mut actions = div().flex().items_center().gap(space::md());
+        for (id, label, action) in [
+            ("selection-play", "PLAY", Action::Play(0)),
+            ("selection-queue", "QUEUE", Action::Queue),
+            ("selection-save", "SAVE TO PLAYLIST", Action::Save),
+        ] {
+            let items = items.clone();
+            actions = actions.child(
+                ui::selection_action(
+                    id,
+                    label,
+                    match action {
+                        Action::Play(_) => "player-play",
+                        Action::Queue => "playlist-add",
+                        _ => "plus",
+                    },
+                    false,
+                )
+                .when(count == unavailable, |d| {
+                    d.bg(color::canvas())
+                        .text_color(color::muted())
+                        .shadow(vec![])
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if count > unavailable {
+                        this.act(action, Some(items.clone()), cx);
+                    }
+                })),
+            );
+        }
+        let clear = ui::selection_action("selection-clear", "CLEAR", "x", false).on_click(
+            cx.listener(move |this, _, _, cx| {
+                if let Some(selection) = this.view.selection.get_mut(&table) {
+                    selection.clear();
+                }
+                cx.notify();
+            }),
+        );
+        let strip = if sticky {
+            ui::sticky_selection_bar(self.view.scroll.clone(), unavailable, move |pinned| {
+                ui::selection_bar(count, unavailable, pinned, actions, clear)
+            })
+            .into_any_element()
+        } else {
+            ui::selection_bar(count, unavailable, false, actions, clear).into_any_element()
+        };
+        Some(div().id(scope).child(strip).into_any_element())
+    }
+
     fn row(
         &self,
         item: Item,
@@ -856,6 +975,9 @@ impl CatalogView {
         cx: &Context<Self>,
     ) -> Stateful<Div> {
         let detail = number.is_some();
+        let selection = self.view.selection.get(&table);
+        let selected = selection.is_some_and(|s| s.ids.contains(&(index as i64)));
+        let selecting = selection.is_some_and(|s| !s.ids.is_empty());
         let playable = item.video.is_some() && !item.unavailable;
         let open = item.clone();
         let play = item.clone();
@@ -869,6 +991,11 @@ impl CatalogView {
             .justify_center()
             .w(if detail {
                 metrics::number()
+                    - if selected {
+                        crate::theme::selection::marker()
+                    } else {
+                        px(0.)
+                    }
             } else {
                 metrics::thumbnail()
             })
@@ -919,12 +1046,32 @@ impl CatalogView {
             })
             .flex_shrink_0()
             .pr(space::md())
-            .when(!detail, |d| d.pl(space::sm()))
+            .when(!detail, |d| {
+                d.pl(space::sm()
+                    - if selected {
+                        crate::theme::selection::marker()
+                    } else {
+                        px(0.)
+                    })
+            })
             .border_b(border::hairline())
             .border_color(color::ink())
             .bg(color::surface())
-            .hover(|s| s.bg(color::white()))
-            .focus(|s| s.bg(color::white()).shadow(vec![shadow::focus_ring()]))
+            .hover(move |s| {
+                s.bg(if selected {
+                    color::canvas()
+                } else {
+                    color::white()
+                })
+            })
+            .focus(move |s| {
+                s.bg(if selected {
+                    color::canvas()
+                } else {
+                    color::white()
+                })
+                .shadow(vec![shadow::focus_ring()])
+            })
             .flex()
             .items_center()
             .gap(space::md())
@@ -957,16 +1104,13 @@ impl CatalogView {
                         )
                     }),
             )
-            .when(item.video.is_none(), |d| {
+            .when(item.video.is_none() && !item.unavailable, |d| {
                 d.on_click(cx.listener(move |this, _, _, cx| this.open(open.clone(), cx)))
             });
-        if item.video.is_some() {
+        if item.video.is_some() || item.unavailable {
             row = ui::selectable_track_row(
                 row,
-                self.view
-                    .selection
-                    .get(&table)
-                    .is_some_and(|s| s.ids.contains(&(index as i64))),
+                selected,
                 false,
                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                     let order = table.order(&this.view.page.items);
@@ -979,7 +1123,7 @@ impl CatalogView {
                 }),
             );
         }
-        if playable {
+        if playable && !selecting {
             let mut actions = div().flex().gap(space::md());
             actions = actions.child(
                 row_icon(("result-queue", index), "playlist-add", "Add to queue").on_click(
@@ -1161,7 +1305,6 @@ impl CatalogView {
         let mut content = div()
             .flex()
             .flex_col()
-            .when(finite, |d| d.size_full().min_h_0())
             .p(space::xxl())
             .min_w_0()
             .child(
@@ -1216,7 +1359,7 @@ impl CatalogView {
         if let Some(error) = &self.error {
             content = content.child(self.error_panel(error, cx));
         }
-        // Keep the collection header outside the bounded scrolling table.
+        // Header and table share one scroll viewport; only the selection strip pins.
         let header = finite.then(|| std::mem::replace(&mut content, div()));
         if finite {
             let mut rows = div();
@@ -1225,7 +1368,7 @@ impl CatalogView {
                 .items
                 .iter()
                 .enumerate()
-                .filter(|(_, i)| i.collection_member && i.video.is_some())
+                .filter(|(_, i)| i.collection_member && (i.video.is_some() || i.unavailable))
             {
                 n += 1;
                 rows = rows.child(self.row(
@@ -1237,7 +1380,24 @@ impl CatalogView {
                     cx,
                 ));
             }
-            content = content.child(rows);
+            content = content
+                .when_some(
+                    self.selection_strip(TrackTable::Collection, true, cx),
+                    |d, bar| d.child(bar),
+                )
+                .child(
+                    rows.border_x(border::strong())
+                        .border_b(border::strong())
+                        .border_color(color::ink())
+                        .when(
+                            !self
+                                .view
+                                .selection
+                                .get(&TrackTable::Collection)
+                                .is_some_and(|s| !s.ids.is_empty()),
+                            |d| d.border_t(border::strong()),
+                        ),
+                );
         }
         let mut sections: Vec<String> = Vec::new();
         for row in &page.items {
@@ -1283,7 +1443,9 @@ impl CatalogView {
                 .enumerate()
                 .filter(|(_, i)| i.category == *category && (!finite || !i.collection_member))
                 .collect();
-            let cards = rows.iter().all(|(_, i)| i.video.is_none());
+            let cards = rows
+                .iter()
+                .all(|(_, i)| i.video.is_none() && !i.unavailable);
             if cards {
                 let mut grid = div().flex().flex_wrap().gap(space::xl());
                 for (index, row) in rows {
@@ -1332,7 +1494,16 @@ impl CatalogView {
                         cx,
                     ));
                 }
-                content = content.child(table);
+                content = content
+                    .when_some(
+                        self.selection_strip(
+                            TrackTable::Section(category.clone(), finite),
+                            true,
+                            cx,
+                        ),
+                        |d, bar| d.child(bar),
+                    )
+                    .child(table);
             }
         }
         for (index, (label, destination)) in page
@@ -1351,27 +1522,7 @@ impl CatalogView {
             );
         }
         if let Some(header) = header {
-            header.child(
-                div()
-                    .mt(space::xxl())
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .border(border::strong())
-                    .border_color(color::ink())
-                    .bg(color::surface())
-                    .child(
-                        div()
-                            .id("catalog-collection-tracks")
-                            .track_scroll(&self.view.scroll)
-                            .overflow_y_scroll()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .child(content),
-                    )
-                    .child(self.scrollbar.clone()),
-            )
+            header.child(content.mt(space::xxl()))
         } else {
             content
         }
@@ -1437,14 +1588,6 @@ impl Render for CatalogView {
             .flex_col()
             .line_height(relative(1.2));
         if self.view.item.is_some() && self.pending.is_none() {
-            if self.view.item.as_ref().is_some_and(|item| {
-                matches!(
-                    item.kind.as_str(),
-                    "Album" | "Single" | "EP" | "Playlist" | "Podcast"
-                )
-            }) {
-                return root.child(self.details(cx)).into_any_element();
-            }
             return root
                 .flex_row()
                 .child(
@@ -1537,8 +1680,7 @@ impl Render for CatalogView {
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         if !this.save_busy {
-                            this.pending = None;
-                            cx.notify();
+                            this.back(cx);
                         }
                     })),
                 );
@@ -1808,6 +1950,10 @@ impl Render for CatalogView {
                 })),
             );
         }
+        root = root.when_some(
+            self.selection_strip(TrackTable::Results, false, cx),
+            |d, bar| d.child(bar),
+        );
         root.child(
             div()
                 .flex_1()
@@ -1858,6 +2004,50 @@ mod presentation_tests {
 mod selection_tests {
     use super::TrackTable;
     use crate::catalog::Item;
+    #[test]
+    fn bulk_actions_keep_display_order_duplicates_and_skip_unavailable() {
+        let song = |title: &str, unavailable| Item {
+            title: title.into(),
+            video: Some("same-video".into()),
+            unavailable,
+            collection_member: true,
+            ..Default::default()
+        };
+        let items = vec![
+            song("First", false),
+            song("Missing", true),
+            song("Repeat", false),
+            song("Not selected", false),
+        ];
+        let mut selection = crate::track_selection::TrackSelection::default();
+        selection.ids.extend([2, 1, 0, 99]);
+        let selected = TrackTable::Collection.selected_items(&items, &selection);
+        assert_eq!(selected.len(), 3);
+        let playable: Vec<_> = selected.iter().filter_map(Item::track).collect();
+        assert_eq!(
+            playable
+                .iter()
+                .map(|t| t.title.as_str())
+                .collect::<Vec<_>>(),
+            ["First", "Repeat"]
+        );
+        assert_eq!(playable[0].url, playable[1].url);
+        selection.ids = [1].into();
+        assert!(
+            TrackTable::Collection
+                .selected_items(&items, &selection)
+                .iter()
+                .filter_map(Item::track)
+                .next()
+                .is_none()
+        );
+        selection.clear();
+        assert!(
+            TrackTable::Collection
+                .selected_items(&items, &selection)
+                .is_empty()
+        );
+    }
     #[test]
     fn ranges_follow_visible_tracks_and_keep_sections_separate() {
         let song = |category: &str, collection_member| Item {
