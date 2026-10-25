@@ -28,9 +28,14 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+raw-window-handle = "0.6"
+windows = { version = "0.61", features = ["Foundation", "Media", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Media_Control"] }
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"

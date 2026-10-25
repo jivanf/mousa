@@ -141,6 +141,8 @@ impl Mousa {
         let player = Player::start();
         #[cfg(target_os = "linux")]
         mousa::mpris::start(player.clone());
+        #[cfg(target_os = "windows")]
+        mousa::windows_media::start(window, player.clone());
         let (tx, rx) = mpsc::channel();
         let volume_slider =
             cx.new(|cx| Bar::new("Volume · Arrow keys adjust; Home mutes", 0.05, cx));

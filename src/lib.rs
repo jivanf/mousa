@@ -5,6 +5,8 @@ pub mod db;
 pub mod integrations;
 #[cfg(target_os = "linux")]
 pub mod mpris;
+#[cfg(target_os = "windows")]
+pub mod windows_media;
 mod playback_metrics;
 mod playback_start;
 pub mod player;
