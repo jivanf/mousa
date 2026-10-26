@@ -12,7 +12,7 @@ FILES = {"Cargo.toml", "updater/Cargo.toml", "Cargo.lock", "CHANGELOG.md"}
 CONVENTIONAL = re.compile(r"^(feat|fix|perf|docs|test|ci|build|chore|refactor|style|revert)(?:\([^\r\n()]+\))?(!)?: \S[^\r\n]*$")
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 # Explicit classification of the only pre-policy, post-v0.1.0 non-conventional commit.
-LEGACY = {"d322f06c8eb17841f313286f39e126334fe110d2": "fix: keep queued audio gapless with native mpv playlist handoffs"}
+LEGACY = {"f3d5c929a8db6743b38eb30beb025136b5c98e5e": "fix: keep queued audio gapless with native mpv playlist handoffs"}
 
 
 def require(condition, message):

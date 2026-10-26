@@ -3,7 +3,7 @@
 Mousa uses Conventional Commit squash titles, release-plz 0.4.1, and one version
 for the app and launcher. GitHub Releases are the distribution source; nothing
 is published to crates.io. `v0.1.0` is the immutable baseline. The pre-policy
-gapless audio commit is explicitly classified as a fix in the policy and
+gapless audio fix (included in the bootstrap PR squash commit) is explicitly classified as a fix in the policy and
 release-plz configuration; unknown unclassified commits fail preparation.
 
 ## Normal operation
@@ -76,10 +76,10 @@ behavior are unchanged. Rollback still requires backward-compatible user data.
    workflow exists on main, run that policy locally against the implementation
    PR and post its status using the maintainer's authenticated CLI. Establish the
    required check names before enabling branch protection.
-5. Run a dry preparation preview. Use the App to create a temporary documentation
-   probe PR and verify that normal PR CI triggers; close the probe without merging.
-   Confirm the App can request auto-merge while required checks prevent early
-   merging. Only then set `RELEASE_AUTOMATION_ENABLED=true`.
+5. Run a dry preparation preview. Dispatch Prepare release with `probe=true` to
+   create a temporary documentation PR using the App. Its intentionally invalid
+   title blocks merging while the probe verifies both platform checks start and
+   auto-merge can be requested. The probe closes the PR and removes its branch. Only then set `RELEASE_AUTOMATION_ENABLED=true`.
 
 Python policy tests use only the standard library and run on Windows and Linux.
 Run `python -m unittest discover -s tests/release -v` and `actionlint` when changing
