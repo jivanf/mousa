@@ -1,0 +1,33 @@
+[workspace]
+git_only = true
+publish = false
+git_tag_enable = false
+git_release_enable = false
+git_tag_name = "v{{ version }}"
+dependencies_update = false
+semver_check = false
+features_always_increment_minor = true
+release_commits = "^(feat|fix|perf)(\\([^)]*\\))?(!)?:|BREAKING CHANGE:|^Keep queued audio gapless with native mpv playlist handoffs$"
+
+[[package]]
+name = "mousa"
+version_group = "mousa"
+changelog_path = "CHANGELOG.md"
+changelog_include = ["mousa-launcher"]
+
+[[package]]
+name = "mousa-launcher"
+version_group = "mousa"
+changelog_update = false
+
+[changelog]
+protect_breaking_commits = true
+commit_preprocessors = [
+  { pattern = "^Keep queued audio gapless with native mpv playlist handoffs$", replace = "fix: keep queued audio gapless with native mpv playlist handoffs" },
+]
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^(fix|perf)", group = "Fixes and performance" },
+  { body = "BREAKING CHANGE", group = "Breaking changes" },
+  { message = ".*", skip = true },
+]

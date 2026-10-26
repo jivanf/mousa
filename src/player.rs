@@ -156,6 +156,51 @@ fn is_youtube_track(url: &str) -> bool {
         })
 }
 
+// Only one successor is staged; Mousa remains responsible for shuffle/repeat order.
+struct QueuedTrack {
+    index: usize,
+    prepared: bool,
+    status: &'static str,
+}
+
+fn clear_successor(mpv: &Mpv, queued: &mut Option<QueuedTrack>) {
+    queued.take();
+    // Keeps the currently playing entry, including after an automatic transition.
+    let _ = mpv.command("playlist-clear", &[]);
+}
+
+fn stage_successor(
+    mpv: &Mpv,
+    track: &Track,
+    index: usize,
+    preparation: Option<Preparation>,
+    metrics: &Metrics,
+) -> Option<QueuedTrack> {
+    if track.unavailable.is_some() {
+        return None;
+    }
+    let (stream, status) = preparation
+        .map(|p| p.take(index, &track.url, metrics))
+        .unwrap_or((None, "not_requested"));
+    if status == "unavailable" {
+        return None;
+    }
+    let prepared = stream.is_some();
+    let result = if let Some(stream) = stream {
+        mpv.command(
+            "loadfile",
+            &[&stream.url, "append", "-1", &stream.options()],
+        )
+    } else {
+        mpv.command("loadfile", &[&track.url, "append"])
+    };
+    result.ok().map(|_| QueuedTrack {
+        index,
+        prepared,
+        status,
+    })
+}
+
 fn load_track(
     mpv: &Mpv,
     track: &Track,
@@ -245,6 +290,9 @@ impl Player {
                 // must test the selected format and try another before handing it to mpv.
                 m.set_property("ytdl-raw-options", "check-formats=")?;
                 m.set_property("idle", "yes")?;
+                m.set_property("gapless-audio", "yes")?;
+                m.set_property("audio-samplerate", 48000i64)?;
+                m.set_property("prefetch-playlist", "yes")?;
                 #[cfg(target_os = "windows")]
                 m.set_property(
                     "script-opts",
@@ -266,6 +314,7 @@ impl Player {
             let _ = mpv.set_property("volume", output.lock().unwrap().volume);
             let metrics = Metrics::start();
             let mut preparation: Option<Preparation> = None;
+            let mut queued: Option<QueuedTrack> = None;
             let saved = output.lock().unwrap().clone();
             // Credential checks and resolution happen on the worker, without holding UI state.
             let signed_in = !saved.stopped
@@ -324,7 +373,28 @@ impl Player {
                             if let Some(m) = measurement.take() {
                                 m.finish("end", &metrics);
                             }
-                            if let Some(index) = planned_next(&s, preparation.as_ref()) {
+                            if let Some(next) = queued.take() {
+                                history.push(s.index);
+                                s.index = next.index;
+                                s.position = 0.;
+                                s.duration = s.current().map_or(0., |t| t.duration);
+                                s.revision += 1;
+                                using_prepared = next.prepared;
+                                now_playing_sent = false;
+                                loaded = true;
+                                started = integrations::now();
+                                listened = 0.;
+                                scrobbled = false;
+                                playback_id += 1;
+                                measurement = Some(Playback::new(
+                                    playback_id,
+                                    "automatic",
+                                    next.status,
+                                    &metrics,
+                                ));
+                                startup_deadline.arm(Instant::now(), next.prepared);
+                                // mpv advances itself without stop/loadfile or a device drain.
+                            } else if let Some(index) = planned_next(&s, preparation.as_ref()) {
                                 history.push(s.index);
                                 s.index = index;
                                 load = true;
@@ -342,6 +412,7 @@ impl Player {
                         // Handle both so a rejected stream retries promptly instead of
                         // leaving the UI playing until the startup watchdog expires.
                         Ok(Event::EndFile(4)) | Err(_) if loaded => {
+                            clear_successor(&mpv, &mut queued);
                             if using_prepared {
                                 // Resolve again through mpv once if a prepared URL is rejected/expired.
                                 using_prepared = false;
@@ -427,6 +498,7 @@ impl Player {
                         );
                     }
                     if invalidates_preparation(&cmd, &s) {
+                        clear_successor(&mpv, &mut queued);
                         stream_prepare::invalidate(
                             &mut preparation,
                             &metrics,
@@ -476,7 +548,11 @@ impl Player {
                             resume_at = None;
                             if !s.queue.is_empty() {
                                 history.push(s.index);
-                                if let Some(index) = planned_next(&s, preparation.as_ref()) {
+                                if let Some(index) = queued
+                                    .as_ref()
+                                    .map(|q| q.index)
+                                    .or_else(|| planned_next(&s, preparation.as_ref()))
+                                {
                                     s.index = index;
                                     load = true;
                                 } else {
@@ -573,6 +649,7 @@ impl Player {
                 // Keep an in-flight resolver alive when Play is pressed immediately.
                 // Manual loads use the same bounded worker as speculative preparation.
                 if load && let Some(t) = s.current().cloned() {
+                    clear_successor(&mpv, &mut queued);
                     active_preparation =
                         preparation_for_load(resuming, &mut startup_preparation, &mut preparation)
                             .filter(|p| p.matches(s.index, &t));
@@ -690,6 +767,7 @@ impl Player {
                                 &metrics,
                             );
                         }
+                        clear_successor(&mpv, &mut queued);
                         if using_prepared {
                             using_prepared = false;
                             ready = false;
@@ -724,6 +802,7 @@ impl Player {
                         }
                     }
                     if ready
+                        && queued.is_none()
                         && stream_prepare::due(s.position, s.duration, s.paused)
                         && (preparation.is_none()
                             || preparation.as_ref().is_some_and(|p| p.needs_refresh()))
@@ -732,6 +811,19 @@ impl Player {
                     {
                         stream_prepare::invalidate(&mut preparation, &metrics, "expired");
                         preparation = Some(Preparation::start(index, track, "next", &metrics));
+                    }
+                }
+                if loaded && ready && queued.is_none() {
+                    let next = planned_next(&s, preparation.as_ref());
+                    if let Some(index) = next
+                        && let Some(track) = s.queue.get(index)
+                        && !preparation.as_ref().is_some_and(Preparation::unavailable)
+                        && (!is_youtube_track(&track.url)
+                            || preparation.as_ref().is_some_and(Preparation::finished))
+                    {
+                        // Remove completed playlist entries before appending one successor.
+                        clear_successor(&mpv, &mut queued);
+                        queued = stage_successor(&mpv, track, index, preparation.take(), &metrics);
                     }
                 }
                 if !scrobbled
@@ -811,6 +903,84 @@ mod tests {
             paused: true,
             duration: 120.,
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn native_queue_outputs_consecutive_tracks_without_inserted_silence() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("output.wav");
+        let mut tracks = Vec::new();
+        for (index, sample) in [1000i16, 2000, 3000].into_iter().enumerate() {
+            let path = dir.path().join(format!("{index}.wav"));
+            let mut wav = Vec::new();
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36u32 + 96000).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&48000u32.to_le_bytes());
+            wav.extend_from_slice(&96000u32.to_le_bytes());
+            wav.extend_from_slice(&2u16.to_le_bytes());
+            wav.extend_from_slice(&16u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&96000u32.to_le_bytes());
+            for _ in 0..48000 {
+                wav.extend_from_slice(&sample.to_le_bytes());
+            }
+            std::fs::write(&path, wav).unwrap();
+            let mut track = snapshot().queue[0].clone();
+            track.url = path.to_str().unwrap().into();
+            tracks.push(track);
+        }
+        let mpv = Mpv::with_initializer(|m| {
+            m.set_property("ao", "pcm")?;
+            m.set_property("ao-pcm-file", output.to_str().unwrap())?;
+            m.set_property("audio-format", "s16")?;
+            m.set_property("audio-samplerate", 48000i64)?;
+            m.set_property("gapless-audio", "yes")?;
+            m.set_property("prefetch-playlist", "yes")?;
+            m.set_property("pause", true)?;
+            m.set_property("vo", "null")?;
+            Ok(())
+        })
+        .unwrap();
+        let events = mpv.create_client(None).unwrap();
+        mpv.command("loadfile", &[&tracks[0].url]).unwrap();
+        let metrics = Metrics::silent();
+        // A queue edit replaces a staged entry before playback starts.
+        let mut queued = stage_successor(&mpv, &tracks[2], 2, None, &metrics);
+        assert!(queued.is_some());
+        clear_successor(&mpv, &mut queued);
+        assert!(queued.is_none());
+        assert!(stage_successor(&mpv, &tracks[1], 1, None, &metrics).is_some());
+        assert!(stage_successor(&mpv, &tracks[2], 2, None, &metrics).is_some());
+        mpv.set_property("pause", false).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut ended = 0;
+        while ended < 3 {
+            assert!(Instant::now() < deadline, "playlist failed to advance");
+            match events.wait_event(0.1) {
+                Some(Ok(Event::EndFile(0))) => ended += 1,
+                Some(Err(error)) => panic!("playback failed: {error:?}"),
+                _ => {}
+            }
+        }
+        drop(events);
+        drop(mpv);
+        let wav = std::fs::read(output).unwrap();
+        let data = wav.windows(4).position(|w| w == b"data").unwrap() + 8;
+        let samples: Vec<i16> = wav[data..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        assert_eq!(samples.len(), 144000);
+        for (i, chunk) in samples.chunks_exact(48000).enumerate() {
+            assert!(
+                chunk.iter().all(|s| *s == (i as i16 + 1) * 1000),
+                "track {i} contains inserted silence or altered samples"
+            );
         }
     }
 
