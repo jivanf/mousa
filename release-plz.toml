@@ -7,7 +7,7 @@ git_tag_name = "v{{ version }}"
 dependencies_update = false
 semver_check = false
 features_always_increment_minor = true
-release_commits = "^(feat|fix|perf)(\\([^)]*\\))?(!)?:|BREAKING CHANGE:|^Keep queued audio gapless with native mpv playlist handoffs$"
+release_commits = "(?m)^(feat|fix|perf)(\\([^)]*\\))?(!)?:|BREAKING CHANGE:|^ci: automate agent-driven releases \\(#1\\)$"
 
 [[package]]
 name = "mousa"
@@ -23,7 +23,7 @@ changelog_update = false
 [changelog]
 protect_breaking_commits = true
 commit_preprocessors = [
-  { pattern = "^Keep queued audio gapless with native mpv playlist handoffs$", replace = "fix: keep queued audio gapless with native mpv playlist handoffs" },
+  { pattern = "(?m)^ci: automate agent-driven releases \\(#1\\)$", replace = "fix: keep queued audio gapless with native mpv playlist handoffs" },
 ]
 commit_parsers = [
   { message = "^feat", group = "Features" },
