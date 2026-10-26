@@ -163,6 +163,7 @@ pub struct CatalogView {
     last_request: Option<(Destination, bool)>,
     scrollbar: Entity<ui::CatalogScrollbar>,
     standalone: bool,
+    offline_preview: bool,
     focus_handle: FocusHandle,
     restore_focus: bool,
 }
@@ -240,6 +241,12 @@ impl CatalogView {
         view.subscription = Some(None);
         view
     }
+    /// Keep workbench interactions local, including retry, navigation and account actions.
+    #[doc(hidden)]
+    pub fn isolate_preview(&mut self) {
+        self.offline_preview = true;
+    }
+
     pub fn new(player: Player, window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self::with_saved_state(player, None, window, cx)
     }
@@ -302,6 +309,7 @@ impl CatalogView {
         .detach();
         let mut result = Self {
             standalone: false,
+            offline_preview: false,
             focus_handle: cx.focus_handle(),
             restore_focus: false,
             scrollbar: cx.new(|_| ui::CatalogScrollbar::new()),
@@ -462,6 +470,9 @@ impl CatalogView {
         self.fetch_request(self.view.destination.clone(), append, cx);
     }
     fn fetch_request(&mut self, destination: Destination, append: bool, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            return;
+        }
         self.last_request = Some((destination.clone(), append));
         self.invalidate();
         let generation = self.generation;
@@ -497,6 +508,9 @@ impl CatalogView {
         cx.notify();
     }
     fn open(&mut self, item: Item, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            return;
+        }
         let Some(destination) = item.destination.clone() else {
             return;
         };
@@ -517,6 +531,9 @@ impl CatalogView {
         self.load_subscription();
     }
     fn open_search_result(&mut self, item: Item, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            return;
+        }
         self.album_unavailable = false;
         if let Some(target) = item.search_target() {
             self.open(target, cx);
@@ -557,6 +574,9 @@ impl CatalogView {
         cx.notify();
     }
     fn load_subscription(&mut self) {
+        if self.offline_preview {
+            return;
+        }
         self.subscription = None;
         self.subscription_error = None;
         self.subscription_busy = false;
@@ -581,6 +601,15 @@ impl CatalogView {
         });
     }
     fn toggle_subscription(&mut self, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            self.subscription = Some(if self.subscription.as_ref().is_some_and(Option::is_some) {
+                None
+            } else {
+                Some("preview".into())
+            });
+            cx.notify();
+            return;
+        }
         if self.subscription_busy {
             return;
         }
@@ -608,6 +637,25 @@ impl CatalogView {
         cx.notify();
     }
     fn act(&mut self, action: Action, items: Option<Vec<Item>>, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            let count = items
+                .as_ref()
+                .unwrap_or(&self.view.page.items)
+                .iter()
+                .filter(|item| item.track().is_some())
+                .count();
+            self.feedback = match action {
+                Action::Queue => Some(Feedback::Queued(count)),
+                Action::Save => Some(Feedback::Playlist {
+                    count,
+                    name: "Preview playlist".into(),
+                }),
+                Action::Library => Some(Feedback::Library(self.view.page.title.clone())),
+                _ => None,
+            };
+            cx.notify();
+            return;
+        }
         if self.preparing || self.busy || self.save_busy {
             return;
         }
@@ -714,6 +762,9 @@ impl CatalogView {
         cx.notify();
     }
     fn save(&mut self, playlist: Option<i64>, cx: &mut Context<Self>) {
+        if self.offline_preview {
+            return;
+        }
         if self.save_busy {
             return;
         }
