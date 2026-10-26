@@ -298,7 +298,12 @@ fn stage(cache: &Path, current: &str, rejected: &[String], repair: bool) -> Resu
     let staged = tempfile::tempdir_in(cache)?;
     let mut files = vec![executable("mousa"), executable("mousa-launcher")];
     if cfg!(windows) {
-        files.extend(["libmpv-2.dll".into(), "yt-dlp.exe".into()]);
+        files.extend([
+            "libmpv-2.dll".into(),
+            "yt-dlp.exe".into(),
+            "vulkan-1.dll".into(),
+            "VulkanRT-License.txt".into(),
+        ]);
     }
     for name in &files {
         self_update::Extract::from_source(&archive).extract_file(staged.path(), name)?;

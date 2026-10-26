@@ -71,8 +71,9 @@ The Linux and Windows user installers register a managed installation. Mousa's
 launcher checks the latest stable GitHub Release silently after startup and once
 per day while running. It downloads the matching x64 bundle, verifies its SHA-256
 digest and embedded Ed25519 signature against the bundled public key, and checks
-the executable's version before staging it. Windows bundles include libmpv and
-yt-dlp. Linux continues to use the system media dependencies.
+the executable's version before staging it. Windows bundles include libmpv,
+yt-dlp, and the Vulkan loader required by libmpv. Linux continues to use the
+system media dependencies.
 
 Updates activate after Mousa exits; playback is never stopped for an update.
 The next launch uses the new version. If that version exits or cannot start

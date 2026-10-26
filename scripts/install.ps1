@@ -63,6 +63,12 @@ try {
     @('LIBRARY libmpv-2.dll', 'EXPORTS') + $symbols | Set-Content "$deps\mpv.def" -Encoding ascii
     & "$bin\lib.exe" /nologo "/def:$deps\mpv.def" "/out:$deps\mpv.lib" /machine:x64
     if ($LASTEXITCODE -ne 0) { throw 'Could not create mpv.lib.' }
+    # libmpv imports the Vulkan loader even when Mousa only plays audio. Ship it
+    # beside the app rather than relying on a GPU driver to install it globally.
+    Get-VerifiedFile 'https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkan-runtime-components.zip' "$deps\vulkan.zip" 'a25a927aa8b9f0371048f1861cf88ac3b9bc9b1fb332c42d897c8ab32695769a'
+    Expand-Archive -LiteralPath "$deps\vulkan.zip" -DestinationPath "$deps\vulkan" -Force
+    $vulkan = Join-Path $deps 'vulkan\VulkanRT-X64-1.4.363.0-Components'
+    Copy-Item "$vulkan\x64\vulkan-1.dll", "$vulkan\VulkanRT-License.txt" -Destination $deps -Force
     Get-VerifiedFile 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe' "$deps\yt-dlp.exe" '33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555'
     $previousLib = $env:LIB
     $previousFxc = $env:GPUI_FXC_PATH
@@ -87,7 +93,7 @@ try {
         $env:PATH = $previousPath
     }
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
-    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe" -Destination $InstallDir -Force
+    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
     $shell = New-Object -ComObject WScript.Shell
