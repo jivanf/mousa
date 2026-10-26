@@ -108,6 +108,13 @@ The public key is in `updater/release-public-key.hex`. Preserve this secret acro
 releases; changing keys requires an explicit trust migration in an earlier release.
 The update signature is independent of Windows Authenticode signing.
 
+Prebuilt Linux releases target x86-64 Linux with glibc 2.39 or newer (Ubuntu 24.04
+baseline) and libmpv 0.38 or newer. Source installations can target other supported
+Linux environments. The Windows archive targets x64 Windows with MSVC and
+includes its media dependencies. Both archives are `.tar.gz` bundles and include
+the managed-installation receipt; extract the complete bundle into a user-writable
+directory and run `mousa-launcher` or `mousa-launcher.exe`.
+
 ## Keyboard controls
 
 - Ctrl+Space: play/pause

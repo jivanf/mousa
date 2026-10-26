@@ -311,6 +311,7 @@ fn stage(cache: &Path, current: &str, rejected: &[String], repair: bool) -> Resu
         OpenOptions::new().write(true).open(path)?.sync_all()?;
     }
     probe(&staged.path().join(executable("mousa")), &version)?;
+    probe(&staged.path().join(executable("mousa-launcher")), &version)?;
     let destination = cache.join(&version);
     // Never overwrite a running or previously confirmed version directory.
     if destination.exists() {
@@ -443,14 +444,15 @@ fn run() -> Result<()> {
         .first()
         .is_some_and(|a| a == "--update-now" || a == "--repair");
     let repair = args.first().is_some_and(|a| a == "--repair");
-    if !manual && !state.pending {
-        if let Ok(data) = fs::read(cache.join("staged.json")) {
-            let staged: String = serde_json::from_slice(&data)?;
-            let version = valid_version(&staged)?;
-            let current = valid_version(state.active.as_deref().unwrap_or(&receipt.version))?;
-            if version > current && !state.rejected.contains(&staged) {
-                activate(&cache, &mut state, staged)?;
-            }
+    if !manual
+        && !state.pending
+        && let Ok(data) = fs::read(cache.join("staged.json"))
+    {
+        let staged: String = serde_json::from_slice(&data)?;
+        let version = valid_version(&staged)?;
+        let current = valid_version(state.active.as_deref().unwrap_or(&receipt.version))?;
+        if version > current && !state.rejected.contains(&staged) {
+            activate(&cache, &mut state, staged)?;
         }
     }
     let current = state.active.clone().unwrap_or(receipt.version);
@@ -498,12 +500,11 @@ fn run() -> Result<()> {
         launch(root, &cache, &mut state, &args)?;
     }
     // A partial download never delays closing the app or becomes active.
-    if let Ok(version) = rx.try_recv() {
-        if !state.rejected.contains(&version) {
-            if let Err(error) = activate(&cache, &mut state, version) {
-                log(&cache, &format!("Activation deferred: {error:#}"));
-            }
-        }
+    if let Ok(version) = rx.try_recv()
+        && !state.rejected.contains(&version)
+        && let Err(error) = activate(&cache, &mut state, version)
+    {
+        log(&cache, &format!("Activation deferred: {error:#}"));
     }
     Ok(())
 }
