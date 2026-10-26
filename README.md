@@ -93,6 +93,8 @@ launcher stores version directories, its state, and bounded diagnostic logs in
 `.mousa-updates` beside the installed executable. Only one launcher can manage
 an installation at a time. Existing version directories are retained for recovery.
 User data and credentials remain in their existing locations.
+Running either source installer again makes that new local build the default on
+the next launch, so an older cached release cannot hide local development changes.
 
 For diagnostics, with Mousa closed, `mousa-launcher --update-now` checks immediately;
 `mousa-launcher --repair` also permits installing the current release version.

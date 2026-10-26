@@ -23,6 +23,8 @@ const PUBLIC_KEY: &str = include_str!("../release-public-key.hex");
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct State {
+    #[serde(default)]
+    installation_id: u64,
     active: Option<String>,
     previous: Option<String>,
     pending: bool,
@@ -34,6 +36,8 @@ struct State {
 struct Receipt {
     protocol: u32,
     version: String,
+    #[serde(default)]
+    installation_id: u64,
 }
 
 #[derive(Deserialize)]
@@ -414,6 +418,7 @@ fn run() -> Result<()> {
             &Receipt {
                 protocol: 1,
                 version: env!("CARGO_PKG_VERSION").into(),
+                installation_id: rand::random(),
             },
         )?;
         return Ok(());
@@ -440,6 +445,15 @@ fn run() -> Result<()> {
         return Ok(());
     }
     let mut state = read_state(&cache)?;
+    if state.installation_id != receipt.installation_id {
+        // A fresh installer run takes precedence over an older cached release,
+        // even if the old supervisor finishes writing state after installation.
+        state = State {
+            installation_id: receipt.installation_id,
+            ..State::default()
+        };
+        write_json(&cache.join("state.json"), &state)?;
+    }
     let manual = args
         .first()
         .is_some_and(|a| a == "--update-now" || a == "--repair");
@@ -575,6 +589,7 @@ mod tests {
     fn rollback_restores_previous_and_quarantines_failed_release() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = State {
+            installation_id: 0,
             active: Some("0.2.0".into()),
             previous: Some("0.1.0".into()),
             pending: true,
@@ -665,6 +680,7 @@ mod tests {
         )
         .unwrap();
         let mut state = State {
+            installation_id: 0,
             active: Some("0.2.0".into()),
             previous: None,
             pending: true,
