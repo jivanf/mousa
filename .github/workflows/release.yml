@@ -34,6 +34,9 @@ jobs:
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: |
+          # The runner's Azure mirror can stall each package request for minutes.
+          printf 'https://archive.ubuntu.com/ubuntu\n' | sudo tee /etc/apt/apt-mirrors.txt
+          printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' | sudo tee /etc/apt/apt.conf.d/80-mousa-network
           sudo apt-get update
           sudo apt-get install -y libmpv-dev libasound2-dev libudev-dev libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xkb-dev libx11-xcb-dev libvulkan-dev libdbus-1-dev libssl-dev
           sudo apt-get install -y meson ninja-build libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libass-dev libplacebo-dev libluajit-5.1-dev

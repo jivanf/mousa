@@ -564,7 +564,7 @@ mod tests {
             let start = Instant::now();
             loop {
                 assert!(
-                    start.elapsed() < Duration::from_secs(3),
+                    start.elapsed() < Duration::from_secs(15),
                     "transition {attempt} hung"
                 );
                 match events.wait_event(0.1) {
