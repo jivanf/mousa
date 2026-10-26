@@ -26,7 +26,7 @@ impl Render for Gallery {
             .child(self.catalog.clone())
     }
 }
-fn sample(state: &str) -> (Page, Option<Item>) {
+pub fn sample(state: &str) -> (Page, Option<Item>) {
     if state == "search-navigation" {
         let raw =
             serde_json::from_str(include_str!("../tests/fixtures/catalog/songs.json")).unwrap();

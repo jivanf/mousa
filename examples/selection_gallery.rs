@@ -5,7 +5,7 @@ use mousa::{
     theme::{color, font, space, text},
     ui,
 };
-struct Gallery;
+pub struct Gallery;
 impl Render for Gallery {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let mut page = div()

@@ -5,7 +5,8 @@ use mousa::{
     theme::{color, font, layout, press, shadow, size as control_size, space, text},
     ui::{self, Bar, BarChange, button, icon_button, step_button},
 };
-struct Gallery {
+pub struct Gallery {
+    state: String,
     track_list: ListState,
     scrollbar: Entity<ui::TrackScrollbar>,
     seek: Entity<Bar>,
@@ -20,7 +21,7 @@ struct Gallery {
     only_player: bool,
 }
 impl Gallery {
-    fn new(only_player: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(state: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let seek = cx.new(|cx| Bar::new("Seek", 0.01, cx));
         seek.update(cx, |s, cx| s.sync(14. / 240., false, cx));
         let volume = cx.new(|cx| Bar::new("Volume", 0.05, cx));
@@ -36,7 +37,7 @@ impl Gallery {
                 cx.notify();
             }),
         ];
-        let short = std::env::args().any(|a| a == "--scrollbar-short");
+        let short = state == "scrollbar-short";
         let track_list = ListState::new(if short { 2 } else { 1230 }, ListAlignment::Top, layout::list_overscan());
         track_list.scroll_to(ListOffset {
             item_ix: if short { 0 } else { 154 },
@@ -55,13 +56,14 @@ impl Gallery {
             volume_value: 0.48,
             elapsed: 14.,
             subscriptions,
-            only_player,
+            only_player: state == "player",
+            state: state.into(),
         }
     }
 }
 impl Render for Gallery {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if std::env::args().any(|a| a == "--scrollbar" || a == "--scrollbar-short") {
+        if matches!(self.state.as_str(), "scrollbar" | "scrollbar-short") {
             return div().size_full().p(space::xxl()).bg(color::canvas()).font_family(font::SANS).text_size(text::body()).text_color(color::ink())
                 .child(div().flex().w_full().h(px(228.)).border(mousa::theme::border::strong()).border_color(color::ink())
                     .child(div().flex_1().min_w_0().h_full().child(list(self.track_list.clone(), |i, _, _| {
@@ -72,10 +74,10 @@ impl Render for Gallery {
                     }).size_full()))
                     .child(self.scrollbar.clone())).into_any_element();
         }
-        if std::env::args().any(|a| a == "--landing") {
+        if self.state == "landing" {
             return ui::landing(ui::google_sign_in(false), None).into_any_element();
         }
-        if std::env::args().any(|a| a == "--accounts") {
+        if self.state == "accounts" {
             return div()
                 .size_full()
                 .bg(color::canvas())
@@ -363,7 +365,8 @@ impl Render for Gallery {
     }
 }
 fn main() {
-    let only_player = std::env::args().any(|a| a == "--player-only");
+    let state = std::env::args().nth(1).unwrap_or_default().trim_start_matches("--").replace("player-only", "player");
+    let only_player = state == "player";
     Application::new().with_assets(ui::Assets).run(move |cx| {
         ui::init(cx);
         cx.on_window_closed(|cx| {
@@ -386,7 +389,7 @@ fn main() {
                 ..Default::default()
             },
             move |window, cx| {
-                let view = cx.new(|cx| Gallery::new(only_player, window, cx));
+                let view = cx.new(|cx| Gallery::new(&state, window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         )

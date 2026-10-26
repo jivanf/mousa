@@ -2,7 +2,8 @@
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Mousa'),
     [switch]$Launch,
-    [switch]$RunTests
+    [switch]$RunTests,
+    [switch]$Workbench
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -64,6 +65,11 @@ try {
         $env:GPUI_FXC_PATH = $fxcPath
         & $cargo.Source build --release --locked
         if ($LASTEXITCODE -ne 0) { throw 'Mousa build failed.' }
+        if ($Workbench) {
+            # Keep GPUI debug assertions enabled in this development tool.
+            & $cargo.Source build --locked --example workbench
+            if ($LASTEXITCODE -ne 0) { throw 'Workbench build failed.' }
+        }
         if ($RunTests) {
             $env:PATH = "$deps;$env:PATH"
             & $cargo.Source test --release --locked
@@ -88,6 +94,22 @@ try {
     $shortcut.IconLocation = "$installed,0"
     $shortcut.Save()
     Write-Host "Installed Mousa to $InstallDir (Start menu: Mousa)."
+    if ($Workbench) {
+        $workbenchDir = Join-Path $InstallDir 'Workbench'
+        New-Item -ItemType Directory -Force $workbenchDir | Out-Null
+        Copy-Item 'target\debug\examples\workbench.exe', "$deps\libmpv-2.dll" -Destination $workbenchDir -Force
+        $workbenchExe = Join-Path $workbenchDir 'workbench.exe'
+        if ((Get-FileHash $workbenchExe).Hash -ne (Get-FileHash 'target\debug\examples\workbench.exe').Hash) {
+            throw 'Installed workbench does not match the build.'
+        }
+        $workbenchShortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa Workbench.lnk'))
+        $workbenchShortcut.TargetPath = $workbenchExe
+        $workbenchShortcut.WorkingDirectory = $workbenchDir
+        $workbenchShortcut.Description = 'Mousa UI stories and visual states'
+        $workbenchShortcut.IconLocation = "$installed,0"
+        $workbenchShortcut.Save()
+        Write-Host 'Installed Mousa Workbench (Start menu: Mousa Workbench).'
+    }
     if ($Launch) {
         # A child of an MSIX-packaged terminal (including Codex) inherits its
         # AppData virtualization. WMI launches outside that package context,

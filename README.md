@@ -4,6 +4,29 @@
 
 A native Linux and Windows music player for YouTube.
 
+## Native UI workbench (Windows)
+
+Install the workbench and its Start menu shortcut with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Workbench
+```
+
+Open **Mousa Workbench** from the Start menu. It runs as a normal desktop
+application; closing its window exits it. No service or container is required.
+The installer requires the same Rust/MSVC and Windows SDK tools as Mousa.
+After changing source code, close the workbench and rerun the installer to update
+its executable. It does not rebuild automatically.
+
+Use the sidebar to search the component, catalog, and playlist-editor stories.
+Reset restores the selected fixture; Fill/Compact changes the preview width.
+Story selection, filter, and viewport mode are saved under this checkout's
+`target/workbench`. Preview data is isolated from the music player's library.
+Catalog network/account actions are disabled or simulated in this workbench.
+The installed workbench uses this checkout for its preview data, so keep the
+checkout available. `cargo run --locked --example workbench` also works for
+foreground development when the native build environment is configured.
+
 ## Features
 
 - Create, rename, delete, and reorder local and YouTube playlists.

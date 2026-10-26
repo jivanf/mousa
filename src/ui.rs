@@ -90,6 +90,22 @@ pub fn button(
     label: impl Into<SharedString>,
     fill: Hsla,
 ) -> Stateful<Div> {
+    let hover_fill = if fill == color::ink() {
+        color::ink()
+    } else {
+        color::white()
+    };
+    button_with_hover(id, label, fill, hover_fill)
+}
+
+// GPUI accepts one hover registration. Specialized buttons supply their fill
+// here instead of adding a second `.hover()` to the shared button.
+fn button_with_hover(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    fill: Hsla,
+    hover_fill: Hsla,
+) -> Stateful<Div> {
     let on = fill == color::ink();
     let label: SharedString = label.into();
     div()
@@ -115,7 +131,7 @@ pub fn button(
         .mr(press::sm())
         .mb(press::sm())
         .cursor_pointer()
-        .hover(move |s| s.bg(if on { color::ink() } else { color::white() }))
+        .hover(move |s| s.bg(hover_fill))
         .active(|s| s.top(press::sm()).left(press::sm()).shadow(vec![]))
         .focus(|s| s.shadow(vec![shadow::focus_ring()]))
         .when(!label.is_empty(), |d| d.child(label))
@@ -803,13 +819,17 @@ pub fn account_button(
     } else {
         "Connect Last.fm"
     });
-    button(id, "", color::surface())
+    let hover_fill = if connected && !busy {
+        color::pink()
+    } else {
+        color::white()
+    };
+    button_with_hover(id, "", color::surface(), hover_fill)
         .group(id)
         .h(size::row())
         .px(space::sm())
         .justify_start()
         .min_w_0()
-        .when(connected && !busy, |d| d.hover(|s| s.bg(color::pink())))
         .child(provider_badge(provider))
         .child(
             div()
@@ -833,6 +853,21 @@ pub fn account_button(
                     )
                 }),
         )
+}
+
+#[cfg(test)]
+mod account_tests {
+    #[test]
+    fn account_variants_register_each_interaction_style_once() {
+        // GPUI debug assertions reject a second hover registration during construction.
+        for provider in ["google", "lastfm"] {
+            for name in [None, Some("Preview account")] {
+                for busy in [false, true] {
+                    let _ = super::account_button("account-preview", provider, name, busy);
+                }
+            }
+        }
+    }
 }
 pub fn google_sign_in(busy: bool) -> Stateful<Div> {
     button("google-sign-in", "", color::lime())

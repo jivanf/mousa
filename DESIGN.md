@@ -2,6 +2,8 @@
 version: alpha
 name: Mousa
 description: Neobrutalist native desktop music player. Rust, GPUI, Linux first. Not a webview.
+x-workbench-navigation: searchable-grouped-stories
+x-workbench-persistence: story-filter-viewport-mode
 colors:
   primary: "#111111"
   secondary: "#3B3B3B"
@@ -87,6 +89,16 @@ x-scrolling:
 x-session:
   catalog: preserve-query-page-history-filter-and-scroll
 components:
+  workbench-sidebar:
+    width: 272px
+    padding: 8px
+  workbench-preview:
+    width: 1280px
+    height: 840px
+  workbench-preview-compact:
+    width: 1100px
+  workbench-toolbar:
+    padding: 16px
   feedback-alert:
     width: 100%
     padding: 12px
@@ -753,6 +765,27 @@ content; obvious Play, Pause, and clear-input controls do not need them.
 Accessibility labels and keyboard behavior are independent of tooltips.
 
 ## Verification
+
+### Native development workbench
+
+The user-authorized development workbench unifies the existing galleries in a
+native window. Its shell reuses the shared controls and theme: 272px sidebar,
+8px sidebar padding and story gaps, 16px toolbar padding, and 12px toolbar gaps.
+Story rows have no shadow; the active story uses ink/lime inversion. Group labels
+use label-caps. The initial window is the 1280px preview width plus the sidebar,
+with an 840px height. Compact mode fixes the preview width at the existing 1100px
+minimum desktop width, with horizontal scrolling when needed; Fill uses available
+space. These dimensions reuse `size::sidebar`, `layout::viewport_width`,
+`layout::viewport_height`, and `layout::min_width` without new tokens.
+
+The searchable story list, Reset, and Fill/Compact controls belong to the
+development shell. The preview renders the production components and existing
+approved gallery states. Search, selected story, and viewport mode survive
+rebuilds; transient interaction state resets. Catalog service actions are
+simulated or remain on their fixture, with isolated local data. No new product
+screen design is implied by the workbench shell.
+
+### Checks
 
 1. Run `npx @google/design.md lint DESIGN.md`. It must report no errors.
 2. Add or update the component in `examples/gallery.rs` in every state:
