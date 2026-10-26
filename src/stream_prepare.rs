@@ -108,6 +108,15 @@ impl Preparation {
     pub fn finished(&self) -> bool {
         self.outcome.is_some()
     }
+    pub fn unavailable(&self) -> bool {
+        matches!(
+            &self.outcome,
+            Some(Outcome {
+                stream: Err("unavailable"),
+                ..
+            })
+        )
+    }
     pub fn matches(&self, index: usize, track: &Track) -> bool {
         self.index == index && self.url == track.url
     }
