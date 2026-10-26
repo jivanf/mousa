@@ -2,6 +2,26 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogPageState {
+    pub page: crate::catalog::Page,
+    pub destination: crate::catalog::Destination,
+    pub item: Option<crate::catalog::Item>,
+    pub filter: String,
+    pub scroll: f32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogState {
+    pub query: String,
+    pub current: CatalogPageState,
+    pub history: Vec<CatalogPageState>,
+    pub filters: Vec<(String, crate::catalog::Destination)>,
+    pub reload: bool,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct BrowsePosition {
@@ -12,6 +32,8 @@ pub struct BrowsePosition {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewState {
+    pub catalog_open: bool,
+    pub catalog: Option<CatalogState>,
     pub playlist: Option<i64>,
     pub queue: bool,
     pub library_query: String,
@@ -87,5 +109,69 @@ mod tests {
         let state: ViewState = serde_json::from_str("{}").unwrap();
         assert!(!state.queue);
         assert!(state.playlist.is_none());
+        assert!(!state.catalog_open);
+        assert!(state.catalog.is_none());
+    }
+
+    #[test]
+    fn database_restart_preserves_catalog_results_and_detail_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("library.db");
+        let results = CatalogPageState {
+            destination: crate::catalog::search("Bach"),
+            filter: "Albums".into(),
+            scroll: -240.,
+            ..Default::default()
+        };
+        let album = crate::catalog::Item {
+            title: "Goldberg Variations".into(),
+            kind: "Album".into(),
+            destination: Some(crate::catalog::Destination {
+                api: "browse".into(),
+                body: serde_json::json!({"browseId": "album-id"}),
+            }),
+            ..Default::default()
+        };
+        for detail in [false, true] {
+            let state = ViewState {
+                catalog_open: true,
+                catalog: Some(CatalogState {
+                    query: "Bach".into(),
+                    current: if detail {
+                        CatalogPageState {
+                            destination: album.destination.clone().unwrap(),
+                            item: Some(album.clone()),
+                            page: crate::catalog::Page {
+                                title: album.title.clone(),
+                                items: vec![album.clone()],
+                                ..Default::default()
+                            },
+                            scroll: -120.,
+                            ..results.clone()
+                        }
+                    } else {
+                        results.clone()
+                    },
+                    history: if detail {
+                        vec![results.clone()]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let db = crate::db::Library::open(&path).unwrap();
+            let json = serde_json::to_string(&state).unwrap();
+            db.save("view-state", &json).unwrap();
+            drop(db);
+            let db = crate::db::Library::open(&path).unwrap();
+            let restored: ViewState =
+                serde_json::from_str(&db.load("view-state").unwrap()).unwrap();
+            assert_eq!(
+                serde_json::to_value(restored).unwrap(),
+                serde_json::to_value(state).unwrap()
+            );
+        }
     }
 }

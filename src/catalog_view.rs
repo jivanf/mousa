@@ -31,6 +31,30 @@ struct View {
     filter: String,
     selection: std::collections::BTreeMap<TrackTable, crate::track_selection::TrackSelection>,
 }
+impl View {
+    fn snapshot(&self) -> crate::view_state::CatalogPageState {
+        crate::view_state::CatalogPageState {
+            page: self.page.clone(),
+            destination: self.destination.clone(),
+            item: self.item.clone(),
+            filter: self.filter.clone(),
+            scroll: f32::from(self.scroll.offset().y),
+        }
+    }
+
+    fn restore(saved: crate::view_state::CatalogPageState) -> Self {
+        let scroll = ScrollHandle::new();
+        scroll.set_offset(point(px(0.), px(saved.scroll.min(0.))));
+        Self {
+            page: saved.page,
+            destination: saved.destination,
+            item: saved.item,
+            filter: saved.filter,
+            scroll,
+            selection: Default::default(),
+        }
+    }
+}
 /// A page can contain several independently selectable track tables.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TrackTable {
@@ -217,9 +241,33 @@ impl CatalogView {
         view
     }
     pub fn new(player: Player, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_saved_state(player, None, window, cx)
+    }
+
+    pub fn snapshot(&self, cx: &App) -> crate::view_state::CatalogState {
+        crate::view_state::CatalogState {
+            query: self.input.read(cx).value().to_string(),
+            current: self.view.snapshot(),
+            history: self.history.iter().map(View::snapshot).collect(),
+            filters: self.filters.clone(),
+            reload: (self.busy || self.error.is_some()) && self.view.page.items.is_empty(),
+        }
+    }
+
+    pub fn with_saved_state(
+        player: Player,
+        saved: Option<crate::view_state::CatalogState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search songs, videos, albums, artists…")
         });
+        if let Some(saved) = &saved {
+            input.update(cx, |input, cx| {
+                input.set_value(saved.query.clone(), window, cx)
+            });
+        }
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("New playlist name"));
         let picker_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter destination playlists…"));
@@ -229,9 +277,13 @@ impl CatalogView {
             .and_then(|db| db.load("catalog-recent"))
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_default();
+        // set_value emits a deferred Change; don't let hydration erase restored history.
+        let mut previous_query = input.read(cx).value().to_string();
         let subscriptions = vec![
-            cx.subscribe(&input, |this, _, e, cx| {
-                if matches!(e, InputEvent::Change) {
+            cx.subscribe(&input, move |this, _, e, cx| {
+                let query = this.input.read(cx).value().to_string();
+                if matches!(e, InputEvent::Change) && query != previous_query {
+                    previous_query = query;
                     this.schedule(cx);
                 }
             }),
@@ -248,7 +300,7 @@ impl CatalogView {
             }
         })
         .detach();
-        Self {
+        let mut result = Self {
             standalone: false,
             focus_handle: cx.focus_handle(),
             restore_focus: false,
@@ -290,7 +342,17 @@ impl CatalogView {
             cancelled: Arc::new(AtomicBool::new(false)),
             preparing: false,
             last_request: None,
+        };
+        if let Some(saved) = saved {
+            result.view = View::restore(saved.current);
+            result.history = saved.history.into_iter().map(View::restore).collect();
+            result.filters = saved.filters;
+            result.load_subscription();
+            if saved.reload {
+                result.request(false, cx);
+            }
         }
+        result
     }
     pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.view.item.is_some() && !self.save_busy {
@@ -2105,6 +2167,40 @@ impl Render for CatalogView {
                 .child(self.scrollbar.clone()),
         )
         .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::{Item, Page, TrackTable, View, catalog};
+    use gpui::px;
+
+    #[test]
+    fn restores_page_and_scroll_without_transient_selection() {
+        let saved = crate::view_state::CatalogPageState {
+            destination: catalog::search("Bach"),
+            filter: "Albums".into(),
+            scroll: -240.,
+            page: Page {
+                title: "Results".into(),
+                items: vec![Item {
+                    title: "Goldberg Variations".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut view = View::restore(saved.clone());
+        view.selection
+            .insert(TrackTable::Collection, Default::default());
+        let json = serde_json::to_string(&view.snapshot()).unwrap();
+        let restored = View::restore(serde_json::from_str(&json).unwrap());
+        assert_eq!(restored.destination, saved.destination);
+        assert_eq!(restored.filter, "Albums");
+        assert_eq!(restored.page.items[0].title, "Goldberg Variations");
+        assert_eq!(restored.scroll.offset().y, px(-240.));
+        assert!(restored.selection.is_empty());
     }
 }
 
