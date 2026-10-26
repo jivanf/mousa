@@ -11,6 +11,19 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+pub fn ytdlp_path() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let bundled = dir.join("yt-dlp.exe");
+        if bundled.is_file() {
+            return bundled;
+        }
+    }
+    "yt-dlp".into()
+}
+
 fn client() -> Result<Client> {
     Ok(Client::builder()
         .user_agent(concat!("Mousa/", env!("CARGO_PKG_VERSION")))
@@ -67,7 +80,13 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
             ),
         "Only YouTube URLs are supported"
     );
-    let mut child = std::process::Command::new("yt-dlp")
+    let mut command = std::process::Command::new(ytdlp_path());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let mut child = command
         .args([
             "--flat-playlist",
             "--dump-single-json",
@@ -141,12 +160,23 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
         })
         .collect())
 }
-pub fn google_login() -> Result<String> {
-    let path = db::data_dir().join("google-client.json");
+fn google_client_at(directory: &std::path::Path) -> Result<Value> {
+    let path = directory.join("google-client.json");
     let v: Value = serde_json::from_slice(
         &std::fs::read(&path)
-            .with_context(|| format!("Save Google Desktop OAuth JSON to {}", path.display()))?,
-    )?;
+            .with_context(|| format!("Google configuration is unavailable. Save Google Desktop OAuth JSON to {}. If MOUSA_DATA_DIR is set, check that it points to your library", path.display()))?,
+    ).with_context(|| format!("Invalid Google Desktop OAuth JSON in {}", path.display()))?;
+    anyhow::ensure!(
+        v["installed"]["client_id"]
+            .as_str()
+            .is_some_and(|id| !id.trim().is_empty()),
+        "Expected Google Desktop OAuth client JSON in {}",
+        path.display()
+    );
+    Ok(v)
+}
+pub fn google_login() -> Result<String> {
+    let v = google_client_at(&db::data_dir())?;
     let cfg = &v["installed"];
     let id = cfg["client_id"]
         .as_str()
@@ -248,8 +278,7 @@ pub fn google_login() -> Result<String> {
     Ok(name.to_owned())
 }
 pub(crate) fn google_access() -> Result<String> {
-    let v: Value =
-        serde_json::from_slice(&std::fs::read(db::data_dir().join("google-client.json"))?)?;
+    let v = google_client_at(&db::data_dir())?;
     let refresh = get_secret("google-refresh").context("Sign in to Google first")?;
     let client = client()?;
     let t: Value = retry_google_token(
@@ -476,6 +505,27 @@ pub fn flush_scrobbles() -> Result<()> {
 
 #[cfg(test)]
 mod auth_tests {
+    #[test]
+    fn google_configuration_errors_identify_the_file_and_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("google-client.json");
+        let error = super::google_client_at(dir.path()).unwrap_err().to_string();
+        assert!(error.contains(&path.display().to_string()));
+        assert!(error.contains("MOUSA_DATA_DIR"));
+        std::fs::write(&path, br#"{"web":{"client_id":"wrong-type"}}"#).unwrap();
+        assert!(
+            super::google_client_at(dir.path())
+                .unwrap_err()
+                .to_string()
+                .contains("Expected Google Desktop OAuth")
+        );
+        std::fs::write(&path, br#"{"installed":{"client_id":"desktop-client"}}"#).unwrap();
+        assert_eq!(
+            super::google_client_at(dir.path()).unwrap()["installed"]["client_id"],
+            "desktop-client"
+        );
+    }
+
     use super::*;
     fn connection_error() -> reqwest::Error {
         // Reserve then close a local port; no external network or DNS required.

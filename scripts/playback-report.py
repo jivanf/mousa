@@ -10,8 +10,9 @@ import statistics
 
 
 def main():
-    default = Path(os.environ.get("MOUSA_DATA_DIR") or
-                   Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "mousa")
+    platform_default = (Path(os.environ["APPDATA"]) / "Mousa/Mousa/data" if os.name == "nt" else
+                        Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "mousa")
+    default = Path(os.environ.get("MOUSA_DATA_DIR") or platform_default)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", nargs="?", type=Path, default=default)
     args = parser.parse_args()

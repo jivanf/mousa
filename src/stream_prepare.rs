@@ -213,7 +213,12 @@ fn resolve(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled");
     }
-    let mut command = Command::new("yt-dlp");
+    let mut command = Command::new(crate::integrations::ytdlp_path());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
     command.args([
         "--ignore-config",
         "--no-playlist",
@@ -356,6 +361,18 @@ fn unavailable_reason(diagnostic: &[u8]) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shell_command(unix: &str, windows: &str) -> Command {
+        if cfg!(windows) {
+            let mut command = Command::new("powershell.exe");
+            command.args(["-NoProfile", "-NonInteractive", "-Command", windows]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", unix]);
+            command
+        }
+    }
     #[test]
     fn unavailable_video_is_distinguished_from_transient_failure() {
         assert_eq!(
@@ -371,11 +388,10 @@ mod tests {
             unavailable_reason(b"Sign in to confirm you are not a bot"),
             None
         );
-        let mut command = Command::new("sh");
-        command.args([
-            "-c",
+        let command = shell_command(
             "printf 'ERROR: Video unavailable. This video is not available' >&2; exit 1",
-        ]);
+            "[Console]::Error.WriteLine('ERROR: Video unavailable. This video is not available'); exit 1",
+        );
         assert!(matches!(
             resolve_command(command, &AtomicBool::new(false), Duration::from_secs(2)),
             Err("unavailable")
@@ -567,22 +583,19 @@ mod tests {
     #[test]
     fn resolver_process_failure_timeout_and_cancellation_are_bounded() {
         let cancel = AtomicBool::new(false);
-        let mut fail = Command::new("sh");
-        fail.args(["-c", "exit 1"]);
+        let fail = shell_command("exit 1", "exit 1");
         assert!(matches!(
             resolve_command(fail, &cancel, Duration::from_secs(1)),
             Err("resolver_failed")
         ));
-        let mut sleep = Command::new("sleep");
-        sleep.arg("10");
+        let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         let start = Instant::now();
         assert!(matches!(
             resolve_command(sleep, &cancel, Duration::from_millis(100)),
             Err("timeout")
         ));
         assert!(start.elapsed() < Duration::from_secs(2));
-        let mut sleep = Command::new("sleep");
-        sleep.arg("10");
+        let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         cancel.store(true, Ordering::Relaxed);
         assert!(matches!(
             resolve_command(sleep, &cancel, Duration::from_secs(10)),

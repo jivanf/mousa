@@ -2,16 +2,18 @@
 
 # Mousa
 
-A native Linux music player for YouTube, with fast playlist browsing, a customizable queue, and a neobrutalist interface.
+A native Linux and Windows music player for YouTube.
 
 ## Features
 
 - Create, rename, delete, and reorder local and YouTube playlists.
 - Ctrl-click toggles track selection; Shift-click selects a range; Ctrl+Shift-click adds a range. Drag any selected row to move the entire selection in playlist order.
 - Drag a track row to reorder a playlist; use the play button revealed over its number to play it. Reordering is disabled during search.
-- Search playlists, track titles, and artists.
-- Play a search result and continue from that entry in the full playlist.
-- Add tracks or entire playlists from YouTube URLs.
+- Search YouTube Music from the sidebar or Ctrl+K: songs, videos, albums, artists, playlists, podcasts, episodes, and profiles.
+- Filter your existing playlists and tracks independently of catalog search.
+- Play a filtered playlist track and continue from that entry in the full playlist.
+- Browse catalog detail pages, play or queue tracks and collections, and save them to local or owned YouTube playlists.
+- Subscribe to artists from their detail pages.
 - Play/pause, previous/next, seeking, volume, shuffle, and repeat.
 - Manage your queue and restore it across restarts. Playback starts paused.
 - Resume the last playlist or queue view, including per-playlist searches and scroll positions.
@@ -19,11 +21,35 @@ A native Linux music player for YouTube, with fast playlist browsing, a customiz
 - Browse cached playlists offline; YouTube playback and edits require a connection.
 - Use Linux desktop media controls through MPRIS.
 - Connect Last.fm for now-playing updates and scrobbling.
-- Store account credentials in your operating system's keyring.
 
 Changes to YouTube playlists are saved to your YouTube account. Deleting one in Mousa also deletes it on YouTube and requires confirmation. Local playlists stay on your device. Some YouTube Music collections and playlists saved from other owners may not be available.
 
 ## Install and run
+
+### Windows (x64)
+
+Install Rust 1.91+ using [rustup](https://rustup.rs/) and Visual Studio Build Tools
+with the **Desktop development with C++** workload and a Windows SDK. Mousa uses
+Direct3D on Windows and stores credentials in Windows Credential Manager.
+
+From PowerShell in this repository, build, install, and launch:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Launch
+```
+
+The installer downloads checksum-verified x64 libmpv and yt-dlp releases, builds
+Mousa, and installs it to `%LOCALAPPDATA%\Programs\Mousa` with a Start menu shortcut.
+Run the same command to update it after changing the source. Close Mousa before
+updating. An alternative destination can be supplied with `-InstallDir`.
+Add `-RunTests` to run the test suite and Windows credential/audio smoke tests
+(requires a Windows audio device).
+
+App data is stored in `%APPDATA%\Mousa\Mousa\data`. Put `google-client.json` in
+that folder before signing in. The `MOUSA_DATA_DIR` environment variable can
+override the data directory on either platform.
+
+### Linux
 
 Requirements: Linux, Rust 1.91+, a Vulkan-capable desktop, libmpv, yt-dlp, and a running Secret Service keyring. On Arch Linux, the media packages are `mpv` and `yt-dlp`. Building also requires the Linux graphics and text development libraries for Wayland/X11, Vulkan, fontconfig, freetype, and xkbcommon, plus D-Bus development files.
 
@@ -47,7 +73,9 @@ Install a local binary, icon, and desktop launcher:
 - Ctrl+S: toggle shuffle
 - Ctrl+R: toggle repeat
 - Ctrl+M: mute/unmute
-- Ctrl+F: focus track search
+- Ctrl+K: open catalog search and focus its input
+- Ctrl+F: focus the current search/filter field
+- Esc in catalog search: close the destination picker, return from details, or restore the previous library/queue view
 - Alt+Up / Alt+Down: move the selected group, or the focused playlist track (with search cleared)
 - Esc: cancel a track drag; releasing outside the track list also cancels
 - Tab / Shift+Tab: move between controls
@@ -59,7 +87,8 @@ Install a local binary, icon, and desktop launcher:
 
 Create a Google Cloud project, enable the **YouTube Data API v3**, and create a **Desktop app** OAuth client in Google Auth Platform. Configure the consent audience and add your account as a test user if the app is in Testing.
 
-Save the downloaded client JSON at:
+Save the downloaded client JSON at `%APPDATA%\Mousa\Mousa\data\google-client.json`
+on Windows, or on Linux at:
 
 ```text
 ~/.local/share/mousa/google-client.json
@@ -72,18 +101,6 @@ The sidebar displays your full Google profile name. Hover the account button to 
 Mousa requests your basic Google profile and permission to manage YouTube playlists so you can edit them. If you previously granted read-only access, reconnect to enable editing. Google authorization is separate from video playback and does not sign yt-dlp into your account.
 
 Keep the downloaded client file and account credentials private; do not commit them to a repository.
-
-## Connect Last.fm
-
-Choose **Connect Last.fm**, then approve Mousa in your browser. Mousa completes the desktop token exchange automatically and stores the session in the system keyring. Sign-in times out after three minutes and can be retried. The sidebar then displays your Last.fm username; hover to reveal **Disconnect**. Disconnecting deletes the saved session and queued scrobbles. To revoke Mousa's grant on Last.fm itself, remove it from [Last.fm application settings](https://www.last.fm/settings/applications).
-
-For application maintainers: [desktop authentication](https://www.last.fm/api/desktopauth) requires a registered application key and shared secret. Provision these once for the installation in `~/.local/share/mousa/lastfm-client.json` with fields `api_key` and `shared_secret`, and restrict the file to its owner (`chmod 600`). These are application credentials, not fields users enter to connect their accounts. Legacy application credentials already stored in the keyring remain supported. Do not commit credentials.
-
-Scrobbling starts after authorization. Video metadata may differ from Last.fm's artist and track names.
-
-## Limitations
-
-Mousa currently supports Linux. Offline downloads, gapless playback guarantees, and YouTube Music recommendations are not available. YouTube playback may require yt-dlp updates when YouTube changes. Playlist edits require a connection and are not queued offline.
 
 ## YouTube refresh policy
 
@@ -119,3 +136,13 @@ The report separates `origin=resume` (pressing Play on an unloaded saved/current
 Compare `preparation=ready` automatic transitions with `pending`, `failed`, `expired`, or `not_requested`. `fallback` means a prepared load failed and normal resolution was retried. For automatic transitions, `first_progress_ms` measures from the observed end event to advancing playback position on the next track; `file_loaded_ms` and `playback_restart_ms` distinguish opening from playback readiness. User pauses/seeks during startup are marked `interrupted` and excluded from the report. Buffering before first progress is separate from stalls during playback. The playback loop samples at a nominal 50 ms interval; these values approximate audible gaps, not hardware output latency, and very short cache waits can be missed.
 
 If prepared transitions are consistently quick and stall-free, further audio prebuffering is unlikely to help much. Persistent delays above roughly 200–300 ms **with cache waits**, or frequent playback stalls, justify a prebuffering experiment. URL-resolution failures or slow preparation call for resolver improvements first. Use a reasonable sample across tracks and network conditions; this comparison is observational, not a controlled benchmark.
+
+## Catalog search
+
+Catalog search and detail browsing use YouTube Music’s unofficial internal API. They do not consume official YouTube Data API quota and require no additional browser login. Category filters come from the service, including community and featured playlists; result ordering may differ from the YouTube Music website. Requests use the public English/US catalog context. Upstream changes can require compatibility updates.
+
+Search waits 300 ms after typing. Successful responses are cached in memory for five minutes; thumbnails are cached locally. The most recent 20 distinct searches are stored on this device and can be removed individually. Missing metadata does not cause a per-result official API lookup.
+
+Search replaces the main content view while preserving playback and the current queue. Clicking a playable result starts playback; opening a collection does not. Collection actions load remaining pages before changing the queue or saving tracks, and loading can be cancelled. Save actions use the existing remote-first playlist path: quota exhaustion or a partial remote failure is shown explicitly, and additions are never automatically retried.
+
+Artist subscription state is fetched through the official API only when the artist detail page opens, with a five-minute account-scoped cache. Subscription changes, playlist mutations, and existing library refreshes continue to use official API quota.

@@ -55,10 +55,10 @@ pub mod border {
 pub mod shadow {
     use super::*;
 
-    // GPUI 0.2.2's Linux Gaussian shader divides by sigma without a zero branch.
+    // GPUI 0.2.2's Linux and Windows Gaussian shaders divide by sigma without a zero branch.
     // A subpixel sigma renders a hard edge while avoiding NaNs; the design blur is zero.
     fn raster_blur() -> Pixels {
-        if cfg!(target_os = "linux") {
+        if cfg!(any(target_os = "linux", target_os = "windows")) {
             px(0.01)
         } else {
             px(0.)

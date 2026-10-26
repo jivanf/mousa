@@ -19,3 +19,5 @@ secrets/
 *.pfx
 
 lastfm-client*.json
+
+/design-qa.md

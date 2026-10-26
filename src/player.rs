@@ -245,6 +245,15 @@ impl Player {
                 // must test the selected format and try another before handing it to mpv.
                 m.set_property("ytdl-raw-options", "check-formats=")?;
                 m.set_property("idle", "yes")?;
+                #[cfg(target_os = "windows")]
+                m.set_property(
+                    "script-opts",
+                    format!(
+                        "ytdl_hook-ytdl_path={}",
+                        integrations::ytdlp_path().display()
+                    )
+                    .as_str(),
+                )?;
                 Ok(())
             }) {
                 Ok(m) => m,

@@ -1,0 +1,485 @@
+{
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "endpoint": {
+              "browseEndpoint": {
+                "browseId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+                "params": "EghmZWF0dXJlZA%3D%3D"
+              }
+            },
+            "title": "Home",
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Playlists",
+                                "navigationEndpoint": {
+                                  "browseEndpoint": {
+                                    "browseId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+                                    "params": "6gPgAUdxVUJXcFlCQ3BNQkNpUjVkRjl3WVdkbFgzTnVZWEJ6YUc5MFgyMTFjMmxqWDNCaFoyVmZjbVZuYVc5dVlXd1NIemczY2pkdExUTkRTM1JuVkZGS1ZGUllMVVJVY2psSGQzbFlTVlJHZUc4YVNnQUFaVzRBQVZWVEFBRk5XQUFCQUVaRmJYVnphV05mWkdWMFlXbHNYMkZ5ZEdsemRBQUJBVU1BQUFFQUFBRUJBRlZEYW1weGRtbGZURXB6TUZrM1JIVk1YMGgzWDJRMVp3QUI4dHF6cWdvR1FBSklBRkFa"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DISPLAY_TWO",
+                          "moreContentButton": {
+                            "buttonRenderer": {
+                              "style": "STYLE_TEXT",
+                              "text": {
+                                "runs": [
+                                  {
+                                    "text": "More"
+                                  }
+                                ]
+                              },
+                              "navigationEndpoint": {
+                                "browseEndpoint": {
+                                  "browseId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+                                  "params": "6gPgAUdxVUJXcFlCQ3BNQkNpUjVkRjl3WVdkbFgzTnVZWEJ6YUc5MFgyMTFjMmxqWDNCaFoyVmZjbVZuYVc5dVlXd1NIemczY2pkdExUTkRTM1JuVkZGS1ZGUllMVVJVY2psSGQzbFlTVlJHZUc4YVNnQUFaVzRBQVZWVEFBRk5XQUFCQUVaRmJYVnphV05mWkdWMFlXbHNYMkZ5ZEdsemRBQUJBVU1BQUFFQUFBRUJBRlZEYW1weGRtbGZURXB6TUZrM1JIVk1YMGgzWDJRMVp3QUI4dHF6cWdvR1FBSklBRkFa"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/pl_c/PLDnPV8VhCM5I/studio_square_thumbnail.jpg?sqp=CMP99dYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjikIbWBg&rs=AMzJL3mrAJet4ItL0sJEUzdFVCSgmIK4_Q",
+                                      "width": 226,
+                                      "height": 226
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/pl_c/PLDnPV8VhCM5I/studio_square_thumbnail.jpg?sqp=CMP99dYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjikIbWBg&rs=AMzJL3nD52F-v6BMpOTaoMYor6ZpMT3uWw",
+                                      "width": 544,
+                                      "height": 544
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "makeout playlist \ud83d\ude09",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPLDnPV8VhCM5I",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Playlist"
+                                },
+                                {
+                                  "text": " \u2022 "
+                                },
+                                {
+                                  "text": "Annabelle ",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " \u2022 "
+                                },
+                                {
+                                  "text": "201 views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLDnPV8VhCM5I",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      "2147483648",
+                                      "0",
+                                      "0"
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLDnPV8VhCM5I",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {},
+                                    "accessibilityPauseData": {}
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/oafrDcnA8NBUJKLglqpxkfwS9uK5Qtgaa6EcI0_nTdp9Y7jaAfTA2n2hFuuh0pvlTvQvNjNGuNs=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/oafrDcnA8NBUJKLglqpxkfwS9uK5Qtgaa6EcI0_nTdp9Y7jaAfTA2n2hFuuh0pvlTvQvNjNGuNs=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Pop music",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPLoqTpVsmxgY3Ui_ifKNCCvcIAtaP8OKY6",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Playlist"
+                                },
+                                {
+                                  "text": " \u2022 "
+                                },
+                                {
+                                  "text": "Annabelle ",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " \u2022 "
+                                },
+                                {
+                                  "text": "1.2K views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLoqTpVsmxgY3Ui_ifKNCCvcIAtaP8OKY6",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      "2147483648",
+                                      "0",
+                                      "0"
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLoqTpVsmxgY3Ui_ifKNCCvcIAtaP8OKY6",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {},
+                                    "accessibilityPauseData": {}
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "header": {
+    "musicVisualHeaderRenderer": {
+      "title": {
+        "runs": [
+          {
+            "text": "Annabelle "
+          }
+        ]
+      },
+      "subscriptionButton": {
+        "subscribeButtonRenderer": {
+          "subscriberCountText": {
+            "runs": [
+              {
+                "text": "700"
+              }
+            ]
+          },
+          "subscribed": false,
+          "enabled": true,
+          "type": "FREE",
+          "channelId": "UCjjqvi_LJs0Y7DuL_Hw_d5g",
+          "showPreferences": false,
+          "subscriberCountWithSubscribeText": {
+            "runs": [
+              {
+                "text": "701"
+              }
+            ]
+          },
+          "subscribedButtonText": {
+            "runs": [
+              {
+                "text": "Subscribed"
+              }
+            ]
+          },
+          "unsubscribedButtonText": {
+            "runs": [
+              {
+                "text": "Subscribe"
+              }
+            ]
+          },
+          "unsubscribeButtonText": {
+            "runs": [
+              {
+                "text": "Unsubscribe"
+              }
+            ]
+          },
+          "longSubscriberCountText": {
+            "runs": [
+              {
+                "text": "700 subscribers"
+              }
+            ]
+          },
+          "shortSubscriberCountText": {
+            "runs": [
+              {
+                "text": "700"
+              }
+            ]
+          },
+          "subscribeAccessibility": {},
+          "unsubscribeAccessibility": {},
+          "theme": {
+            "suppressIcon": true
+          }
+        }
+      },
+      "thumbnail": {
+        "musicThumbnailRenderer": {
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://yt3.googleusercontent.com/qIY6ldSIG59-NGONfoHWTvd5LhezSO1l6xM2E6_HxkphAcT5xp-IGIbE7Q84__BOfKJwxkmD=w540-h225-p-l90-rj",
+                "width": 540,
+                "height": 225
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/qIY6ldSIG59-NGONfoHWTvd5LhezSO1l6xM2E6_HxkphAcT5xp-IGIbE7Q84__BOfKJwxkmD=w816-h340-p-l90-rj",
+                "width": 816,
+                "height": 340
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/qIY6ldSIG59-NGONfoHWTvd5LhezSO1l6xM2E6_HxkphAcT5xp-IGIbE7Q84__BOfKJwxkmD=w1440-h600-p-l90-rj",
+                "width": 1440,
+                "height": 600
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/qIY6ldSIG59-NGONfoHWTvd5LhezSO1l6xM2E6_HxkphAcT5xp-IGIbE7Q84__BOfKJwxkmD=w1920-h800-p-l90-rj",
+                "width": 1920,
+                "height": 800
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/qIY6ldSIG59-NGONfoHWTvd5LhezSO1l6xM2E6_HxkphAcT5xp-IGIbE7Q84__BOfKJwxkmD=w2048-h853-p-l90-rj",
+                "width": 2048,
+                "height": 853
+              }
+            ]
+          },
+          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+        }
+      },
+      "foregroundThumbnail": {
+        "musicThumbnailRenderer": {
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://yt3.googleusercontent.com/jO8TBjKwhZ3g7GtMvnfJkamjljCEpBxPP1S01XAWo-6k809gw6WT5N71o6z82hWQMVPTJiK1=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+                "width": 60,
+                "height": 60
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/jO8TBjKwhZ3g7GtMvnfJkamjljCEpBxPP1S01XAWo-6k809gw6WT5N71o6z82hWQMVPTJiK1=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+                "width": 120,
+                "height": 120
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/jO8TBjKwhZ3g7GtMvnfJkamjljCEpBxPP1S01XAWo-6k809gw6WT5N71o6z82hWQMVPTJiK1=w226-c-h226-k-c0x00ffffff-no-l90-rj",
+                "width": 226,
+                "height": 226
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/jO8TBjKwhZ3g7GtMvnfJkamjljCEpBxPP1S01XAWo-6k809gw6WT5N71o6z82hWQMVPTJiK1=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+                "width": 544,
+                "height": 544
+              }
+            ]
+          },
+          "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+          "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+        }
+      }
+    }
+  },
+  "microformat": {
+    "microformatDataRenderer": {
+      "urlCanonical": "https://music.youtube.com/@Bella-x7f",
+      "title": "Annabelle ",
+      "thumbnail": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/jO8TBjKwhZ3g7GtMvnfJkamjljCEpBxPP1S01XAWo-6k809gw6WT5N71o6z82hWQMVPTJiK1=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+            "width": 544,
+            "height": 544
+          }
+        ]
+      },
+      "siteName": "YouTube Music",
+      "appName": "YouTube Music",
+      "androidPackage": "com.google.android.apps.youtube.music",
+      "iosAppStoreId": "1017492454",
+      "ogType": "profile",
+      "urlApplinksWeb": "https://music.youtube.com/@Bella-x7f?feature=applinks",
+      "urlApplinksIos": "vnd.youtube.music://music.youtube.com/@Bella-x7f?feature=applinks",
+      "urlApplinksAndroid": "vnd.youtube.music://music.youtube.com/@Bella-x7f?feature=applinks",
+      "urlTwitterIos": "vnd.youtube.music://music.youtube.com/@Bella-x7f?feature=twitter-deep-link",
+      "urlTwitterAndroid": "vnd.youtube.music://music.youtube.com/@Bella-x7f?feature=twitter-deep-link",
+      "twitterCardType": "summary",
+      "twitterSiteHandle": "@youtubemusic"
+    }
+  }
+}
