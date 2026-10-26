@@ -308,7 +308,7 @@ fn stage(cache: &Path, current: &str, rejected: &[String], repair: bool) -> Resu
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
         }
-        File::open(path)?.sync_all()?;
+        OpenOptions::new().write(true).open(path)?.sync_all()?;
     }
     probe(&staged.path().join(executable("mousa")), &version)?;
     let destination = cache.join(&version);

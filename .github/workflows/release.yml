@@ -42,6 +42,7 @@ jobs:
           test "$(target/release/mousa --version)" = "Mousa $VERSION"
           mkdir -p bundle
           cp target/release/mousa target/release/mousa-launcher bundle/
+          bundle/mousa-launcher --register
       - name: Build and test Windows
         if: runner.os == 'Windows'
         shell: pwsh

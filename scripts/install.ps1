@@ -46,7 +46,14 @@ try {
         }
     }
     Get-VerifiedFile 'https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z' "$deps\mpv.7z" 'efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633'
-    & tar -xf "$deps\mpv.7z" -C $deps
+    $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+    if ($sevenZip) {
+        & $sevenZip.Source x '-y' "-o$deps" "$deps\mpv.7z" | Out-Null
+    } elseif (Test-Path "$env:ProgramFiles\7-Zip\7z.exe") {
+        & "$env:ProgramFiles\7-Zip\7z.exe" x '-y' "-o$deps" "$deps\mpv.7z" | Out-Null
+    } else {
+        & tar -xf "$deps\mpv.7z" -C $deps
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Could not extract libmpv.' }
     # MSVC needs an import library; the upstream archive supplies a MinGW library.
     $exports = & "$bin\dumpbin.exe" /exports "$deps\libmpv-2.dll"
