@@ -2,7 +2,7 @@
 Type=Application
 Name=Mousa
 Comment=Just a fast music player
-Exec=mousa
+Exec=mousa-launcher
 Icon=mousa
 Terminal=false
 Categories=AudioVideo;Audio;Player;

@@ -2,7 +2,8 @@
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Mousa'),
     [switch]$Launch,
-    [switch]$RunTests
+    [switch]$RunTests,
+    [switch]$SkipInteractiveTests
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -68,8 +69,10 @@ try {
             $env:PATH = "$deps;$env:PATH"
             & $cargo.Source test --release --locked
             if ($LASTEXITCODE -ne 0) { throw 'Mousa tests failed.' }
-            & $cargo.Source test --release --locked --test windows -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'Windows credential/playback smoke tests failed.' }
+            if (!$SkipInteractiveTests) {
+                & $cargo.Source test --release --locked --test windows -- --ignored
+                if ($LASTEXITCODE -ne 0) { throw 'Windows credential/playback smoke tests failed.' }
+            }
         }
     } finally {
         $env:LIB = $previousLib
@@ -77,16 +80,19 @@ try {
         $env:PATH = $previousPath
     }
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
-    Copy-Item 'target\release\mousa.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe" -Destination $InstallDir -Force
+    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa.lnk'))
-    $shortcut.TargetPath = $installed
+    $launcher = Join-Path $InstallDir 'mousa-launcher.exe'
+    $registration = Start-Process -FilePath $launcher -ArgumentList '--register' -Wait -PassThru
+    if ($registration.ExitCode -ne 0) { throw 'Could not register the managed installation.' }
+    $shortcut.TargetPath = $launcher
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = 'Mousa music player'
     $shortcut.IconLocation = "$installed,0"
     $shortcut.Save()
     Write-Host "Installed Mousa to $InstallDir (Start menu: Mousa)."
-    if ($Launch) { Start-Process -FilePath $installed -WorkingDirectory $InstallDir }
+    if ($Launch) { Start-Process -FilePath $launcher -WorkingDirectory $InstallDir }
 } finally { Pop-Location }

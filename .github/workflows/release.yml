@@ -1,0 +1,96 @@
+name: Release
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate version
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mousa") | .version')
+          launcher=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mousa-launcher") | .version')
+          test "$version" = "$launcher"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then test "$GITHUB_REF_NAME" = "v$version"; fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev libasound2-dev libudev-dev libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xkb-dev libx11-xcb-dev libvulkan-dev libdbus-1-dev libssl-dev
+      - name: Build and test Linux
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --workspace --locked
+          cargo build --workspace --release --locked
+          test "$(target/release/mousa --version)" = "Mousa $VERSION"
+          mkdir -p bundle
+          cp target/release/mousa target/release/mousa-launcher bundle/
+      - name: Build and test Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install.ps1 -InstallDir "$PWD/bundle" -RunTests -SkipInteractiveTests
+      - name: Package archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -czf "dist/mousa-$VERSION-${{ matrix.target }}.tar.gz" -C bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Install signing utility
+        run: cargo install zipsign --version 0.2.2 --locked
+      - name: Sign and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MOUSA_RELEASE_SIGNING_KEY: ${{ secrets.MOUSA_RELEASE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          key=$(mktemp)
+          public=$(mktemp)
+          trap 'rm -f "$key" "$public"' EXIT
+          chmod 600 "$key"
+          printf '%s' "$MOUSA_RELEASE_SIGNING_KEY" | base64 --decode > "$key"
+          xxd -r -p updater/release-public-key.hex > "$public"
+          for archive in dist/*.tar.gz; do
+            zipsign sign tar "$archive" "$key"
+            zipsign verify tar "$archive" "$public"
+          done
+          rm -f "$key"
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Mousa $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

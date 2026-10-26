@@ -65,6 +65,49 @@ Install a local binary, icon, and desktop launcher:
 ./scripts/install.sh
 ```
 
+## Automatic updates
+
+The Linux and Windows user installers register a managed installation. Mousa's
+launcher checks the latest stable GitHub Release silently after startup and once
+per day while running. It downloads the matching x64 bundle, verifies its SHA-256
+digest and embedded Ed25519 signature against the bundled public key, and checks
+the executable's version before staging it. Windows bundles include libmpv and
+yt-dlp. Linux continues to use the system media dependencies.
+
+Updates activate after Mousa exits; playback is never stopped for an update.
+The next launch uses the new version. If that version exits or cannot start
+before opening its main window, the launcher restores the previous application
+and retries once. Failed releases are excluded from automatic retries. This is
+application rollback, not a database rollback: release migrations must remain
+compatible with the previous application version. Hangs after launch and errors
+after the startup handshake do not trigger automatic rollback.
+
+Development builds and installations without `mousa-managed.json` do not
+self-update. Package maintainers must omit that registration and manage updates
+through their package manager. Simply distributing an MSI or through Winget
+does not automatically identify who owns updates; registration is explicit.
+
+The installed `mousa-launcher` (`mousa-launcher.exe` on Windows) is used by desktop
+shortcuts. Direct launches of the installed `mousa` also delegate to it. The
+launcher stores version directories, its state, and bounded diagnostic logs in
+`.mousa-updates` beside the installed executable. Only one launcher can manage
+an installation at a time. Existing version directories are retained for recovery.
+User data and credentials remain in their existing locations.
+
+For diagnostics, with Mousa closed, `mousa-launcher --update-now` checks immediately;
+`mousa-launcher --repair` also permits installing the current release version.
+Neither command permits downgrades or bypasses signatures. `mousa --version`
+prints the version of that executable without opening a window.
+
+Release maintainers: keep the application and launcher package versions aligned,
+push a `vX.Y.Z` tag, and let `.github/workflows/release.yml` build and test both
+platforms. The publishing job signs all archives using the repository secret
+`MOUSA_RELEASE_SIGNING_KEY` (base64-encoded zipsign private key), verifies them,
+uploads them to a draft release, and publishes only when both builds succeeded.
+The public key is in `updater/release-public-key.hex`. Preserve this secret across
+releases; changing keys requires an explicit trust migration in an earlier release.
+The update signature is independent of Windows Authenticode signing.
+
 ## Keyboard controls
 
 - Ctrl+Space: play/pause
