@@ -32,7 +32,9 @@ fn sample(state: &str) -> (Page, Option<Item>) {
             serde_json::from_str(include_str!("../tests/fixtures/catalog/songs.json")).unwrap();
         return (catalog::parse(&raw, "search"), None);
     }
-    let state = if state.starts_with("selection") {
+    let state = if state == "alert-info" {
+        "playlist"
+    } else if state.starts_with("selection") || state == "alert-success" {
         "album"
     } else {
         state

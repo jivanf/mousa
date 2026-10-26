@@ -206,6 +206,25 @@ pub fn input(state: &Entity<InputState>, cx: &App) -> Stateful<Div> {
 }
 /// The existing application error banner, shared with modal forms.
 pub fn error_alert(message: impl Into<SharedString>, dismiss: impl IntoElement) -> Div {
+    alert(message, color::pink(), dismiss)
+}
+/// Full-width action feedback, sharing the application's error-banner geometry.
+pub fn feedback_alert(
+    message: impl Into<SharedString>,
+    info: bool,
+    dismiss: impl IntoElement,
+) -> Div {
+    alert(
+        message,
+        if info {
+            color::surface()
+        } else {
+            color::lime()
+        },
+        dismiss,
+    )
+}
+fn alert(message: impl Into<SharedString>, background: Hsla, dismiss: impl IntoElement) -> Div {
     div()
         .flex()
         .w_full()
@@ -216,7 +235,7 @@ pub fn error_alert(message: impl Into<SharedString>, dismiss: impl IntoElement) 
         .p(space::md())
         .border(border::strong())
         .border_color(color::ink())
-        .bg(color::pink())
+        .bg(background)
         .child(
             div()
                 .flex_1()

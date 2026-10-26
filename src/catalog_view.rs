@@ -77,15 +77,34 @@ enum Action {
     Save,
     Library,
 }
+enum Feedback {
+    Queued(usize),
+    Playlist { count: usize, name: String },
+    Library(String),
+    AlreadyInLibrary(String),
+}
+impl Feedback {
+    fn message(&self) -> String {
+        match self {
+            Self::Queued(n) => format!("Added {n} tracks to the queue"),
+            Self::Playlist { count, name } => {
+                format!("Added {count} tracks to the playlist “{name}”")
+            }
+            Self::Library(name) => format!("Added the playlist “{name}” to your library"),
+            Self::AlreadyInLibrary(name) => {
+                format!("The playlist “{name}” is already in your library")
+            }
+        }
+    }
+}
 enum Message {
     SongAlbum(u64, Result<Option<Item>, String>),
     Page(u64, bool, Result<Page, String>),
     Images,
     Subscription(u64, Result<Option<String>, String>),
     Prepared(u64, Action, Result<Vec<Item>, String>),
-    Progress(u64, usize),
     Playlists(Result<Vec<Playlist>, String>),
-    Saved(Result<String, String>),
+    Saved(Result<Feedback, String>),
 }
 pub struct CatalogView {
     input: Entity<InputState>,
@@ -100,7 +119,8 @@ pub struct CatalogView {
     operation: u64,
     busy: bool,
     error: Option<String>,
-    status: String,
+    feedback: Option<Feedback>,
+    album_unavailable: bool,
     debounce: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
     player: Player,
@@ -185,6 +205,14 @@ impl CatalogView {
         if state == "no-results" {
             view.view.filter = "Videos".into();
         }
+        view.feedback = match state {
+            "alert-success" => Some(Feedback::Playlist {
+                count: 20,
+                name: "Bach for Studying".into(),
+            }),
+            "alert-info" => Some(Feedback::AlreadyInLibrary("Bach for Studying".into())),
+            _ => None,
+        };
         view.subscription = Some(None);
         view
     }
@@ -244,7 +272,8 @@ impl CatalogView {
             operation: 0,
             busy: false,
             error: None,
-            status: String::new(),
+            feedback: None,
+            album_unavailable: false,
             debounce: None,
             _subscriptions: subscriptions,
             player,
@@ -288,6 +317,8 @@ impl CatalogView {
         self.preparing = false;
     }
     pub fn reset_account(&mut self, cx: &mut Context<Self>) {
+        self.feedback = None;
+        self.album_unavailable = false;
         self.external_picker = false;
         self.invalidate();
         self.cancel_collection();
@@ -303,12 +334,14 @@ impl CatalogView {
         if self.save_busy {
             return;
         }
+        self.feedback = None;
+        self.album_unavailable = false;
         if self.pending.take().is_some() || self.external_picker {
             if std::mem::take(&mut self.external_picker) {
                 cx.emit(Event::Close);
             }
             self.restore_focus = true;
-            self.status.clear();
+            self.feedback = None;
             cx.notify();
             return;
         }
@@ -330,8 +363,9 @@ impl CatalogView {
         self.invalidate();
         self.cancel_collection();
         self.error = None;
-        self.status.clear();
+        self.feedback = None;
         self.history.clear();
+        self.album_unavailable = false;
         self.view.item = None;
         let query = self.input.read(cx).value().trim().to_owned();
         self.view.selection.clear();
@@ -416,11 +450,12 @@ impl CatalogView {
             filter: self.view.filter.clone(),
             selection: Default::default(),
         };
-        self.status.clear();
+        self.feedback = None;
         self.request(false, cx);
         self.load_subscription();
     }
     fn open_search_result(&mut self, item: Item, cx: &mut Context<Self>) {
+        self.album_unavailable = false;
         if let Some(target) = item.search_target() {
             self.open(target, cx);
             return;
@@ -432,7 +467,7 @@ impl CatalogView {
         self.debounce = None;
         self.cancel_collection();
         self.invalidate();
-        self.status = "Loading song album…".into();
+        self.feedback = None;
         self.error = None;
         let generation = self.generation;
         let ticket = self.ticket.clone();
@@ -521,7 +556,7 @@ impl CatalogView {
         }
         self.preparing = true;
         self.operation += 1;
-        self.status = "Loading collection…".into();
+        self.feedback = None;
         self.cancelled = Arc::new(AtomicBool::new(false));
         let cancelled = self.cancelled.clone();
         let page = self.view.page.clone();
@@ -539,13 +574,7 @@ impl CatalogView {
                 if let Some(d) = shuffle {
                     return Ok(catalog::fetch(&d)?.items);
                 }
-                catalog::collection(
-                    &page,
-                    || cancelled.load(Ordering::Relaxed),
-                    |n| {
-                        let _ = tx.send(Message::Progress(op, n));
-                    },
-                )
+                catalog::collection(&page, || cancelled.load(Ordering::Relaxed), |_| {})
             })()
             .map_err(|e| e.to_string());
             let _ = tx.send(Message::Prepared(op, action, result));
@@ -553,7 +582,7 @@ impl CatalogView {
         cx.notify();
     }
     fn apply(&mut self, action: Action, items: Vec<Item>, cx: &mut Context<Self>) {
-        self.status.clear();
+        self.feedback = None;
         let tracks: Vec<_> = items.iter().filter_map(Item::track).collect();
         if tracks.is_empty() {
             self.error = Some("No playable tracks are available in this selection.".into());
@@ -565,19 +594,17 @@ impl CatalogView {
                 let index = index.min(tracks.len() - 1);
                 self.player.send(Command::SetShuffle(false));
                 self.player.send(Command::Queue(tracks, index));
-                self.status = "Playing selection".into();
             }
             Action::Shuffle => {
                 self.player.send(Command::SetShuffle(true));
                 self.player.send(Command::Queue(tracks, 0));
-                self.status = "Playing shuffled collection".into();
             }
             Action::Queue => {
                 let count = tracks.len();
                 for t in tracks {
                     self.player.send(Command::Append(t));
                 }
-                self.status = format!("Added {count} tracks to queue");
+                self.feedback = Some(Feedback::Queued(count));
             }
             Action::Library => {
                 let name = self.view.page.title.clone();
@@ -591,18 +618,19 @@ impl CatalogView {
                 self.save_busy = true;
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    let result = (|| -> anyhow::Result<String> {
+                    let result = (|| -> anyhow::Result<Feedback> {
                         let mut db = db::library()?;
                         if let Some(saved) = db.load(&key)
                             && let Ok(id) = saved.parse::<i64>()
-                            && db.playlists()?.iter().any(|p| p.id == id)
+                            && let Some(playlist) = db.playlists()?.into_iter().find(|p| p.id == id)
                         {
-                            return Ok("Already in your library".into());
+                            return Ok(Feedback::AlreadyInLibrary(playlist.name));
                         }
-                        let id = db.create(if name.is_empty() { &fallback } else { &name })?;
+                        let name = if name.is_empty() { fallback } else { name };
+                        let id = db.create(&name)?;
                         db.add(id, &tracks)?;
                         db.save(&key, &id.to_string())?;
-                        Ok("Added to your library".into())
+                        Ok(Feedback::Library(name))
                     })()
                     .map_err(|e| e.to_string());
                     let _ = tx.send(Message::Saved(result));
@@ -641,18 +669,34 @@ impl CatalogView {
         let google = self.create_google;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<String> {
-                let id = match playlist {
-                    Some(id) => id,
-                    None => sync::create(&name, google)?,
+            let result = (|| -> anyhow::Result<Feedback> {
+                let (id, name) = match playlist {
+                    Some(id) => (id, db::library()?.playlist_fields(id)?.title),
+                    None => (sync::create(&name, google)?, name),
                 };
                 sync::add(id, &tracks)?;
-                Ok(format!("Added {} tracks to playlist", tracks.len()))
+                Ok(Feedback::Playlist {
+                    count: tracks.len(),
+                    name,
+                })
             })()
             .map_err(|e| format!("{e:#}"));
             let _ = tx.send(Message::Saved(result));
         });
         cx.notify();
+    }
+    fn feedback_alert(&self, cx: &Context<Self>) -> Option<Div> {
+        let feedback = self.feedback.as_ref()?;
+        Some(ui::feedback_alert(
+            feedback.message(),
+            matches!(feedback, Feedback::AlreadyInLibrary(_)),
+            button("dismiss-feedback", "DISMISS", color::surface()).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.feedback = None;
+                    cx.notify();
+                },
+            )),
+        ))
     }
     fn save_recent(&self) {
         if let Ok(db) = db::library() {
@@ -671,11 +715,9 @@ impl CatalogView {
                     self.busy = false;
                     match result {
                         Ok(Some(album)) => self.open(album, cx),
-                        Ok(None) => {
-                            self.status = "Album information is unavailable for this song.".into()
-                        }
+                        Ok(None) => self.album_unavailable = true,
                         Err(error) => {
-                            self.status.clear();
+                            self.feedback = None;
                             self.error = Some(error);
                         }
                     }
@@ -752,9 +794,6 @@ impl CatalogView {
                         }
                     }
                 }
-                Message::Progress(op, n) if op == self.operation && self.preparing => {
-                    self.status = format!("Loading collection… {n} items")
-                }
                 Message::Playlists(result) => match result {
                     Ok(p) => self.playlists = p,
                     Err(e) => self.error = Some(e),
@@ -764,7 +803,7 @@ impl CatalogView {
                     self.pending = None;
                     // Partial writes are never automatically retried.
                     match result {
-                        Ok(s) => self.status = s,
+                        Ok(feedback) => self.feedback = Some(feedback),
                         Err(e) => self.error = Some(e),
                     }
                     cx.emit(Event::Saved);
@@ -1402,15 +1441,15 @@ impl CatalogView {
                     .child(error.clone()),
             );
         }
-        if !self.status.is_empty() {
-            content = content.child(div().mt(space::md()).child(self.status.clone()));
+        if let Some(alert) = self.feedback_alert(cx) {
+            content = content.child(alert.mt(space::xl()));
         }
         if self.preparing {
             content = content.child(
                 button("cancel-loading", "CANCEL LOADING", color::surface()).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.cancel_collection();
-                        this.status = "Cancelled".into();
+                        this.feedback = None;
                         cx.notify();
                     },
                 )),
@@ -2016,8 +2055,20 @@ impl Render for CatalogView {
         }
         root = root
             .child(ui::caps(&format!("RESULTS FOR “{}”", query.to_uppercase())).mt(space::xs()));
-        if !self.status.is_empty() {
-            root = root.child(self.status.clone());
+        if let Some(alert) = self.feedback_alert(cx) {
+            root = root.child(alert);
+        }
+        if self.album_unavailable {
+            root = root.child(ui::feedback_alert(
+                "Album information is unavailable for this song.",
+                true,
+                button("dismiss-album-notice", "DISMISS", color::surface()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.album_unavailable = false;
+                        cx.notify();
+                    },
+                )),
+            ));
         }
         let mut list = div()
             .id("catalog-results")
