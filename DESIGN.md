@@ -85,6 +85,15 @@ x-scrolling:
   catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
 components:
+  feedback-alert:
+    width: 100%
+    padding: 12px
+    textColor: "{colors.primary}"
+    typography: "{typography.body-md}"
+  feedback-alert-success:
+    backgroundColor: "{colors.tertiary}"
+  feedback-alert-info:
+    backgroundColor: "{colors.neutral}"
   playlist-editor:
     width: 520px
     padding: 24px
@@ -323,7 +332,7 @@ do not reinterpret a final design without authorization.
 - **Secondary (#3B3B3B), "muted":** secondary text such as artist names and
   captions. Passes 4.5:1 on neutral.
 - **Tertiary (#C8F560), "lime":** playing or primary. The currently playing
-  row, the play button, bar fills, and at most one primary action per view.
+  row, the play button, bar fills, success alerts, and at most one primary action per view.
 - **Neutral (#FBF7EE), "surface":** resting fill for buttons, cards, rows,
   the player bar.
 - **Canvas (#E6DFD0):** window and panel background, including the sidebar.
@@ -661,6 +670,22 @@ Play, Shuffle, Queue, and Save to playlist; playlist actions replace the latter
 with Add to library. Artist actions are Shuffle and Subscribe. Play or artist
 Shuffle is the single lime primary action. Add to library saves a local playlist
 snapshot; Save to playlist opens the destination picker.
+
+**User-authorized correction:** action feedback spans the full content width
+beneath the entire detail header, separated by 24px. Only completed queue,
+playlist, and library additions appear here; an already-saved playlist uses the
+info variant. Every playlist-related alert includes the destination playlist's
+name, including library additions and already-saved feedback. Use definite
+articles: “Added {count} tracks to the queue”, “Added {count} tracks to the
+playlist ‘{name}’”, “Added the playlist ‘{name}’ to your library”, and “The
+playlist ‘{name}’ is already in your library”. Display names in double curly
+quotes. Success alerts use lime, info alerts use neutral, both with a 3px
+ink border, 12px padding/gap, body-md text, wrapping message, and Dismiss button.
+Reuse the shared error-alert geometry and existing theme tokens. Do not render
+playback, preparation/progress, or cancellation messages as bare text beneath
+artwork. Loading and error states retain their dedicated UI. Catalog search
+uses the same alerts for these action outcomes. Preview both variants with
+`catalog_gallery -- alert-success` and `catalog_gallery -- alert-info`.
 
 Collection tables start 32px below the header, with a 3px outer border and 56px
 rows separated by 1px rules. Number columns are 56px, duration columns 60px,
