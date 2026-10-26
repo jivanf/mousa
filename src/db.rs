@@ -164,6 +164,20 @@ impl Library {
         self.conn.execute("DELETE FROM entries WHERE id=?", [id])?;
         Ok(())
     }
+    /// Delete a local selection in one transaction.
+    pub fn remove_many(&mut self, ids: &[i64]) -> Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        {
+            let mut delete = tx.prepare("DELETE FROM entries WHERE id=?")?;
+            for id in ids {
+                delete.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn add(&mut self, playlist: i64, tracks: &[Track]) -> Result<()> {
         let tx = self
             .conn

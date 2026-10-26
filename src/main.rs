@@ -1921,17 +1921,8 @@ impl Render for Mousa {
                                 this.removing_selection = true;
                                 let ids = ids.clone();
                                 this.job(move || {
-                                    let mut removed = 0;
-                                    for id in ids {
-                                        if let Err(error) = sync::remove(id) {
-                                            return Ok(Reply::SelectionRemoved(
-                                                removed,
-                                                Some(error.to_string()),
-                                            ));
-                                        }
-                                        removed += 1;
-                                    }
-                                    Ok(Reply::SelectionRemoved(removed, None))
+                                    let (removed, error) = sync::remove_many(&ids);
+                                    Ok(Reply::SelectionRemoved(removed, error))
                                 });
                                 cx.notify();
                             })),
