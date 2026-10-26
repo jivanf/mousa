@@ -84,6 +84,8 @@ x-scrolling:
   scrollbar-gutter: overflow-only
   catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
+x-session:
+  catalog: preserve-query-page-history-filter-and-scroll
 components:
   feedback-alert:
     width: 100%
@@ -543,6 +545,12 @@ returns through detail navigation. The existing full player retains its seek
 controls and account panels; integration mocks illustrate their placement.
 The Add YouTube workaround is removed. Sidebar and track inputs are explicitly
 labeled “Filter playlists…” and “Filter tracks…”, distinct from catalog search.
+
+Closing and reopening the app preserves the active catalog screen, query,
+category, loaded results, detail navigation history, and each page's scroll
+position. Restore loaded content without requiring a network request; retry a
+page that was still loading without content. Transient selections, dialogs,
+feedback, and account operations are not restored.
 
 The catalog field is 56px high with a leading search icon and the placeholder
 “Search songs, videos, albums, artists…”. Search content has a 16px inset in the

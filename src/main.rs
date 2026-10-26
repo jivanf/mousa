@@ -174,13 +174,19 @@ impl Mousa {
         sidebar_scroll.set_offset(point(px(0.), px(saved.library_scroll.min(0.))));
         let track_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
         let queue_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
-        let catalog =
-            cx.new(|cx| mousa::catalog_view::CatalogView::new(player.clone(), window, cx));
+        let catalog = cx.new(|cx| {
+            mousa::catalog_view::CatalogView::with_saved_state(
+                player.clone(),
+                saved.catalog.clone(),
+                window,
+                cx,
+            )
+        });
         let mut app = Self {
             playlist_editor: None,
             editor_subscription: None,
             catalog: catalog.clone(),
-            catalog_open: false,
+            catalog_open: saved.catalog_open,
             track_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(track_list.clone(), cx)),
             queue_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(queue_list.clone(), cx)),
             sidebar_scroll,
@@ -2311,6 +2317,8 @@ fn main() {
                 cx.on_app_quit(move |cx| {
                     let browsing = saved_view.update(cx, |v, cx| {
                         v.remember_view(cx);
+                        v.view_state.catalog_open = v.catalog_open;
+                        v.view_state.catalog = Some(v.catalog.read(cx).snapshot(cx));
                         v.view_state.clone()
                     });
                     let snapshot = player.state.lock().unwrap().clone();
