@@ -1,0 +1,92 @@
+name: Build
+on:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      artifacts:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - name: Windows
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          cache-on-failure: true
+      - name: Validate version
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mousa") | .version')
+          launcher=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mousa-launcher") | .version')
+          test "$version" = "$launcher"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Install release-plz for integration tests
+        if: runner.os == 'Linux'
+        run: bash scripts/release/install-tools.sh
+      - name: Test release policy
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then MOUSA_TEST_RELEASE_PLZ="$(command -v release-plz)"; export MOUSA_TEST_RELEASE_PLZ; fi
+          python -m unittest discover -s tests/release -v
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          # The runner's Azure mirror can stall each package request for minutes.
+          printf 'https://archive.ubuntu.com/ubuntu\n' | sudo tee /etc/apt/apt-mirrors.txt
+          printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' | sudo tee /etc/apt/apt.conf.d/80-mousa-network
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev libasound2-dev libudev-dev libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xkb-dev libx11-xcb-dev libvulkan-dev libdbus-1-dev libssl-dev
+          sudo apt-get install -y meson ninja-build libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libass-dev libplacebo-dev libluajit-5.1-dev
+          git clone --depth 1 --branch v0.38.0 https://github.com/mpv-player/mpv.git "$RUNNER_TEMP/mpv"
+          test "$(git -C "$RUNNER_TEMP/mpv" rev-parse HEAD)" = 02254b92dd237f03aa0a151c2a68778c4ea848f9
+          meson setup "$RUNNER_TEMP/mpv/build" "$RUNNER_TEMP/mpv" --buildtype=release -Dlibmpv=true -Dcplayer=false -Dlua=enabled -Dmanpage-build=disabled
+          ninja -C "$RUNNER_TEMP/mpv/build"
+          sudo ninja -C "$RUNNER_TEMP/mpv/build" install
+          sudo ldconfig
+      - name: Build and test Linux
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --workspace --locked
+          cargo build --workspace --release --locked
+          test "$(target/release/mousa --version)" = "Mousa $VERSION"
+          mkdir -p bundle
+          cp target/release/mousa target/release/mousa-launcher bundle/
+          bundle/mousa-launcher --register
+      - name: Build and test Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install.ps1 -InstallDir "$PWD/bundle" -RunTests -SkipInteractiveTests
+      - name: Package archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -czf "dist/mousa-$VERSION-${{ matrix.target }}.tar.gz" -C bundle .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.artifacts
+        with:
+          name: build-${{ matrix.target }}
+          overwrite: true
+          path: dist/*.tar.gz

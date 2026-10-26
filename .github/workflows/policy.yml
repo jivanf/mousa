@@ -1,0 +1,30 @@
+name: Release policy
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+concurrency:
+  group: policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    steps:
+      # Always execute trusted main code. PR contents are fetched only as data.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Evaluate current PR revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BOT_LOGIN: ${{ vars.RELEASE_BOT_LOGIN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/release/policy.py "$PR_NUMBER"

@@ -1,0 +1,65 @@
+name: Prepare release
+on:
+  schedule:
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview the version and changelog without creating a PR
+        type: boolean
+        default: true
+      stable:
+        description: Propose 1.0.0 (owner approval still required)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: mousa-release-preparation
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: vars.RELEASE_AUTOMATION_ENABLED == 'true' || inputs.dry_run
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create repository-scoped App token
+        if: ${{ !inputs.dry_run }}
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: mousa
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.99.1
+      - name: Install pinned release-plz
+        run: bash scripts/release/install-tools.sh
+      - name: Prepare version and changelog
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GIT_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          RELEASE_BOT_LOGIN: ${{ vars.RELEASE_BOT_LOGIN }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          STABLE: ${{ inputs.stable || false }}
+        run: |
+          gh auth setup-git
+          args=()
+          if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
+          if [[ "$STABLE" == true ]]; then args+=(--stable); fi
+          python scripts/release/prepare.py "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.dry_run
+        with:
+          name: release-preview
+          path: ${{ runner.temp }}/mousa-release-preview.patch
+          if-no-files-found: ignore
