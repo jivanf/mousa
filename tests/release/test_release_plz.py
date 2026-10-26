@@ -61,6 +61,6 @@ class ReleasePlzTests(unittest.TestCase):
         self.assertEqual(versions, ['0.1.0', '0.1.0'])
 
     def test_bootstrap_squash_preserves_audio_fix(self):
-        notes, versions = self.scenario([('src/main.rs', 'ci: automate agent-driven releases (#1)')])
+        notes, versions = self.scenario([('src/main.rs', 'ci: automate agent-driven releases (#1)\n\nBootstrap release automation and include the existing audio fix.')])
         self.assertIn('keep queued audio gapless', notes)
         self.assertEqual(versions, ['0.1.1', '0.1.1'])
