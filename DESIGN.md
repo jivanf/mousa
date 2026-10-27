@@ -606,7 +606,7 @@ where useful. These catalog recovery panels are distinct from pink error banners
 
 ### Results
 
-Mixed results have a Results for heading and a ruled surface list. Rows are
+Mixed results use a ruled surface list without a redundant query heading. Rows are
 64px high, with 48px bordered real thumbnails, 14px medium titles, and 13px muted
 secondary descriptions. **Put the record category in the description, not in a
 separate badge**—the user's approved exception. Durations or collection counts
