@@ -279,3 +279,23 @@ fn next_metadata_preserves_the_current_songs_album_link() {
     assert_eq!(album.title, "Album title");
     assert_eq!(album.destination.body["browseId"], "album-id");
 }
+
+#[test]
+fn refresh_tokens_do_not_offer_another_page() {
+    let page = catalog::parse(
+        &json!({"continuations": [
+            {"reloadContinuationData": {"continuation": "refresh"}},
+            {"nextContinuationData": {"continuation": "next"}}
+        ]}),
+        "browse",
+    );
+    assert_eq!(page.more.len(), 1);
+    assert_eq!(page.more[0].1.body["continuation"], "next");
+    let complete = catalog::parse(
+        &json!({"continuations": [
+            {"reloadContinuationData": {"continuation": "refresh"}}
+        ]}),
+        "browse",
+    );
+    assert!(complete.more.is_empty());
+}

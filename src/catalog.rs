@@ -441,7 +441,8 @@ pub fn parse(v: &Value, api: &str) -> Page {
                                 page.more.push((format!("More {category}"), e));
                             }
                         }
-                        "nextContinuationData" | "reloadContinuationData" => {
+                        "reloadContinuationData" => {}
+                        "nextContinuationData" => {
                             if let Some(token) = value["continuation"].as_str() {
                                 page.more.push((
                                     "Load more".into(),

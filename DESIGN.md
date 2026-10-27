@@ -86,6 +86,7 @@ x-scrolling:
   scrollbar-gutter: overflow-only
   catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
+  pagination: automatic-virtual-scroll
 x-session:
   catalog: preserve-query-page-history-filter-and-scroll
 components:
@@ -675,7 +676,13 @@ Back, artwork, metadata, and actions fixed. The track table fills the remaining
 height and scrolls internally with the same scrollbar as search results.
 The selection strip stays fixed directly above the scrolling rows; selecting
 or clearing tracks changes the table viewport height, not the header position.
-Continuation controls and supplementary sections remain inside the scroll area.
+Supplementary sections remain inside the scroll area.
+**User-authorized correction:** paginated results load automatically as the viewport
+approaches the end, including short pages that do not yet overflow. Never show a
+Load more button. Catalog rows reserve their specified heights and construct
+controls only in the visible viewport. Refresh tokens are not pagination; empty
+pages and consumed continuation tokens terminate loading. Errors retain explicit
+Retry recovery rather than automatically retrying.
 Artist pages also retain whole-page scrolling. Use
 32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
