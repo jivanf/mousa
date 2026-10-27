@@ -1320,6 +1320,13 @@ impl CatalogView {
         let selected = selection.is_some_and(|s| s.ids.contains(&(index as i64)));
         let selecting = selection.is_some_and(|s| !s.ids.is_empty());
         let playable = item.video.is_some() && !item.unavailable;
+        let playing = self
+            .player
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.current().cloned())
+            .is_some_and(|track| item_matches_track(&item, &track));
         let open = item.clone();
         let play = item.clone();
         let queue = item.clone();
@@ -1397,16 +1404,24 @@ impl CatalogView {
             })
             .border_b(border::hairline())
             .border_color(color::ink())
-            .bg(color::surface())
+            .bg(if playing {
+                color::lime()
+            } else {
+                color::surface()
+            })
             .hover(move |s| {
-                s.bg(if selected {
+                s.bg(if playing {
+                    color::lime()
+                } else if selected {
                     color::canvas()
                 } else {
                     color::white()
                 })
             })
             .focus(move |s| {
-                s.bg(if selected {
+                s.bg(if playing {
+                    color::lime()
+                } else if selected {
                     color::canvas()
                 } else {
                     color::white()
@@ -1461,7 +1476,7 @@ impl CatalogView {
             row = ui::selectable_track_row(
                 row,
                 selected,
-                false,
+                playing,
                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                     let order = table.order(&this.view.page.items);
                     if let Some(position) = order.iter().position(|id| *id == index as i64) {
@@ -1911,6 +1926,12 @@ impl CatalogView {
                     })),
             )
     }
+}
+
+fn item_matches_track(item: &Item, track: &Track) -> bool {
+    item.video
+        .as_ref()
+        .is_some_and(|video| track.url == format!("https://www.youtube.com/watch?v={video}"))
 }
 fn visible_rows(top: f32, viewport: f32, height: f32, count: usize) -> std::ops::Range<usize> {
     let start = (top / height).floor().max(0.) as usize;
@@ -2424,8 +2445,9 @@ mod persistence_tests {
 
 #[cfg(test)]
 mod presentation_tests {
-    use super::{description, time_label, trailing_metadata};
+    use super::{description, item_matches_track, time_label, trailing_metadata};
     use crate::catalog::Item;
+    use crate::db::Track;
     #[test]
     fn result_metadata_keeps_category_in_description_and_duration_in_trailing_column() {
         let item = Item {
@@ -2450,6 +2472,29 @@ mod presentation_tests {
         };
         assert_eq!(description(&item, true), "Playlist · Classical Focus");
         assert_eq!(trailing_metadata(&item), "214 tracks");
+    }
+    #[test]
+    fn playing_catalog_row_matches_the_current_video_url() {
+        let item = Item {
+            video: Some("abc123".into()),
+            ..Default::default()
+        };
+        let track = Track {
+            id: -1,
+            playlist_index: 0,
+            url: "https://www.youtube.com/watch?v=abc123".into(),
+            title: "Track".into(),
+            artist: "Artist".into(),
+            duration: 120.,
+            unavailable: None,
+        };
+        assert!(item_matches_track(&item, &track));
+
+        let other = Item {
+            video: Some("different".into()),
+            ..Default::default()
+        };
+        assert!(!item_matches_track(&other, &track));
     }
 }
 
