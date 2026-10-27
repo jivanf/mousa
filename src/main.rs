@@ -847,7 +847,7 @@ impl Mousa {
         for (id, label) in [
             ("selection-play", "PLAY"),
             ("selection-queue", "QUEUE"),
-            ("selection-save", "SAVE TO PLAYLIST"),
+            ("selection-save", "ADD TO PLAYLIST"),
         ] {
             let tracks = playable.clone();
             actions = actions.child(

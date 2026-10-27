@@ -28,7 +28,7 @@ impl Render for Gallery {
             for (name, icon) in [
                 ("PLAY", "player-play"),
                 ("QUEUE", "playlist-add"),
-                ("SAVE TO PLAYLIST", "plus"),
+                ("ADD TO PLAYLIST", "plus"),
             ] {
                 actions = actions.child(ui::selection_action(name, name, icon, false));
             }
