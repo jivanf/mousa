@@ -29,9 +29,26 @@ struct View {
     item: Option<Item>,
     scroll: ScrollHandle,
     filter: String,
+    consumed: std::collections::HashSet<String>,
     selection: std::collections::BTreeMap<TrackTable, crate::track_selection::TrackSelection>,
 }
 impl View {
+    fn append_page(&mut self, destination: &Destination, mut page: Page) {
+        self.consumed.insert(destination.body.to_string());
+        self.page.more.retain(|(_, d)| d != destination);
+        // Empty pages end this continuation chain. Preserve other shelves and navigation.
+        if !page.items.is_empty() {
+            for entry in page.more {
+                if !self.consumed.contains(&entry.1.body.to_string())
+                    && !self.page.more.contains(&entry)
+                {
+                    self.page.more.push(entry);
+                }
+            }
+        }
+        self.page.items.append(&mut page.items);
+    }
+
     fn snapshot(&self) -> crate::view_state::CatalogPageState {
         crate::view_state::CatalogPageState {
             page: self.page.clone(),
@@ -51,6 +68,7 @@ impl View {
             item: saved.item,
             filter: saved.filter,
             scroll,
+            consumed: Default::default(),
             selection: Default::default(),
         }
     }
@@ -322,6 +340,7 @@ impl CatalogView {
                 item: None,
                 scroll: ScrollHandle::new(),
                 filter: "All".into(),
+                consumed: Default::default(),
                 selection: Default::default(),
             },
             history: vec![],
@@ -524,6 +543,7 @@ impl CatalogView {
             page: Page::default(),
             scroll: ScrollHandle::new(),
             filter: self.view.filter.clone(),
+            consumed: Default::default(),
             selection: Default::default(),
         };
         self.feedback = None;
@@ -838,7 +858,7 @@ impl CatalogView {
                 Message::Page(g, append, result) if g == self.generation => {
                     self.busy = false;
                     match result {
-                        Ok(mut page) => {
+                        Ok(page) => {
                             if !page.filters.is_empty() {
                                 self.filters = page
                                     .filters
@@ -866,9 +886,11 @@ impl CatalogView {
                                 continue;
                             }
                             if append {
-                                self.view.page.items.append(&mut page.items);
-                                self.view.page.more = page.more;
+                                if let Some((destination, _)) = &self.last_request {
+                                    self.view.append_page(destination, page);
+                                }
                             } else {
+                                self.view.consumed.clear();
                                 self.view.selection.clear();
                                 self.view.page = page;
                             }
@@ -1170,7 +1192,121 @@ impl CatalogView {
         Some(div().id(scope).child(strip).into_any_element())
     }
 
-    fn row(
+    /// A fixed-height virtual table sharing the page's scrollbar and selection state.
+    /// Only the visible index range is constructed, laid out, and hit-tested.
+    fn virtual_rows(
+        &self,
+        indices: Vec<usize>,
+        numbered: bool,
+        album: bool,
+        table: TrackTable,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let height = if numbered {
+            metrics::track_row()
+        } else {
+            metrics::result_row()
+        };
+        let total_height = height * indices.len() as f32;
+        let scroll = self.view.scroll.clone();
+        let entity = cx.entity();
+        canvas(
+            move |bounds, window, cx| {
+                let viewport = scroll.bounds();
+                let range = visible_rows(
+                    f32::from(viewport.top() - bounds.top()),
+                    f32::from(viewport.size.height),
+                    f32::from(height),
+                    indices.len(),
+                );
+                let mut rows = Vec::with_capacity(range.len());
+                for position in range {
+                    let index = indices[position];
+                    let mut row = entity.update(cx, |this, cx| {
+                        this.render_row(
+                            this.view.page.items[index].clone(),
+                            index,
+                            numbered.then_some(position + 1),
+                            album,
+                            table.clone(),
+                            cx,
+                        )
+                        .w(bounds.size.width)
+                        .into_any_element()
+                    });
+                    row.layout_as_root(
+                        size(
+                            AvailableSpace::Definite(bounds.size.width),
+                            AvailableSpace::Definite(height),
+                        ),
+                        window,
+                        cx,
+                    );
+                    row.prepaint_at(
+                        point(bounds.left(), bounds.top() + height * position as f32),
+                        window,
+                        cx,
+                    );
+                    rows.push(row);
+                }
+                rows
+            },
+            |_, rows, window, cx| {
+                for mut row in rows {
+                    row.paint(window, cx);
+                }
+            },
+        )
+        .h(total_height)
+        .w_full()
+        .flex_shrink_0()
+    }
+
+    fn pagination(&self, cx: &Context<Self>) -> impl IntoElement {
+        let entity = cx.entity().downgrade();
+        let generation = self.generation;
+        let scroll = self.view.scroll.clone();
+        canvas(
+            move |bounds, _, cx| {
+                let viewport = scroll.bounds();
+                if viewport.size.height > px(0.)
+                    && bounds.top() <= viewport.bottom() + viewport.size.height
+                {
+                    cx.defer(move |cx| {
+                        let _ = entity.update(cx, |this, cx| {
+                            if this.generation != generation
+                                || this.busy
+                                || this.error.is_some()
+                                || this.offline_preview
+                                || this.pending.is_some()
+                            {
+                                return;
+                            }
+                            if let Some((_, destination)) = this
+                                .view
+                                .page
+                                .more
+                                .iter()
+                                .find(|(_, d)| {
+                                    d.body.get("continuation").is_some()
+                                        && !this.view.consumed.contains(&d.body.to_string())
+                                })
+                                .cloned()
+                            {
+                                this.fetch_request(destination, true, cx);
+                                cx.notify();
+                            }
+                        });
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .h(px(0.))
+        .w_full()
+    }
+
+    fn render_row(
         &self,
         item: Item,
         index: usize,
@@ -1577,25 +1713,15 @@ impl CatalogView {
         // Collection headers and selection controls stay outside the track viewport.
         let header = finite.then(|| std::mem::replace(&mut content, div()));
         if finite {
-            let mut rows = div();
-            let mut n = 0;
-            for (index, row) in page
+            let indices = page
                 .items
                 .iter()
                 .enumerate()
                 .filter(|(_, i)| i.collection_member && (i.video.is_some() || i.unavailable))
-            {
-                n += 1;
-                rows = rows.child(self.row(
-                    row.clone(),
-                    index,
-                    Some(n),
-                    album,
-                    TrackTable::Collection,
-                    cx,
-                ));
-            }
-            content = content.child(rows);
+                .map(|(index, _)| index)
+                .collect();
+            content =
+                content.child(self.virtual_rows(indices, true, album, TrackTable::Collection, cx));
         }
         let mut sections: Vec<String> = Vec::new();
         for row in &page.items {
@@ -1678,20 +1804,17 @@ impl CatalogView {
                 }
                 content = content.child(grid);
             } else {
-                let mut table = div()
+                let table = div()
                     .border(border::strong())
                     .border_color(color::ink())
-                    .bg(color::surface());
-                for (n, (index, row)) in rows.into_iter().enumerate() {
-                    table = table.child(self.row(
-                        row.clone(),
-                        index,
-                        Some(n + 1),
+                    .bg(color::surface())
+                    .child(self.virtual_rows(
+                        rows.into_iter().map(|(index, _)| index).collect(),
+                        true,
                         false,
                         TrackTable::Section(category.clone(), finite),
                         cx,
                     ));
-                }
                 content = content
                     .when_some(
                         self.selection_strip(
@@ -1704,21 +1827,7 @@ impl CatalogView {
                     .child(table);
             }
         }
-        for (index, (label, destination)) in page
-            .more
-            .iter()
-            .filter(|(_, d)| d.body.get("continuation").is_some())
-            .cloned()
-            .enumerate()
-        {
-            content = content.child(
-                button(("detail-more", index), "LOAD MORE", color::surface())
-                    .mt(space::lg())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.more(label.clone(), destination.clone(), cx)
-                    })),
-            );
-        }
+        content = content.child(self.pagination(cx));
         if let Some(header) = header {
             header.child(
                 div()
@@ -1803,6 +1912,12 @@ impl CatalogView {
             )
     }
 }
+fn visible_rows(top: f32, viewport: f32, height: f32, count: usize) -> std::ops::Range<usize> {
+    let start = (top / height).floor().max(0.) as usize;
+    let end = ((top + viewport) / height).ceil().max(0.) as usize;
+    start.min(count)..end.min(count)
+}
+
 impl Render for CatalogView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.restore_focus {
@@ -2190,10 +2305,22 @@ impl Render for CatalogView {
             .flex_1()
             .min_w_0()
             .h_full();
-        for (index, item) in self.view.page.items.iter().cloned().enumerate() {
-            list = list.child(self.row(item, index, None, false, TrackTable::Results, cx));
-        }
-        for (index, (label, destination)) in self.view.page.more.iter().cloned().enumerate() {
+        list = list.child(self.virtual_rows(
+            (0..self.view.page.items.len()).collect(),
+            false,
+            false,
+            TrackTable::Results,
+            cx,
+        ));
+        for (index, (label, destination)) in self
+            .view
+            .page
+            .more
+            .iter()
+            .filter(|(_, d)| d.body.get("continuation").is_none())
+            .cloned()
+            .enumerate()
+        {
             list = list.child(
                 button(
                     ("catalog-more", index),
@@ -2206,6 +2333,7 @@ impl Render for CatalogView {
                 })),
             );
         }
+        list = list.child(self.pagination(cx));
         root.child(
             div()
                 .flex_1()
@@ -2223,6 +2351,45 @@ impl Render for CatalogView {
 
 #[cfg(test)]
 mod persistence_tests {
+    #[test]
+    fn virtual_range_handles_partial_rows_and_offscreen_tables() {
+        assert_eq!(super::visible_rows(20., 100., 56., 10000), 0..3);
+        assert_eq!(super::visible_rows(560., 112., 56., 10000), 10..12);
+        assert_eq!(super::visible_rows(-200., 100., 56., 10000), 0..0);
+        assert_eq!(super::visible_rows(560., 112., 56., 6), 6..6);
+    }
+
+    #[test]
+    fn pagination_consumes_tokens_and_preserves_other_shelves() {
+        use super::*;
+        let token = |s: &str| Destination {
+            api: "browse".into(),
+            body: serde_json::json!({"continuation": s}),
+        };
+        let first = token("first");
+        let second = token("second");
+        let mut view = View::restore(crate::view_state::CatalogPageState::default());
+        view.page.more = vec![("a".into(), first.clone()), ("b".into(), second.clone())];
+        view.append_page(
+            &first,
+            Page {
+                items: vec![Item::default()],
+                more: vec![("a".into(), first.clone())],
+                ..Default::default()
+            },
+        );
+        assert_eq!(view.page.items.len(), 1);
+        assert_eq!(view.page.more, vec![("b".into(), second.clone())]);
+        view.append_page(
+            &second,
+            Page {
+                more: vec![("new".into(), token("third"))],
+                ..Default::default()
+            },
+        );
+        assert!(view.page.more.is_empty());
+    }
+
     use super::{Item, Page, TrackTable, View, catalog};
     use gpui::px;
 
