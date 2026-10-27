@@ -1147,7 +1147,7 @@ impl CatalogView {
         for (id, label, action) in [
             ("selection-play", "PLAY", Action::Play(0)),
             ("selection-queue", "QUEUE", Action::Queue),
-            ("selection-save", "SAVE TO PLAYLIST", Action::Save),
+            ("selection-save", "ADD TO PLAYLIST", Action::Save),
         ] {
             let items = items.clone();
             actions = actions.child(
@@ -1550,24 +1550,24 @@ impl CatalogView {
                     false,
                 ),
                 (
-                    "collection-save",
-                    if item.kind == "Playlist" {
-                        "ADD TO LIBRARY"
-                    } else {
-                        "SAVE TO PLAYLIST"
-                    },
-                    None,
-                    if item.kind == "Playlist" {
-                        Action::Library
-                    } else {
-                        Action::Save
-                    },
+                    "collection-add-to-playlist",
+                    "ADD TO PLAYLIST",
+                    Some("plus"),
+                    Action::Save,
                     false,
                 ),
             ] {
                 actions = actions.child(
                     action_button(id, label, icon, primary)
                         .on_click(cx.listener(move |this, _, _, cx| this.act(action, None, cx))),
+                );
+            }
+            if album || item.kind == "Playlist" {
+                actions = actions.child(
+                    action_button("collection-add-to-library", "ADD TO LIBRARY", None, false)
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.act(Action::Library, None, cx)),
+                        ),
                 );
             }
         }

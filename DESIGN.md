@@ -643,7 +643,7 @@ the scrolling rows. Search results have no selection strip.
 The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal
 padding. Its height matches the 36px action buttons, with text vertically centered,
 as in the approved mock. It reuses the control-height token.
-Neutral 36px Play, Queue, and Save to playlist buttons use
+Neutral 36px Play, Queue, and Add to playlist buttons use
 13px bold mono text and 18px icons, with 12px gaps. Clear sits at the far right.
 The header retains its lime primary. Owned library playlists add pink Remove,
 separated by 24px; removal asks for confirmation and reports partial failures.
@@ -665,7 +665,7 @@ support multi-selection. Clicking an album opens its details; clicking a song
 opens the album linked in its metadata. If search omits that link, resolve it
 from the song’s next metadata without starting playback; stale responses cannot
 replace newer navigation. If the service still provides no album, report that
-album information is unavailable. Play, Queue, and Save
+album information is unavailable. Play, Queue, and Add to playlist
 remain independent row actions and do not trigger navigation.
 
 ### Detail pages
@@ -692,11 +692,11 @@ label-caps, and byline/metadata use body-md/body-sm. Navigable creator credits
 are underlined. Metadata reflects the service; missing values are omitted.
 
 Header actions are 44px high, with 18px horizontal padding, 10px icon/text gaps,
-18px icons, and 13px bold Space Mono labels. Allow wrapping. Album actions are
-Play, Shuffle, Queue, and Save to playlist; playlist actions replace the latter
-with Add to library. Artist actions are Shuffle and Subscribe. Play or artist
-Shuffle is the single lime primary action. Add to library saves a local playlist
-snapshot; Save to playlist opens the destination picker.
+18px icons, and 13px bold Space Mono labels. Allow wrapping. Album and playlist
+actions are Play, Shuffle, Queue, Add to playlist, and Add to library. Artist
+actions are Shuffle and Subscribe. Play or artist Shuffle is the single lime
+primary action. Add to library saves a local playlist snapshot; Add to playlist
+opens the destination picker.
 
 **User-authorized correction:** action feedback spans the full content width
 beneath the entire detail header, separated by 24px. Only completed queue,
