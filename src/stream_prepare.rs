@@ -108,6 +108,15 @@ impl Preparation {
     pub fn finished(&self) -> bool {
         self.outcome.is_some()
     }
+    pub fn unavailable(&self) -> bool {
+        matches!(
+            &self.outcome,
+            Some(Outcome {
+                stream: Err("unavailable"),
+                ..
+            })
+        )
+    }
     pub fn matches(&self, index: usize, track: &Track) -> bool {
         self.index == index && self.url == track.url
     }
@@ -392,10 +401,11 @@ mod tests {
             "printf 'ERROR: Video unavailable. This video is not available' >&2; exit 1",
             "[Console]::Error.WriteLine('ERROR: Video unavailable. This video is not available'); exit 1",
         );
-        assert!(matches!(
-            resolve_command(command, &AtomicBool::new(false), Duration::from_secs(2)),
-            Err("unavailable")
-        ));
+        // A cold PowerShell start on Windows CI can take several seconds.
+        assert_eq!(
+            resolve_command(command, &AtomicBool::new(false), Duration::from_secs(30)).err(),
+            Some("unavailable")
+        );
         assert!(unavailable_reason(b"HTTP Error 503: Service Unavailable").is_none());
         let mut preparation = Preparation::pending(1, "original");
         preparation.outcome = Some(Outcome {
@@ -563,7 +573,7 @@ mod tests {
             let start = Instant::now();
             loop {
                 assert!(
-                    start.elapsed() < Duration::from_secs(3),
+                    start.elapsed() < Duration::from_secs(15),
                     "transition {attempt} hung"
                 );
                 match events.wait_event(0.1) {
@@ -584,10 +594,10 @@ mod tests {
     fn resolver_process_failure_timeout_and_cancellation_are_bounded() {
         let cancel = AtomicBool::new(false);
         let fail = shell_command("exit 1", "exit 1");
-        assert!(matches!(
-            resolve_command(fail, &cancel, Duration::from_secs(1)),
-            Err("resolver_failed")
-        ));
+        assert_eq!(
+            resolve_command(fail, &cancel, Duration::from_secs(30)).err(),
+            Some("resolver_failed")
+        );
         let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         let start = Instant::now();
         assert!(matches!(

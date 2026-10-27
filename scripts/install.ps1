@@ -3,7 +3,7 @@ param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Mousa'),
     [switch]$Launch,
     [switch]$RunTests,
-    [switch]$Workbench
+    [switch]$SkipInteractiveTests
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -46,7 +46,14 @@ try {
         }
     }
     Get-VerifiedFile 'https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z' "$deps\mpv.7z" 'efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633'
-    & tar -xf "$deps\mpv.7z" -C $deps
+    $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+    if ($sevenZip) {
+        & $sevenZip.Source x '-y' "-o$deps" "$deps\mpv.7z" | Out-Null
+    } elseif (Test-Path "$env:ProgramFiles\7-Zip\7z.exe") {
+        & "$env:ProgramFiles\7-Zip\7z.exe" x '-y' "-o$deps" "$deps\mpv.7z" | Out-Null
+    } else {
+        & tar -xf "$deps\mpv.7z" -C $deps
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Could not extract libmpv.' }
     # MSVC needs an import library; the upstream archive supplies a MinGW library.
     $exports = & "$bin\dumpbin.exe" /exports "$deps\libmpv-2.dll"
@@ -56,6 +63,12 @@ try {
     @('LIBRARY libmpv-2.dll', 'EXPORTS') + $symbols | Set-Content "$deps\mpv.def" -Encoding ascii
     & "$bin\lib.exe" /nologo "/def:$deps\mpv.def" "/out:$deps\mpv.lib" /machine:x64
     if ($LASTEXITCODE -ne 0) { throw 'Could not create mpv.lib.' }
+    # libmpv imports the Vulkan loader even when Mousa only plays audio. Ship it
+    # beside the app rather than relying on a GPU driver to install it globally.
+    Get-VerifiedFile 'https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkan-runtime-components.zip' "$deps\vulkan.zip" 'a25a927aa8b9f0371048f1861cf88ac3b9bc9b1fb332c42d897c8ab32695769a'
+    Expand-Archive -LiteralPath "$deps\vulkan.zip" -DestinationPath "$deps\vulkan" -Force
+    $vulkan = Join-Path $deps 'vulkan\VulkanRT-X64-1.4.363.0-Components'
+    Copy-Item "$vulkan\x64\vulkan-1.dll", "$vulkan\VulkanRT-License.txt" -Destination $deps -Force
     Get-VerifiedFile 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe' "$deps\yt-dlp.exe" '33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555'
     $previousLib = $env:LIB
     $previousFxc = $env:GPUI_FXC_PATH
@@ -65,17 +78,14 @@ try {
         $env:GPUI_FXC_PATH = $fxcPath
         & $cargo.Source build --release --locked
         if ($LASTEXITCODE -ne 0) { throw 'Mousa build failed.' }
-        if ($Workbench) {
-            # Keep GPUI debug assertions enabled in this development tool.
-            & $cargo.Source build --locked --example workbench
-            if ($LASTEXITCODE -ne 0) { throw 'Workbench build failed.' }
-        }
         if ($RunTests) {
             $env:PATH = "$deps;$env:PATH"
             & $cargo.Source test --release --locked
             if ($LASTEXITCODE -ne 0) { throw 'Mousa tests failed.' }
-            & $cargo.Source test --release --locked --test windows -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'Windows credential/playback smoke tests failed.' }
+            if (!$SkipInteractiveTests) {
+                & $cargo.Source test --release --locked --test windows -- --ignored
+                if ($LASTEXITCODE -ne 0) { throw 'Windows credential/playback smoke tests failed.' }
+            }
         }
     } finally {
         $env:LIB = $previousLib
@@ -83,43 +93,19 @@ try {
         $env:PATH = $previousPath
     }
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
-    Copy-Item 'target\release\mousa.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe" -Destination $InstallDir -Force
+    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa.lnk'))
-    $shortcut.TargetPath = $installed
+    $launcher = Join-Path $InstallDir 'mousa-launcher.exe'
+    $registration = Start-Process -FilePath $launcher -ArgumentList '--register' -Wait -PassThru
+    if ($registration.ExitCode -ne 0) { throw 'Could not register the managed installation.' }
+    $shortcut.TargetPath = $launcher
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = 'Mousa music player'
     $shortcut.IconLocation = "$installed,0"
     $shortcut.Save()
     Write-Host "Installed Mousa to $InstallDir (Start menu: Mousa)."
-    if ($Workbench) {
-        $workbenchDir = Join-Path $InstallDir 'Workbench'
-        New-Item -ItemType Directory -Force $workbenchDir | Out-Null
-        Copy-Item 'target\debug\examples\workbench.exe', "$deps\libmpv-2.dll" -Destination $workbenchDir -Force
-        $workbenchExe = Join-Path $workbenchDir 'workbench.exe'
-        if ((Get-FileHash $workbenchExe).Hash -ne (Get-FileHash 'target\debug\examples\workbench.exe').Hash) {
-            throw 'Installed workbench does not match the build.'
-        }
-        $workbenchShortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa Workbench.lnk'))
-        $workbenchShortcut.TargetPath = $workbenchExe
-        $workbenchShortcut.WorkingDirectory = $workbenchDir
-        $workbenchShortcut.Description = 'Mousa UI stories and visual states'
-        $workbenchShortcut.IconLocation = "$installed,0"
-        $workbenchShortcut.Save()
-        Write-Host 'Installed Mousa Workbench (Start menu: Mousa Workbench).'
-    }
-    if ($Launch) {
-        # A child of an MSIX-packaged terminal (including Codex) inherits its
-        # AppData virtualization. WMI launches outside that package context,
-        # matching a user's Start menu launch instead of a private library.
-        $launchResult = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-            CommandLine = ('"{0}"' -f $installed)
-            CurrentDirectory = $InstallDir
-        }
-        if ($launchResult.ReturnValue -ne 0) {
-            throw "Mousa installed, but Windows could not launch it (WMI code $($launchResult.ReturnValue)). Open Mousa from the Start menu."
-        }
-    }
+    if ($Launch) { Start-Process -FilePath $launcher -WorkingDirectory $InstallDir }
 } finally { Pop-Location }

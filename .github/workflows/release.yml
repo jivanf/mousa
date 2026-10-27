@@ -1,0 +1,70 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact merged release commit to retry (blank means current main)
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: mousa-publication
+  cancel-in-progress: false
+jobs:
+  eligible:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.admit.outputs.version }}
+      commit: ${{ steps.admit.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BOT_LOGIN: ${{ vars.RELEASE_BOT_LOGIN }}
+          RELEASE_COMMIT: ${{ inputs.commit || github.sha }}
+        run: python scripts/release/publish.py admit "$RELEASE_COMMIT"
+  build:
+    needs: eligible
+    if: needs.eligible.outputs.version != ''
+    uses: ./.github/workflows/build.yml
+    with:
+      commit: ${{ needs.eligible.outputs.commit }}
+      artifacts: true
+  publish:
+    needs: [eligible, build]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.eligible.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: build-*
+          path: dist
+          merge-multiple: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.99.1
+      - name: Install signing utility
+        run: cargo install zipsign --version 0.2.2 --locked
+      - name: Sign, verify, and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BOT_LOGIN: ${{ vars.RELEASE_BOT_LOGIN }}
+          MOUSA_RELEASE_SIGNING_KEY: ${{ secrets.MOUSA_RELEASE_SIGNING_KEY }}
+          RELEASE_COMMIT: ${{ needs.eligible.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.eligible.outputs.version }}
+        run: python scripts/release/publish.py publish "$RELEASE_COMMIT" --version "$RELEASE_VERSION"

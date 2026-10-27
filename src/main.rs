@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod bootstrap;
 use gpui::{prelude::*, *};
 use gpui_component::{
     Root,
@@ -2238,6 +2239,7 @@ impl Render for Mousa {
     }
 }
 fn main() {
+    bootstrap::dispatch();
     Application::new().with_assets(ui::Assets).run(|cx| {
         ui::init(cx);
         cx.bind_keys([
@@ -2337,5 +2339,6 @@ fn main() {
         )
         .expect("open Mousa window");
         cx.activate(true);
+        bootstrap::healthy();
     });
 }

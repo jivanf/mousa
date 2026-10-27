@@ -2,6 +2,12 @@
 name = "mousa"
 version = "0.1.0"
 edition = "2024"
+default-run = "mousa"
+
+[workspace]
+members = ["updater"]
+default-members = [".", "updater"]
+resolver = "3"
 
 [dependencies]
 anyhow = "1"
