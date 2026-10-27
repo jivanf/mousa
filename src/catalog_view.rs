@@ -2302,8 +2302,6 @@ impl Render for CatalogView {
                 )
                 .into_any_element();
         }
-        root = root
-            .child(ui::caps(&format!("RESULTS FOR “{}”", query.to_uppercase())).mt(space::xs()));
         if let Some(alert) = self.feedback_alert(cx) {
             root = root.child(alert);
         }
