@@ -80,6 +80,11 @@ x-shadows:
   lg: "8px 8px 0 0 {colors.primary}"
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
+x-motion:
+  button-press-duration: 150ms
+  button-release-duration: 150ms
+  button-easing: smoothstep
+  button-trigger: click
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
@@ -423,10 +428,14 @@ not put shadowed controls inside an `overflow_hidden` or scroll container
 without padding, or the shadow is clipped. Rows in lists and items in the
 sidebar carry no shadow.
 
-Pressed state: GPUI has no transform. In `.active(...)`, offset the element
-by the shadow offset (top and left) and drop the shadow, so it looks pushed
-in. Keyboard focus adds the focus ring (3px ink, outside the border) as an
-extra shadow. Every interactive element must be focusable and show it.
+Button motion is a user-authorized adaptation of neobrutalism.dev's hover
+effect to clicks, including native Enter/Space activation. Move the face
+down/right by its shadow offset over 150ms, then return over 150ms, using
+smoothstep easing. Shrink the shadow offset by the same amount so its outer
+edge stays fixed. Actions fire immediately. Hover changes fill only.
+Shadowless and disabled controls stay still. Repeated clicks restart the pulse.
+Preserve reserved margins and the 3px keyboard focus ring; surrounding layout
+must not shift. Every interactive element must be focusable and show focus.
 
 ## Shapes
 
@@ -436,7 +445,8 @@ cards, bars, and inputs. Row dividers are 1px ink. No other border widths.
 ## Components
 
 **Button.** Neutral fill, 3px ink border, sm shadow, 36px high, mono label
-(uppercase for text buttons). Hover: field fill. Pressed: offset, no shadow.
+(uppercase for text buttons). Hover: field fill. Click: animated offset and
+shadow collapse, then return.
 Disabled: canvas fill, secondary text, no shadow.
 
 **Primary button.** Tertiary fill. At most one per view.

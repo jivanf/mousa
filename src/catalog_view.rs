@@ -1014,7 +1014,7 @@ fn action_button(
     label: &str,
     icon: Option<&'static str>,
     primary: bool,
-) -> Stateful<Div> {
+) -> ui::Button {
     button(
         id,
         "",
@@ -1033,7 +1033,7 @@ fn action_button(
     })
     .child(label.to_owned())
 }
-fn small_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> Stateful<Div> {
+fn small_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> ui::Button {
     button(id, "", color::white())
         .size(size::row_action())
         .px(crate::theme::layout::zero())
@@ -1045,7 +1045,7 @@ fn small_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str)
             d.tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(label).build(w, cx))
         })
 }
-fn row_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> Stateful<Div> {
+fn row_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -> ui::Button {
     ui::track_action(small_icon(id, name, label))
         .opacity(0.)
         .group_hover("track-row", |s| s.opacity(1.))

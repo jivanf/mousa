@@ -85,11 +85,68 @@ pub fn init(cx: &mut App) {
     t.colors.muted_foreground = color::muted();
     t.colors.ring = color::ink();
 }
-pub fn button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    fill: Hsla,
-) -> Stateful<Div> {
+/// Fluent shared controls with click motion scoped to their stable element ID.
+#[derive(IntoElement)]
+pub struct Button {
+    inner: Stateful<Div>,
+}
+impl Styled for Button {
+    fn style(&mut self) -> &mut StyleRefinement {
+        self.inner.style()
+    }
+}
+impl ParentElement for Button {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.inner.extend(elements);
+    }
+}
+impl InteractiveElement for Button {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        self.inner.interactivity()
+    }
+}
+impl StatefulInteractiveElement for Button {}
+impl RenderOnce for Button {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = Element::id(&self.inner).expect("buttons have stable IDs");
+        let state = window.use_keyed_state(id, cx, |_, _| None::<std::time::Instant>);
+        let amount = state
+            .read(cx)
+            .map(|start| press::progress(start.elapsed()))
+            .unwrap_or(0.);
+        let mut shadows = self.inner.style().box_shadow.clone().unwrap_or_default();
+        if let Some(depth) = shadows.first().map(|shadow| shadow.offset) {
+            if amount > 0. {
+                for shadow in &mut shadows {
+                    shadow.offset = shadow.offset * (1. - amount);
+                }
+                self.inner = self
+                    .inner
+                    .top(depth.y * amount)
+                    .left(depth.x * amount)
+                    .shadow(shadows.clone());
+            }
+            // Keep depth visible on focused controls too; focus is independent
+            // of the animated shadow and must never disappear during a click.
+            shadows.push(shadow::focus_ring());
+            self.inner = self.inner.focus(move |s| s.shadow(shadows));
+            if state
+                .read(cx)
+                .is_some_and(|start| start.elapsed() < press::duration() * 2)
+            {
+                window.request_animation_frame();
+            }
+            self.inner = self.inner.on_click(move |_, _, cx| {
+                state.update(cx, |start, cx| {
+                    *start = Some(std::time::Instant::now());
+                    cx.notify();
+                });
+            });
+        }
+        self.inner
+    }
+}
+pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, fill: Hsla) -> Button {
     let hover_fill = if fill == color::ink() {
         color::ink()
     } else {
@@ -105,36 +162,37 @@ fn button_with_hover(
     label: impl Into<SharedString>,
     fill: Hsla,
     hover_fill: Hsla,
-) -> Stateful<Div> {
+) -> Button {
     let on = fill == color::ink();
     let label: SharedString = label.into();
-    div()
-        .id(id)
-        .tab_index(0)
-        .relative()
-        .h(size::control())
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .px(space::md())
-        .gap(space::sm())
-        .border(border::strong())
-        .border_color(color::ink())
-        .rounded_none()
-        .bg(fill)
-        .text_color(if on { color::lime() } else { color::ink() })
-        .font_family(font::MONO)
-        .text_size(text::body())
-        .font_weight(FontWeight::BOLD)
-        .shadow(if on { shadow::on() } else { shadow::sm() })
-        .mr(press::sm())
-        .mb(press::sm())
-        .cursor_pointer()
-        .hover(move |s| s.bg(hover_fill))
-        .active(|s| s.top(press::sm()).left(press::sm()).shadow(vec![]))
-        .focus(|s| s.shadow(vec![shadow::focus_ring()]))
-        .when(!label.is_empty(), |d| d.child(label))
+    Button {
+        inner: div()
+            .id(id)
+            .tab_index(0)
+            .relative()
+            .h(size::control())
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .px(space::md())
+            .gap(space::sm())
+            .border(border::strong())
+            .border_color(color::ink())
+            .rounded_none()
+            .bg(fill)
+            .text_color(if on { color::lime() } else { color::ink() })
+            .font_family(font::MONO)
+            .text_size(text::body())
+            .font_weight(FontWeight::BOLD)
+            .shadow(if on { shadow::on() } else { shadow::sm() })
+            .mr(press::sm())
+            .mb(press::sm())
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_fill))
+            .focus(|s| s.shadow(vec![shadow::focus_ring()]))
+            .when(!label.is_empty(), |d| d.child(label)),
+    }
 }
 pub fn icon(name: &'static str, hero: bool) -> Svg {
     svg()
@@ -158,7 +216,7 @@ pub fn icon_button(
     on: bool,
     hero: bool,
     row: bool,
-) -> Stateful<Div> {
+) -> Button {
     let fill = if on {
         color::ink()
     } else if hero {
@@ -178,10 +236,7 @@ pub fn icon_button(
         .px(layout::zero())
         .child(icon(name, hero).text_color(if on { color::lime() } else { color::ink() }))
         .when(hero, |d| {
-            d.shadow(shadow::md())
-                .mr(press::md())
-                .mb(press::md())
-                .active(|s| s.top(press::md()).left(press::md()).shadow(vec![]))
+            d.shadow(shadow::md()).mr(press::md()).mb(press::md())
         })
         .when(row, track_action)
         .when(row, |d| {
@@ -196,7 +251,7 @@ pub fn icon_button(
             d.tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
         })
 }
-pub fn step_button(id: &'static str, label: &'static str) -> Stateful<Div> {
+pub fn step_button(id: &'static str, label: &'static str) -> Button {
     button(id, label, color::surface())
         .size(size::transport())
         .px(layout::zero())
@@ -320,7 +375,7 @@ pub fn search_input(state: &Entity<InputState>, large: bool, cx: &App) -> Statef
         })
 }
 
-pub fn playlist_item(id: i64, name: String, on: bool) -> Stateful<Div> {
+pub fn playlist_item(id: i64, name: String, on: bool) -> Button {
     // Wait for the final available width before laying out text. GPUI's
     // intrinsic-size passes mutate truncated font runs, which can leave later
     // passes rendering the remainder of the name with the fallback font.
@@ -596,7 +651,7 @@ pub fn selection_action(
     label: &str,
     icon_name: &'static str,
     destructive: bool,
-) -> Stateful<Div> {
+) -> Button {
     button(
         id,
         "",
@@ -618,7 +673,7 @@ pub fn selection_bar(
     unavailable: usize,
     pinned: bool,
     actions: Div,
-    clear: Stateful<Div>,
+    clear: Button,
 ) -> Div {
     div()
         .min_h(crate::theme::selection::bar_height(unavailable))
@@ -728,7 +783,7 @@ pub fn selectable_track_row(
 
 /// GPUI's focusable child claims the press with prevent_default before the row
 /// receives it. Keep mouse/keyboard focus and the action's click handler intact.
-pub fn track_action(row: Stateful<Div>) -> Stateful<Div> {
+pub fn track_action<E: StatefulInteractiveElement>(row: E) -> E {
     row.tab_index(0)
 }
 
@@ -807,7 +862,7 @@ pub fn account_button(
     provider: &'static str,
     name: Option<&str>,
     busy: bool,
-) -> Stateful<Div> {
+) -> Button {
     let connected = name.is_some();
     let disconnect_label = if provider == "lastfm" {
         "Disconnect"
@@ -869,7 +924,7 @@ mod account_tests {
         }
     }
 }
-pub fn google_sign_in(busy: bool) -> Stateful<Div> {
+pub fn google_sign_in(busy: bool) -> Button {
     button("google-sign-in", "", color::lime())
         .h(size::row())
         .w_full()
