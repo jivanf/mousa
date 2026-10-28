@@ -4,6 +4,7 @@ name: Mousa
 description: Neobrutalist native desktop music player. Rust, GPUI, Linux first. Not a webview.
 x-workbench-navigation: searchable-grouped-stories
 x-workbench-persistence: story-filter-viewport-mode
+x-workbench-coverage: every-application-ui-state
 colors:
   primary: "#111111"
   secondary: "#3B3B3B"
@@ -835,12 +836,26 @@ rebuilds; transient interaction state resets. Catalog service actions are
 simulated or remain on their fixture, with isolated local data. No new product
 screen design is implied by the workbench shell.
 
+Every application UI state must be represented in the Workbench. Every UI change
+updates its affected stories and local interactions in the same change, including
+loading, empty, error/retry, success, disabled, selection, playback, focus/hover,
+dialogs, and navigation. Standalone galleries do not substitute for Workbench
+coverage. The Workbench is the default development installation; the main app is
+reinstalled only on explicit user request.
+
+Channel stories cover populated content, loading, error, empty content, video-only,
+playlist-only and mixed search matches, no matches, single/multiple/unavailable
+selection, playing-row highlighting, queue feedback, and the playlist destination
+picker. Channel search and clear use the production filter locally, with no
+service requests. Keep saved story identities stable as the story list grows.
+
 ### Checks
 
 1. Run `npx @google/design.md lint DESIGN.md`. It must report no errors.
 2. Add or update the component in `examples/gallery.rs` in every state:
    default, hover, pressed, focused, disabled, on.
-3. Run the gallery and compare against this file, not against memory.
+3. Register every affected state in the Workbench, run the installed Workbench,
+   and compare against this file, not against memory. Verify local interactions.
 4. Commit gallery screenshots to `docs/` so reviewers can see the result
    without running the app.
 

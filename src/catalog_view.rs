@@ -202,6 +202,17 @@ impl CatalogView {
         let mut view = Self::new(player, window, cx);
         view.standalone = true;
         view._subscriptions.clear();
+        // Keep local filtering live while global service search stays disconnected.
+        view._subscriptions
+            .push(cx.subscribe(&view.channel_filter, |this, _, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.view.selection.clear();
+                    this.view.scroll.set_offset(point(px(0.), px(0.)));
+                    cx.notify();
+                }
+            }));
+        view._subscriptions
+            .push(cx.subscribe(&view.picker_filter, |_, _, _: &InputEvent, cx| cx.notify()));
         view.input.update(cx, |s, cx| {
             s.set_value(
                 if matches!(state, "empty" | "first-use") {
@@ -218,6 +229,58 @@ impl CatalogView {
         view.filters = page.filters.clone();
         view.view.page = page;
         view.view.item = item;
+        if state.starts_with("channel") {
+            let query = match state {
+                "channel-search-videos" => "cello",
+                "channel-search-playlists" => "studying",
+                "channel-search-mixed" => "bach",
+                "channel-no-results" => "no matching title",
+                _ => "",
+            };
+            if !query.is_empty() {
+                view.channel_filter
+                    .update(cx, |input, cx| input.set_value(query, window, cx));
+            }
+            if matches!(state, "channel-loading" | "channel-empty") {
+                view.view.page.items.clear();
+            }
+            if state.starts_with("channel-selection") {
+                if state == "channel-selection-unavailable" {
+                    view.view.page.items[1].unavailable = true;
+                }
+                let table = TrackTable::Section("Videos".into(), false);
+                let mut selection = crate::track_selection::TrackSelection::default();
+                selection
+                    .ids
+                    .extend(table.order(&view.view.page.items).into_iter().take(
+                        if state == "channel-selection-single" {
+                            1
+                        } else {
+                            3
+                        },
+                    ));
+                view.view.selection.insert(table, selection);
+            }
+            if state == "channel-playing" {
+                if let Some(track) = view.view.page.items.first().and_then(Item::track) {
+                    let mut player = view.player.state.lock().unwrap();
+                    player.queue = Arc::new(vec![track]);
+                    player.index = 0;
+                }
+            }
+            if state == "channel-save-picker" {
+                view.pending = Some(
+                    view.view
+                        .page
+                        .items
+                        .iter()
+                        .filter_map(Item::track)
+                        .take(2)
+                        .collect(),
+                );
+                view.playlists = preview_playlists();
+            }
+        }
         if state.starts_with("selection") {
             let order = TrackTable::Collection.order(&view.view.page.items);
             let mut selection = crate::track_selection::TrackSelection::default();
@@ -245,8 +308,11 @@ impl CatalogView {
         if state == "first-use" {
             view.recent.clear();
         }
-        view.busy = state == "loading";
-        view.error = (state == "error").then(|| "Offline preview".into());
+        view.busy = matches!(state, "loading" | "channel-loading");
+        view.error = matches!(state, "error" | "channel-error").then(|| "Offline preview".into());
+        if state == "channel-error" {
+            view.last_request = Some((view.view.destination.clone(), false));
+        }
         if state == "no-results" {
             view.view.filter = "Videos".into();
         }
@@ -256,6 +322,7 @@ impl CatalogView {
                 name: "Bach for Studying".into(),
             }),
             "alert-info" => Some(Feedback::AlreadyInLibrary("Bach for Studying".into())),
+            "channel-feedback" => Some(Feedback::Queued(2)),
             _ => None,
         };
         view.subscription = Some(None);
@@ -503,6 +570,9 @@ impl CatalogView {
     }
     fn fetch_request(&mut self, destination: Destination, append: bool, cx: &mut Context<Self>) {
         if self.offline_preview {
+            self.error = None;
+            self.busy = false;
+            cx.notify();
             return;
         }
         self.last_request = Some((destination.clone(), append));
@@ -541,6 +611,33 @@ impl CatalogView {
     }
     fn open(&mut self, item: Item, cx: &mut Context<Self>) {
         if self.offline_preview {
+            if item.kind == "Playlist"
+                && self
+                    .view
+                    .item
+                    .as_ref()
+                    .is_some_and(|item| item.kind == "Channel")
+            {
+                let items = self
+                    .view
+                    .page
+                    .items
+                    .iter()
+                    .filter(|item| item.video.is_some())
+                    .cloned()
+                    .collect();
+                self.history.push(self.view.clone());
+                self.view.page = Page {
+                    title: item.title.clone(),
+                    items,
+                    ..Default::default()
+                };
+                self.view.item = Some(item);
+                self.view.selection.clear();
+                self.view.scroll = ScrollHandle::new();
+                self.restore_focus = true;
+                cx.notify();
+            }
             return;
         }
         let Some(destination) = item.destination.clone() else {
@@ -686,6 +783,25 @@ impl CatalogView {
                 .iter()
                 .filter(|item| item.track().is_some())
                 .count();
+            if matches!(action, Action::Play(_) | Action::Save) {
+                let tracks: Vec<_> = items
+                    .as_ref()
+                    .unwrap_or(&self.view.page.items)
+                    .iter()
+                    .filter_map(Item::track)
+                    .collect();
+                if let Action::Play(index) = action {
+                    let mut player = self.player.state.lock().unwrap();
+                    player.index = index.min(tracks.len().saturating_sub(1));
+                    player.queue = Arc::new(tracks);
+                } else {
+                    self.pending = Some(tracks);
+                    self.playlists = preview_playlists();
+                }
+                self.feedback = None;
+                cx.notify();
+                return;
+            }
             self.feedback = match action {
                 Action::Queue => Some(Feedback::Queued(count)),
                 Action::Save => Some(Feedback::Playlist {
@@ -805,6 +921,24 @@ impl CatalogView {
     }
     fn save(&mut self, playlist: Option<i64>, cx: &mut Context<Self>) {
         if self.offline_preview {
+            let name = playlist
+                .and_then(|id| {
+                    self.playlists
+                        .iter()
+                        .find(|p| p.id == id)
+                        .map(|p| p.name.clone())
+                })
+                .unwrap_or_else(|| self.name.read(cx).value().trim().to_owned());
+            if name.is_empty() {
+                self.error = Some("Enter a playlist name.".into());
+            } else if let Some(tracks) = self.pending.take() {
+                self.feedback = Some(Feedback::Playlist {
+                    count: tracks.len(),
+                    name,
+                });
+                self.error = None;
+            }
+            cx.notify();
             return;
         }
         if self.save_busy {
@@ -854,6 +988,9 @@ impl CatalogView {
         ))
     }
     fn save_recent(&self) {
+        if self.offline_preview {
+            return;
+        }
         if let Ok(db) = db::library() {
             let _ = db.save(
                 "catalog-recent",
@@ -1996,6 +2133,23 @@ impl CatalogView {
 
 fn channel_matches(item: &Item, query: &str) -> bool {
     item.title.to_lowercase().contains(query)
+}
+
+fn preview_playlists() -> Vec<Playlist> {
+    vec![
+        Playlist {
+            id: -1,
+            name: "Bach for Studying".into(),
+            count: 12,
+            google: false,
+        },
+        Playlist {
+            id: -2,
+            name: "Classical Favorites".into(),
+            count: 24,
+            google: true,
+        },
+    ]
 }
 
 fn item_matches_track(item: &Item, track: &Track) -> bool {
