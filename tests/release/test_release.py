@@ -186,6 +186,8 @@ class PublicationTests(unittest.TestCase):
                 mutations.append((method, path, data))
                 return {}
             def execute(args, **kwargs):
+                if args[:3] == ['gh', 'release', 'verify']:
+                    self.fail('GitHub attestations are not part of the archive signing pipeline')
                 if args[:3] == ['gh', 'release', 'upload']:
                     path = Path(args[4])
                     assets[path.name] = {'name': path.name, 'digest': 'sha256:' + publish.digest(path), 'size': path.stat().st_size}
