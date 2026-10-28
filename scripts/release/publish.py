@@ -111,7 +111,6 @@ def publish(commit, version, directory):
     # Recheck the owner gate and hold label immediately before making it public.
     require(admission(commit) == version, "Release eligibility changed during publication")
     api(endpoint(f"releases/{release['id']}"), 'PATCH', {'draft': False, 'make_latest': 'true'})
-    subprocess.run(['gh', 'release', 'verify', tag], check=True)
 
 
 if __name__ == '__main__':

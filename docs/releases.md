@@ -55,6 +55,16 @@ release or move its tag. An existing published release at the same commit is a
 no-op. Preparation refuses to proceed while a merged version or draft remains
 unpublished. Workflow failures remain visible in GitHub Actions.
 
+Archive verification uses zipsign signatures and GitHub asset SHA-256 digests.
+`gh release verify` checks separate GitHub release attestations, which this
+pipeline does not create. If an older run fails on that command after publishing,
+the release is already public; do not recreate it or replace its assets.
+
+To pause scheduled preparation between releases, set the repository variable
+`RELEASE_AUTOMATION_ENABLED=false`. Restore it to `true` when ready to resume.
+This does not unpublish an existing release or stop a publication already running;
+use `release/hold` on the release PR to block publication.
+
 The updater archive names, signature key, supported targets, and startup rollback
 behavior are unchanged. Rollback still requires backward-compatible user data.
 
