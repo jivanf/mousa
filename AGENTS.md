@@ -2,7 +2,7 @@
 
 ## Changes and releases
 
-- Work on a `codex/` branch, submit changes through a pull request, and enable squash auto-merge. Never push directly to `main`; Windows, Linux, and Release policy checks must pass. Use a Conventional Commit PR title, which becomes the squash commit title.
+- Work on a `codex/` branch. Create a pull request only after the user approves the completed changes, or when the user explicitly gives PR preapproval at the start of the task. A request to implement changes alone is not PR approval. Until approved, verify and commit locally; do not push unapproved changes to an existing PR either. After approval, submit through a pull request and enable squash auto-merge. Never push directly to `main`; Windows, Linux, and Release policy checks must pass. Use a Conventional Commit PR title, which becomes the squash commit title.
 - Classify actual user impact: `fix` and `perf` produce patch releases; `feat` produces minor releases. Use `docs`, `test`, `ci`, `build`, `chore`, `refactor`, or `style` only when the change has no releasable behavior impact. Runtime dependency fixes are `fix`, not merely `chore`. A revert is classified by its resulting user impact.
 - Mark incompatible changes with `!` in the title and an explanatory `BREAKING CHANGE: ...` footer in the PR body. Describe changes to saved data, configuration, updater compatibility, or supported platforms. Preserve compatibility with the previous release's rollback path; if that is impossible, explain the migration and recovery limits explicitly.
 - Leave version bumps, changelog generation, release tags, and publication to release automation. Both packages share one version. Daily batches run at 17:00 UTC; urgent preparation uses the manual workflow and still requires all checks. Breaking releases and the 1.0.0 milestone require the repository owner's approval of the current release PR revision. Use `release/hold` to pause a release.
@@ -12,24 +12,25 @@
 
 - Only change `README.md` when the user explicitly requests a README change.
 - Mousa supports both Windows and Linux. Ensure every change is compatible with both platforms. Gate unavoidable platform-specific code explicitly and provide equivalent behavior for the other supported platform; keep build, installation, release, and test workflows working on both operating systems.
-- After every commit in this repository, including amendments and documentation-only commits, read and follow [install-mousa-after-commit](.agents/skills/install-mousa-after-commit/SKILL.md). Rebuild and update the installed application before reporting completion.
+- After every change, including amendments and documentation-only changes, read and follow [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). Rebuild, reinstall, and verify the Workbench before reporting completion, including after each commit. Reinstall the main Mousa app only when the user explicitly requests it; routine development and commits do not authorize a main-app reinstall.
 
 - Use button tooltips selectively, only when they clarify an otherwise ambiguous action. Do not add tooltips merely because a button uses an icon: universally understood controls such as Play, Pause, and the search input's clear (×) button need none. Avoid tooltips that simply repeat a visible label or an obvious action. Keep useful explanations for ambiguous actions or destinations, error details, and truncated content; preserve accessibility labels independently of tooltips.
 
 - For UI changes, read `DESIGN.md` and the relevant approved mocks before editing. Keep `DESIGN.md` synchronized in the same change whenever tokens, dimensions, typography, component appearance, interaction states, navigation, or approved design exceptions change. Update its normative front matter and prose together, and keep `src/theme.rs` and shared components consistent with them. Add new design values to the specification and theme tokens rather than introducing undocumented one-off values. Follow final designer mocks; document user-authorized deviations explicitly instead of silently redesigning them.
-- Verify changed UI states against the approved references using the relevant gallery or running app, and run the design-document lint when `DESIGN.md` changes.
+- Reflect every UI change in the Workbench in the same change. The Workbench must expose every possible application UI state, including loading, empty, error/retry, success, disabled, selection, playback, focus/hover, dialogs, and navigation states. Add or update deterministic stories and working local interactions for all affected states; a standalone gallery alone is insufficient. Keep previews isolated from real accounts, network mutations, playback, and user library data.
+- Verify changed UI states against the approved references in the Workbench, and run the design-document lint when `DESIGN.md` changes. Report any missing state coverage or verification blocker explicitly.
 
 <vcs description="Guidelines for version control in Mousa.">
 
 ## Commit
 
 - Always commit changes after they have been verified, before reporting the task complete.
-- Verify with checks appropriate to the change: relevant Rust tests and builds for code, gallery or running-app checks for UI, and the design-document lint when `DESIGN.md` changes. Do not treat failed or incomplete verification as success.
+- Verify with checks appropriate to the change: relevant Rust tests and builds for code, installed Workbench checks for every affected UI state, and the design-document lint when `DESIGN.md` changes. Do not treat failed or incomplete verification as success.
 - Keep commits focused on one logical change. Review the staged diff and include only the task's changes; preserve unrelated working-tree and staged changes.
 - Write meaningful Conventional Commits messages with an affected-area scope and a clear, concise description in the imperative mood (for example, "Add" or "Fix").
 - Use backticks around code references and Rust notation where appropriate, such as `CatalogView`, `render()`, or `Player::new()`.
 - Use the body when needed to explain the reason, behavior change, or verification. Include a `BREAKING CHANGE:` footer for incompatible changes, describing the impact and required migration.
-- After every commit, including amendments and documentation-only commits, follow [install-mousa-after-commit](.agents/skills/install-mousa-after-commit/SKILL.md). Rebuild, update, and verify the installed application before reporting completion; report any installation blocker explicitly.
+- After every commit, including amendments and documentation-only commits, follow [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). Rebuild, reinstall, and verify the Workbench before reporting completion; report any installation blocker explicitly. Install the main app only on explicit user request.
 
 ### Format
 
