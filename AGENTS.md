@@ -13,12 +13,14 @@ documentation, tooling, and maintenance work:
 2. Use the task's worktree for all edits, checks, commits, and Workbench builds
    and installation. Keep the same worktree and branch throughout the task.
 3. Implement and verify the changes, update all affected Workbench states, commit
-   locally, and reinstall the Workbench following the installation skill. Present
-   the result for review with any verification limits clearly stated.
+   locally, and, only for UI changes, rebuild and reinstall the Workbench following
+   the installation skill. Present the result for review with any verification
+   limits clearly stated.
 4. Treat follow-up corrections, additions, and revisions as part of the same
-   task. Continue in its existing worktree; repeat verification, commits, and
-   Workbench installation. Do not create a new worktree for each revision or
-   treat the first implementation as approval to publish.
+   task. Continue in its existing worktree; repeat verification and commits, and
+   rebuild/reinstall the Workbench only when the revision changes UI. Do not create
+   a new worktree for each revision or treat the first implementation as approval
+   to publish.
 5. Once the user approves the completed changes, create the pull request. If the
    user explicitly preapproved PR creation at the start of the task, create it
    when the requested work and required verification are complete without asking
@@ -44,7 +46,7 @@ documentation, tooling, and maintenance work:
 
 - Only change `README.md` when the user explicitly requests a README change.
 - Mousa supports both Windows and Linux. Ensure every change is compatible with both platforms. Gate unavoidable platform-specific code explicitly and provide equivalent behavior for the other supported platform; keep build, installation, release, and test workflows working on both operating systems.
-- After every change, including amendments and documentation-only changes, read and follow [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). Rebuild, reinstall, and verify the Workbench before reporting completion, including after each commit. Reinstall the main Mousa app only when the user explicitly requests it; routine development and commits do not authorize a main-app reinstall.
+- Rebuild, reinstall, and verify the Workbench only when UI changes are made, following [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). UI changes include application or Workbench appearance, interactions, components, theme tokens, assets, and preview states. Documentation, guidelines, skills, and other non-UI changes do not trigger a Workbench rebuild; a commit or amendment alone is not a trigger. Honor explicit user instructions to skip rebuilding. Reinstall the main Mousa app only when the user explicitly requests it; routine development and commits do not authorize a main-app reinstall.
 
 - Use button tooltips selectively, only when they clarify an otherwise ambiguous action. Do not add tooltips merely because a button uses an icon: universally understood controls such as Play, Pause, and the search input's clear (×) button need none. Avoid tooltips that simply repeat a visible label or an obvious action. Keep useful explanations for ambiguous actions or destinations, error details, and truncated content; preserve accessibility labels independently of tooltips.
 
@@ -62,7 +64,7 @@ documentation, tooling, and maintenance work:
 - Write meaningful Conventional Commits messages with an affected-area scope and a clear, concise description in the imperative mood (for example, "Add" or "Fix").
 - Use backticks around code references and Rust notation where appropriate, such as `CatalogView`, `render()`, or `Player::new()`.
 - Use the body when needed to explain the reason, behavior change, or verification. Include a `BREAKING CHANGE:` footer for incompatible changes, describing the impact and required migration.
-- After every commit, including amendments and documentation-only commits, follow [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). Rebuild, reinstall, and verify the Workbench before reporting completion; report any installation blocker explicitly. Install the main app only on explicit user request.
+- For commits that change UI, follow [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md) to rebuild, reinstall, and verify the Workbench before reporting completion; report any installation blocker explicitly. Do not rebuild for non-UI commits or repeat a verified rebuild solely because a commit was created. Install the main app only on explicit user request.
 
 ### Format
 
