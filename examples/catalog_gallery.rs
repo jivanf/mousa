@@ -127,11 +127,13 @@ pub fn sample(state: &str) -> (Page, Option<Item>) {
     let kind = match state {
         "album" => "Album",
         "playlist" => "Playlist",
+        "channel" => "Channel",
         _ => "Artist",
     };
     let title = match state {
         "album" => "Bach: Easter Cantatas",
         "playlist" => "Bach for Studying",
+        "channel" => "Classical Focus",
         _ => "Johann Sebastian Bach",
     };
     page.title = title.into();
@@ -217,6 +219,21 @@ pub fn sample(state: &str) -> (Page, Option<Item>) {
             ..Default::default()
         })
         .collect();
+    if state == "channel" {
+        for row in &mut page.items {
+            row.kind = "Video".into();
+            row.category = "Videos".into();
+        }
+        for title in ["Bach for Studying", "Classical Favorites"] {
+            page.items.push(Item {
+                title: title.into(),
+                kind: "Playlist".into(),
+                category: "Playlists".into(),
+                thumbnail: cover.clone(),
+                ..Default::default()
+            });
+        }
+    }
     if state == "artist" {
         for (title, year) in [
             ("Mass in B minor", "1985"),

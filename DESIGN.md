@@ -94,6 +94,9 @@ x-scrolling:
   pagination: automatic-virtual-scroll
 x-session:
   catalog: preserve-query-page-history-filter-and-scroll
+x-search-navigation:
+  video: uploader-channel-detail
+  channel-search: case-insensitive-video-and-playlist-titles
 components:
   workbench-sidebar:
     width: 272px
@@ -615,6 +618,19 @@ these request states as in the Search states mock. Error detail remains availabl
 where useful. These catalog recovery panels are distinct from pink error banners.
 
 ### Results
+
+**User-authorized navigation:** clicking a Video search result opens its uploader's
+Channel detail page. Reuse the artist page's 160px portrait, header typography,
+spacing, and whole-page scrolling, with Videos in selectable track rows and
+Playlists in the existing card grid. The separate Play control plays audio.
+Place a standard compact search field 24px below the header, labelled “Search
+channel videos and playlists…”. Match titles case-insensitively across all public
+videos and playlists after loading; clearing restores both sections. Search is
+local to the channel and does not change the main catalog query. Clear selection
+when filtering and restrict range selection to visible matches. Show loading,
+retryable errors, no public content, and no matching content explicitly. Back
+restores the previous catalog page. This channel page is a user-authorized
+extension of the artist reference; it has no artist shuffle or subscribe actions.
 
 Mixed results use a ruled surface list without a redundant query heading. Rows are
 64px high, with 48px bordered real thumbnails, 14px medium titles, and 13px muted

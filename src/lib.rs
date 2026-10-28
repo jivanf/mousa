@@ -1,6 +1,7 @@
 pub mod artists;
 pub mod catalog;
 pub mod catalog_view;
+mod channel_catalog;
 pub mod db;
 pub mod integrations;
 #[cfg(target_os = "linux")]

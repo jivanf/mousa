@@ -141,6 +141,7 @@ impl Feedback {
 }
 enum Message {
     SongAlbum(u64, Result<Option<Item>, String>),
+    VideoChannel(u64, Result<Option<Item>, String>),
     Page(u64, bool, Result<Page, String>),
     Images,
     Subscription(u64, Result<Option<String>, String>),
@@ -152,6 +153,7 @@ pub struct CatalogView {
     input: Entity<InputState>,
     name: Entity<InputState>,
     picker_filter: Entity<InputState>,
+    channel_filter: Entity<InputState>,
     view: View,
     history: Vec<View>,
     filters: Vec<(String, Destination)>,
@@ -296,6 +298,9 @@ impl CatalogView {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("New playlist name"));
         let picker_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter destination playlists…"));
+        let channel_filter = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search channel videos and playlists…")
+        });
         let (tx, rx) = mpsc::channel();
         let recent = db::library()
             .ok()
@@ -313,6 +318,13 @@ impl CatalogView {
                 }
             }),
             cx.subscribe(&picker_filter, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe(&channel_filter, |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.view.selection.clear();
+                    this.view.scroll.set_offset(point(px(0.), px(0.)));
+                    cx.notify();
+                }
+            }),
         ];
         cx.spawn(async move |this, cx| {
             loop {
@@ -334,6 +346,7 @@ impl CatalogView {
             input,
             name,
             picker_filter,
+            channel_filter,
             view: View {
                 page: Page::default(),
                 destination: catalog::search(""),
@@ -550,16 +563,21 @@ impl CatalogView {
         self.request(false, cx);
         self.load_subscription();
     }
-    fn open_search_result(&mut self, item: Item, cx: &mut Context<Self>) {
+    fn open_search_result(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
         if self.offline_preview {
             return;
         }
         self.album_unavailable = false;
+        let video_result = item.kind == "Video";
+        if video_result {
+            self.channel_filter
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        }
         if let Some(target) = item.search_target() {
             self.open(target, cx);
             return;
         }
-        if item.kind != "Song" {
+        if !matches!(item.kind.as_str(), "Song" | "Video") {
             return;
         }
         let Some(video) = item.video else { return };
@@ -584,12 +602,16 @@ impl CatalogView {
                     .into_iter()
                     .find(|i| i.video.as_deref() == Some(video.as_str()))
                     .and_then(|mut song| {
-                        song.kind = "Song".into();
+                        song.kind = if video_result { "Video" } else { "Song" }.into();
                         song.search_target()
                     })
             })
             .map_err(|e| e.to_string());
-            let _ = tx.send(Message::SongAlbum(generation, result));
+            let _ = tx.send(if video_result {
+                Message::VideoChannel(generation, result)
+            } else {
+                Message::SongAlbum(generation, result)
+            });
         });
         cx.notify();
     }
@@ -844,6 +866,17 @@ impl CatalogView {
         while let Ok(message) = self.rx.try_recv() {
             changed = true;
             match message {
+                Message::VideoChannel(g, result) if g == self.generation => {
+                    self.busy = false;
+                    match result {
+                        Ok(Some(channel)) => self.open(channel, cx),
+                        Ok(None) => {
+                            self.error =
+                                Some("The uploader channel is unavailable for this video.".into())
+                        }
+                        Err(error) => self.error = Some(error),
+                    }
+                }
                 Message::SongAlbum(g, result) if g == self.generation => {
                     self.busy = false;
                     match result {
@@ -1463,9 +1496,9 @@ impl CatalogView {
             .when(
                 !detail || (item.video.is_none() && !item.unavailable),
                 |d| {
-                    d.on_click(cx.listener(move |this, _, _, cx| {
+                    d.on_click(cx.listener(move |this, _, window, cx| {
                         if !detail {
-                            this.open_search_result(open.clone(), cx);
+                            this.open_search_result(open.clone(), window, cx);
                         } else {
                             this.open(open.clone(), cx);
                         }
@@ -1478,7 +1511,18 @@ impl CatalogView {
                 selected,
                 playing,
                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                    let order = table.order(&this.view.page.items);
+                    let mut order = table.order(&this.view.page.items);
+                    if this
+                        .view
+                        .item
+                        .as_ref()
+                        .is_some_and(|item| item.kind == "Channel")
+                    {
+                        let query = this.channel_filter.read(cx).value().trim().to_lowercase();
+                        order.retain(|id| {
+                            channel_matches(&this.view.page.items[*id as usize], &query)
+                        });
+                    }
                     if let Some(position) = order.iter().position(|id| *id == index as i64) {
                         let selection = this.view.selection.entry(table.clone()).or_default();
                         selection.retain(&order);
@@ -1533,6 +1577,8 @@ impl CatalogView {
         let item = self.view.item.as_ref().unwrap();
         let page = &self.view.page;
         let artist = item.kind == "Artist";
+        let channel = item.kind == "Channel";
+        let channel_query = self.channel_filter.read(cx).value().trim().to_lowercase();
         let album = matches!(item.kind.as_str(), "Album" | "Single" | "EP");
         let finite = album || matches!(item.kind.as_str(), "Playlist" | "Podcast");
         let title = if page.title.is_empty() {
@@ -1689,7 +1735,7 @@ impl CatalogView {
                     .gap(space::xxl())
                     .child(div().flex_shrink_0().shadow(shadow::md()).child(cover(
                         page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
-                        f32::from(if artist {
+                        f32::from(if artist || channel {
                             metrics::portrait()
                         } else {
                             metrics::cover()
@@ -1697,6 +1743,13 @@ impl CatalogView {
                     )))
                     .child(info),
             );
+        if channel {
+            content = content.child(div().mt(space::xl()).child(ui::search_input(
+                &self.channel_filter,
+                false,
+                cx,
+            )));
+        }
         if let Some(error) = &self.subscription_error {
             content = content.child(
                 div()
@@ -1740,7 +1793,10 @@ impl CatalogView {
         }
         let mut sections: Vec<String> = Vec::new();
         for row in &page.items {
-            if (!finite || !row.collection_member) && !sections.contains(&row.category) {
+            if (!finite || !row.collection_member)
+                && (!channel || channel_matches(row, &channel_query))
+                && !sections.contains(&row.category)
+            {
                 sections.push(row.category.clone());
             }
         }
@@ -1781,6 +1837,7 @@ impl CatalogView {
                 .iter()
                 .enumerate()
                 .filter(|(_, i)| i.category == *category && (!finite || !i.collection_member))
+                .filter(|(_, i)| !channel || channel_matches(i, &channel_query))
                 .collect();
             let cards = rows
                 .iter()
@@ -1841,6 +1898,15 @@ impl CatalogView {
                     )
                     .child(table);
             }
+        }
+        if channel && sections.is_empty() && !self.busy && self.error.is_none() {
+            content = content.child(div().mt(space::xxl()).child(ui::caps(
+                if channel_query.is_empty() {
+                    "NO PUBLIC VIDEOS OR PLAYLISTS"
+                } else {
+                    "NO MATCHING VIDEOS OR PLAYLISTS"
+                },
+            )));
         }
         content = content.child(self.pagination(cx));
         if let Some(header) = header {
@@ -1926,6 +1992,10 @@ impl CatalogView {
                     })),
             )
     }
+}
+
+fn channel_matches(item: &Item, query: &str) -> bool {
+    item.title.to_lowercase().contains(query)
 }
 
 fn item_matches_track(item: &Item, track: &Track) -> bool {
@@ -2446,6 +2516,19 @@ mod presentation_tests {
     use super::{description, item_matches_track, time_label, trailing_metadata};
     use crate::catalog::Item;
     use crate::db::Track;
+    #[test]
+    fn channel_search_matches_video_and_playlist_titles() {
+        for kind in ["Video", "Playlist"] {
+            let item = Item {
+                title: "Bach for Studying".into(),
+                kind: kind.into(),
+                ..Default::default()
+            };
+            assert!(super::channel_matches(&item, "bach"));
+            assert!(super::channel_matches(&item, ""));
+            assert!(!super::channel_matches(&item, "mozart"));
+        }
+    }
     #[test]
     fn result_metadata_keeps_category_in_description_and_duration_in_trailing_column() {
         let item = Item {
