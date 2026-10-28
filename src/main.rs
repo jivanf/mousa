@@ -150,9 +150,8 @@ impl Mousa {
         #[cfg(target_os = "windows")]
         mousa::windows_media::start(window, player.clone());
         let (tx, rx) = mpsc::channel();
-        let volume_slider =
-            cx.new(|cx| Bar::new("Volume · Arrow keys adjust; Home mutes", 0.05, cx));
-        let seek = cx.new(|cx| Bar::new("Seek · Arrow keys adjust; Home / End jump", 0.01, cx));
+        let volume_slider = cx.new(|cx| Bar::new(0.05, cx));
+        let seek = cx.new(|cx| Bar::new(0.01, cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tracks…"));
         let playlist_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists…"));

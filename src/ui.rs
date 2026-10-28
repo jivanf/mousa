@@ -590,19 +590,17 @@ pub struct Bar {
     dragging: bool,
     bounds: Bounds<Pixels>,
     focus: FocusHandle,
-    label: &'static str,
     step: f32,
 }
 impl EventEmitter<BarChange> for Bar {}
 impl Bar {
-    pub fn new(label: &'static str, step: f32, cx: &mut Context<Self>) -> Self {
+    pub fn new(step: f32, cx: &mut Context<Self>) -> Self {
         Self {
             value: 0.,
             disabled: false,
             dragging: false,
             bounds: Bounds::default(),
             focus: cx.focus_handle(),
-            label,
             step,
         }
     }
@@ -640,7 +638,6 @@ impl Render for Bar {
         let entity = cx.entity();
         let weak = entity.downgrade();
         let value = self.value;
-        let label = self.label;
         div()
             .id("bar")
             .occlude()
@@ -650,7 +647,6 @@ impl Render for Bar {
             .h(size::control())
             .flex_shrink_0()
             .cursor_pointer()
-            .tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e: &MouseDownEvent, w, cx| {

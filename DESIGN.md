@@ -80,6 +80,9 @@ x-shadows:
   lg: "8px 8px 0 0 {colors.primary}"
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
+x-tooltips:
+  seek-bar: false
+  volume-slider: false
 x-motion:
   button-press-duration: 150ms
   button-release-duration: 150ms
@@ -472,6 +475,8 @@ emitting changes on mouse down and drag, including release outside its bounds. C
 Arrow keys adjust, Home/End jump to bounds. Disabled progress controls do not
 receive keyboard focus. GPUI itself has no built-in slider; the existing
 component dependency has one, but Mousa uses a custom Bar for this geometry.
+The seek bar and volume slider show no tooltips, as requested by the user;
+mouse and keyboard interactions remain available.
 
 **Transport row.** 44px buttons with md gaps. Play is the 72px hero in
 tertiary with the md shadow.

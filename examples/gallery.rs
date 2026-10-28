@@ -22,9 +22,9 @@ pub struct Gallery {
 }
 impl Gallery {
     pub fn new(state: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let seek = cx.new(|cx| Bar::new("Seek", 0.01, cx));
+        let seek = cx.new(|cx| Bar::new(0.01, cx));
         seek.update(cx, |s, cx| s.sync(14. / 240., false, cx));
-        let volume = cx.new(|cx| Bar::new("Volume", 0.05, cx));
+        let volume = cx.new(|cx| Bar::new(0.05, cx));
         volume.update(cx, |s, cx| s.sync(0.48, false, cx));
         let field = cx.new(|cx| InputState::new(window, cx).placeholder("Search this playlist…"));
         let subscriptions = vec![
