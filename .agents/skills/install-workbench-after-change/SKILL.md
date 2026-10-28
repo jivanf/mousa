@@ -7,7 +7,8 @@ description: Rebuild and reinstall the Mousa Workbench after repository changes 
 
 After each change set and every successful commit (including amendments and
 documentation-only commits), rebuild and reinstall the Workbench before reporting
-completion. Run from the repository root and wait for completion:
+completion. Run from the current task's worktree root, not the primary checkout
+or another task's worktree, and wait for completion:
 
 - Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\install-workbench.ps1`
 - Linux: `bash ./scripts/install-workbench.sh`

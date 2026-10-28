@@ -1,8 +1,40 @@
 # Mousa project instructions
 
+## Required task workflow
+
+Follow this workflow for every new repository task, including code, UI,
+documentation, tooling, and maintenance work:
+
+1. Create a new, dedicated Git worktree and a `codex/` branch before making
+   changes. Prefer the Codex managed-worktree tool. Do not work in the primary
+   checkout or reuse another task's worktree. Start from current `main` unless
+   the user specifies a different base or the task depends on unmerged work;
+   make that dependency explicit and preserve unrelated changes.
+2. Use the task's worktree for all edits, checks, commits, and Workbench builds
+   and installation. Keep the same worktree and branch throughout the task.
+3. Implement and verify the changes, update all affected Workbench states, commit
+   locally, and reinstall the Workbench following the installation skill. Present
+   the result for review with any verification limits clearly stated.
+4. Treat follow-up corrections, additions, and revisions as part of the same
+   task. Continue in its existing worktree; repeat verification, commits, and
+   Workbench installation. Do not create a new worktree for each revision or
+   treat the first implementation as approval to publish.
+5. Once the user approves the completed changes, create the pull request. If the
+   user explicitly preapproved PR creation at the start of the task, create it
+   when the requested work and required verification are complete without asking
+   again. Until then, keep changes local, including changes intended for an
+   existing PR. Approval is task-specific, not blanket approval for future tasks.
+6. Use a Conventional Commit PR title and enable squash auto-merge. Address CI
+   failures and requested revisions in the same worktree and PR. Required Windows,
+   Linux, and Release policy checks must pass; never bypass them or push directly
+   to `main`. Verify the actual merge result before reporting the PR as merged.
+7. After the PR is merged and no task work remains, archive its managed worktree
+   using the Codex worktree tool. Preserve any needed ignored artifacts first.
+   Keep the worktree available while review, revisions, or merge checks are pending.
+
 ## Changes and releases
 
-- Work on a `codex/` branch. Create a pull request only after the user approves the completed changes, or when the user explicitly gives PR preapproval at the start of the task. A request to implement changes alone is not PR approval. Until approved, verify and commit locally; do not push unapproved changes to an existing PR either. After approval, submit through a pull request and enable squash auto-merge. Never push directly to `main`; Windows, Linux, and Release policy checks must pass. Use a Conventional Commit PR title, which becomes the squash commit title.
+- Follow the required task workflow above for worktree isolation, user review, PR creation, and squash auto-merge. The Conventional Commit PR title becomes the squash commit title.
 - Classify actual user impact: `fix` and `perf` produce patch releases; `feat` produces minor releases. Use `docs`, `test`, `ci`, `build`, `chore`, `refactor`, or `style` only when the change has no releasable behavior impact. Runtime dependency fixes are `fix`, not merely `chore`. A revert is classified by its resulting user impact.
 - Mark incompatible changes with `!` in the title and an explanatory `BREAKING CHANGE: ...` footer in the PR body. Describe changes to saved data, configuration, updater compatibility, or supported platforms. Preserve compatibility with the previous release's rollback path; if that is impossible, explain the migration and recovery limits explicitly.
 - Leave version bumps, changelog generation, release tags, and publication to release automation. Both packages share one version. Daily batches run at 17:00 UTC; urgent preparation uses the manual workflow and still requires all checks. Breaking releases and the 1.0.0 milestone require the repository owner's approval of the current release PR revision. Use `release/hold` to pause a release.
