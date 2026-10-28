@@ -85,7 +85,82 @@ pub fn init(cx: &mut App) {
     t.colors.muted_foreground = color::muted();
     t.colors.ring = color::ink();
 }
-/// Fluent shared controls with click motion scoped to their stable element ID.
+#[derive(Default)]
+struct ButtonPress {
+    started: Option<std::time::Instant>,
+    from: f32,
+    held: bool,
+    pointer_focus: bool,
+}
+impl ButtonPress {
+    fn amount(&self, now: std::time::Instant) -> f32 {
+        let target = if self.held { 1. } else { 0. };
+        let progress = self
+            .started
+            .map(|start| press::progress(now.saturating_duration_since(start)))
+            .unwrap_or(1.);
+        self.from + (target - self.from) * progress
+    }
+    fn set_held(&mut self, held: bool, now: std::time::Instant) -> bool {
+        if self.held == held {
+            return false;
+        }
+        self.from = self.amount(now);
+        self.started = Some(now);
+        self.held = held;
+        true
+    }
+    fn animating(&self, now: std::time::Instant) -> bool {
+        self.started
+            .is_some_and(|start| now.saturating_duration_since(start) < press::duration())
+    }
+}
+fn set_button_held(state: &Entity<ButtonPress>, held: bool, cx: &mut App) {
+    state.update(cx, |motion, cx| {
+        if motion.set_held(held, std::time::Instant::now()) {
+            cx.notify();
+        }
+    });
+}
+
+#[cfg(test)]
+mod button_press_tests {
+    use super::{ButtonPress, press};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn stays_pressed_until_release() {
+        let now = Instant::now();
+        let mut motion = ButtonPress::default();
+        motion.set_held(true, now);
+        let held = now + Duration::from_secs(30);
+        assert_eq!(motion.amount(held), 1.);
+        assert!(!motion.animating(held));
+        assert!(!motion.set_held(true, held)); // Key repeat must not restart it.
+        motion.set_held(false, held);
+        assert_eq!(motion.amount(held), 1.);
+        assert_eq!(motion.amount(held + press::duration()), 0.);
+    }
+
+    #[test]
+    fn early_release_and_repress_remain_continuous() {
+        let now = Instant::now();
+        let mut motion = ButtonPress::default();
+        motion.set_held(true, now);
+        let release = now + press::duration() / 2;
+        let amount = motion.amount(release);
+        assert!(amount > 0. && amount < 1.);
+        motion.set_held(false, release);
+        assert_eq!(motion.amount(release), amount);
+        let repress = release + press::duration() / 2;
+        let amount = motion.amount(repress);
+        motion.set_held(true, repress);
+        assert_eq!(motion.amount(repress), amount);
+        assert_eq!(motion.amount(repress + press::duration()), 1.);
+    }
+}
+
+/// Fluent shared controls with press/release motion scoped to their stable ID.
 #[derive(IntoElement)]
 pub struct Button {
     inner: Stateful<Div>,
@@ -109,11 +184,12 @@ impl StatefulInteractiveElement for Button {}
 impl RenderOnce for Button {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = Element::id(&self.inner).expect("buttons have stable IDs");
-        let state = window.use_keyed_state(id, cx, |_, _| None::<std::time::Instant>);
-        let amount = state
-            .read(cx)
-            .map(|start| press::progress(start.elapsed()))
-            .unwrap_or(0.);
+        let state = window.use_keyed_state(id, cx, |_, _| ButtonPress::default());
+        let now = std::time::Instant::now();
+        if !window.is_window_active() {
+            set_button_held(&state, false, cx);
+        }
+        let amount = state.read(cx).amount(now);
         let mut shadows = self.inner.style().box_shadow.clone().unwrap_or_default();
         if let Some(depth) = shadows.first().map(|shadow| shadow.offset) {
             if amount > 0. {
@@ -126,22 +202,57 @@ impl RenderOnce for Button {
                     .left(depth.x * amount)
                     .shadow(shadows.clone());
             }
-            // Keep depth visible on focused controls too; focus is independent
-            // of the animated shadow and must never disappear during a click.
-            shadows.push(shadow::focus_ring());
+            // Mouse focus must not cover the collapsing shadow with a ring.
+            // Keyboard navigation retains a visible focus indicator.
+            if !state.read(cx).pointer_focus {
+                shadows.push(shadow::focus_ring());
+            }
             self.inner = self.inner.focus(move |s| s.shadow(shadows));
-            if state
-                .read(cx)
-                .is_some_and(|start| start.elapsed() < press::duration() * 2)
-            {
+            if state.read(cx).animating(now) {
                 window.request_animation_frame();
             }
-            self.inner = self.inner.on_click(move |_, _, cx| {
-                state.update(cx, |start, cx| {
-                    *start = Some(std::time::Instant::now());
-                    cx.notify();
+            let down = state.clone();
+            let up = state.clone();
+            let outside = state.clone();
+            let key_down = state.clone();
+            self.inner = self
+                .inner
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    down.update(cx, |motion, cx| {
+                        motion.pointer_focus = true;
+                        motion.set_held(true, std::time::Instant::now());
+                        cx.notify();
+                    });
+                })
+                .on_mouse_up_out(MouseButton::Left, move |_, _, cx| {
+                    set_button_held(&outside, false, cx)
+                })
+                .on_key_down(move |event, _, cx| {
+                    key_down.update(cx, |motion, cx| {
+                        if motion.pointer_focus {
+                            motion.pointer_focus = false;
+                            cx.notify();
+                        }
+                    });
+                    if matches!(event.keystroke.key.as_str(), "space" | "enter")
+                        && !event.keystroke.modifiers.modified()
+                    {
+                        set_button_held(&key_down, true, cx);
+                    }
+                })
+                .on_key_up(move |event, _, cx| {
+                    if matches!(event.keystroke.key.as_str(), "space" | "enter") {
+                        set_button_held(&state, false, cx);
+                    }
                 });
-            });
+            // Release during capture, before an action can stop bubbling.
+            self.inner
+                .interactivity()
+                .capture_any_mouse_up(move |event, _, cx| {
+                    if event.button == MouseButton::Left {
+                        set_button_held(&up, false, cx);
+                    }
+                });
         }
         self.inner
     }

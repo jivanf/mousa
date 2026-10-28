@@ -149,7 +149,7 @@ pub mod press {
     }
     pub fn progress(elapsed: std::time::Duration) -> f32 {
         let t = elapsed.as_secs_f32() / duration().as_secs_f32();
-        let t = if t <= 1. { t } else { (2. - t).max(0.) };
+        let t = t.clamp(0., 1.);
         t * t * (3. - 2. * t)
     }
     pub fn sm() -> Pixels {

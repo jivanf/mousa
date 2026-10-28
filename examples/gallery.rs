@@ -283,7 +283,7 @@ impl Render for Gallery {
                             .child("Mousa / component gallery"),
                     )
                     .child(div().text_color(color::muted()).child(
-                        "Click to animate · Tab to focus · Enter or Space to activate · 150ms down / 150ms return",
+                        "Press and hold to animate · Release to return · Enter/Space also work · 150ms each way",
                     ))
                     .child(
                         div()
