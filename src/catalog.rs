@@ -27,6 +27,8 @@ pub struct Item {
     pub destination: Option<Destination>,
     #[serde(default)]
     pub album: Option<AlbumLink>,
+    #[serde(default)]
+    pub channel: Option<ChannelLink>,
     pub unavailable: bool,
     pub collection_member: bool,
 }
@@ -35,9 +37,23 @@ pub struct AlbumLink {
     pub title: String,
     pub destination: Destination,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChannelLink {
+    pub title: String,
+    pub destination: Destination,
+}
 impl Item {
     /// Search rows navigate; watch endpoints are reserved for explicit playback.
     pub fn search_target(&self) -> Option<Self> {
+        if self.kind == "Video" {
+            let channel = self.channel.as_ref()?;
+            return Some(Self {
+                title: channel.title.clone(),
+                kind: "Channel".into(),
+                destination: Some(channel.destination.clone()),
+                ..Default::default()
+            });
+        }
         if self.kind == "Song" {
             let album = self.album.as_ref()?;
             return Some(Self {
@@ -118,6 +134,14 @@ pub fn fetch_cancellable(destination: &Destination, cancelled: impl Fn() -> bool
         && at.elapsed() < Duration::from_secs(300)
     {
         return Ok(page.clone());
+    }
+    if destination.body["mousaChannel"] == true || destination.body["mousaPlaylist"] == true {
+        let page = crate::channel_catalog::fetch(destination, &cancelled)?;
+        if cache.pages.len() >= 64 {
+            cache.pages.clear();
+        }
+        cache.pages.insert(key, (Instant::now(), page.clone()));
+        return Ok(page);
     }
     if cache
         .blocked_until
@@ -369,10 +393,32 @@ fn item(v: &Value, category: &str) -> Option<Item> {
         album: album_link(&v["flexColumns"])
             .or_else(|| album_link(&v["subtitle"]))
             .or_else(|| album_link(&v["longBylineText"])),
+        channel: channel_link(&v["flexColumns"])
+            .or_else(|| channel_link(&v["subtitle"]))
+            .or_else(|| channel_link(&v["longBylineText"])),
         unavailable: v["isPlayable"].as_bool() == Some(false)
             || v["musicItemRendererDisplayPolicy"] == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT",
         collection_member: true,
     })
+}
+
+fn channel_link(v: &Value) -> Option<ChannelLink> {
+    if let Some(mut destination) = endpoint(&v["navigationEndpoint"])
+        && destination.body["browseId"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("UC"))
+    {
+        destination.body["mousaChannel"] = true.into();
+        return Some(ChannelLink {
+            title: v["text"].as_str().unwrap_or("Channel").into(),
+            destination,
+        });
+    }
+    match v {
+        Value::Object(values) => values.values().find_map(channel_link),
+        Value::Array(values) => values.iter().find_map(channel_link),
+        _ => None,
+    }
 }
 
 pub fn parse(v: &Value, api: &str) -> Page {

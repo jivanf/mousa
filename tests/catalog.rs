@@ -88,6 +88,24 @@ fn details_have_titles_and_navigable_content() {
 }
 
 #[test]
+fn video_rows_open_the_uploader_channel_without_changing_playback() {
+    let page = fixture("videos");
+    for video in page.items {
+        let target = video.search_target().expect("video uploader link");
+        assert_eq!(target.kind, "Channel");
+        let destination = target.destination.unwrap();
+        assert_eq!(destination.body["mousaChannel"], true);
+        assert!(
+            destination.body["browseId"]
+                .as_str()
+                .unwrap()
+                .starts_with("UC")
+        );
+        assert!(video.track().is_some());
+    }
+}
+
+#[test]
 fn unknown_types_and_missing_optional_metadata_remain_visible() {
     let page = catalog::parse(
         &json!({"musicShelfRenderer":{"title":{"runs":[{"text":"New category"}]},"contents":[{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Future item"}]},"navigationEndpoint":{"browseEndpoint":{"browseId":"future"}}}}]}}),
