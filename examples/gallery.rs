@@ -13,6 +13,7 @@ pub struct Gallery {
     volume: Entity<Bar>,
     field: Entity<InputState>,
     playing: bool,
+    queue_opened: bool,
     shuffle: bool,
     repeat: bool,
     volume_value: f32,
@@ -55,6 +56,7 @@ impl Gallery {
             volume,
             field,
             playing: false,
+            queue_opened: false,
             shuffle: false,
             repeat: true,
             volume_value: 0.48,
@@ -66,7 +68,7 @@ impl Gallery {
     }
 }
 impl Render for Gallery {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if matches!(self.state.as_str(), "scrollbar" | "scrollbar-short") {
             return div().size_full().p(space::xxl()).bg(color::canvas()).font_family(font::SANS).text_size(text::body()).text_color(color::ink())
                 .child(div().flex().w_full().h(px(228.)).border(mousa::theme::border::strong()).border_color(color::ink())
@@ -203,7 +205,10 @@ impl Render for Gallery {
                 ),
             );
         let info = div()
-            .child(ui::caps("NOW PLAYING").mb(space::sm()))
+            .child(
+                ui::caps(if self.queue_opened { "QUEUE OPENED" } else { "NOW PLAYING" })
+                    .mb(space::sm()),
+            )
             .child(
                 div()
                     .text_size(text::track_title())
@@ -364,7 +369,16 @@ impl Render for Gallery {
         } else {
             root = root.child(div().flex_1());
         }
-        root.child(ui::player_panel(info, controls, timeline, volume, false))
+        root.child(
+            ui::player_panel(
+                info, controls, timeline, volume,
+                window.viewport_size().width < layout::player_breakpoint(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.queue_opened = !this.queue_opened;
+                cx.notify();
+            })),
+        )
             .into_any_element()
     }
 }

@@ -2129,12 +2129,6 @@ impl Render for Mousa {
             volume,
             window.viewport_size().width < layout::player_breakpoint(),
         )
-        .id("now-playing-open-queue")
-        .tab_index(0)
-        .focus(|s| s.shadow(vec![shadow::focus_ring()]))
-        .cursor_pointer()
-        .hover(|s| s.bg(color::white()))
-        .active(|s| s.bg(color::canvas()))
         .on_click(cx.listener(|this, _, _, cx| {
             let state = this.player.state.lock().unwrap();
             if !Arc::ptr_eq(&this.queue, &state.queue) {

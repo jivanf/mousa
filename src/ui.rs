@@ -536,51 +536,75 @@ pub fn playlist_item(id: i64, name: String, on: bool) -> Button {
     .font_weight(FontWeight::MEDIUM)
     .child(label)
 }
+// Child controls own their keyboard activation; it must not animate the panel.
+fn isolate_player_key_down(event: &KeyDownEvent, _: &mut Window, cx: &mut App) {
+    if matches!(event.keystroke.key.as_str(), "space" | "enter") {
+        cx.stop_propagation();
+    }
+}
+fn isolate_player_key_up(event: &KeyUpEvent, _: &mut Window, cx: &mut App) {
+    if matches!(event.keystroke.key.as_str(), "space" | "enter") {
+        cx.stop_propagation();
+    }
+}
 pub fn player_panel(
     info: impl IntoElement,
     controls: impl IntoElement,
     timeline: impl IntoElement,
     volume: impl IntoElement,
     compact: bool,
-) -> Div {
-    div()
-        .mx(space::lg())
-        .mb(space::xxl())
-        .mt(space::sm())
-        .p(space::xl())
-        .border(border::strong())
-        .border_color(color::ink())
-        .bg(color::surface())
-        .shadow(shadow::lg())
-        .flex()
-        .items_center()
-        .gap(space::xl())
-        .flex_shrink_0()
-        .child(div().flex_1().min_w_0().child(info))
-        .child(
-            div()
-                .w(if compact {
-                    layout::compact_center()
-                } else {
-                    layout::player_center()
-                })
-                .flex_shrink_0()
-                .flex()
-                .flex_col()
-                .gap(space::lg())
-                .id("player-controls")
-                .child(controls)
-                .child(timeline),
-        )
-        .child(
-            div()
-                .id("player-volume")
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .justify_end()
-                .child(div().id("player-volume-controls").child(volume)),
-        )
+) -> Button {
+    Button {
+        inner: div()
+            .id("now-playing-open-queue")
+            .relative()
+            .tab_index(0)
+            .cursor_pointer()
+            .hover(|s| s.bg(color::white()))
+            .mx(space::lg())
+            .mb(space::xxl())
+            .mt(space::sm())
+            .p(space::xl())
+            .border(border::strong())
+            .border_color(color::ink())
+            .bg(color::surface())
+            .shadow(shadow::lg())
+            .flex()
+            .items_center()
+            .gap(space::xl())
+            .flex_shrink_0()
+            .child(div().flex_1().min_w_0().child(info))
+            .child(
+                div()
+                    .w(if compact {
+                        layout::compact_center()
+                    } else {
+                        layout::player_center()
+                    })
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap(space::lg())
+                    .id("player-controls")
+                    .occlude()
+                    .on_key_down(isolate_player_key_down)
+                    .on_key_up(isolate_player_key_up)
+                    .child(controls)
+                    .child(timeline),
+            )
+            .child(
+                div()
+                    .id("player-volume")
+                    .occlude()
+                    .on_key_down(isolate_player_key_down)
+                    .on_key_up(isolate_player_key_up)
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .justify_end()
+                    .child(div().id("player-volume-controls").child(volume)),
+            ),
+    }
 }
 #[derive(Clone)]
 pub struct BarChange(pub f32);

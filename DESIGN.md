@@ -89,6 +89,8 @@ x-motion:
   button-easing: smoothstep
   button-trigger: press-and-release
   button-focus-ring: keyboard-only
+  player-panel-depth: 8px
+  player-panel-trigger: press-and-release
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
@@ -515,7 +517,12 @@ outer side inset aligned with the sidebar controls, 32px bottom inset, and
 24px inner padding.
 Three zones as described in Layout. Center zone is 512px at widths of at least
 1200px and 432px below that breakpoint; volume is 224px. Track info wraps.
-Clicking track info opens the queue at the current track. Mute restores the
+Clicking track info or the player background opens the queue at the current track.
+The player surface uses the shared button press/hold/release animation at its
+existing 8px shadow depth, with no mouse-focus outline. Transport, timeline, and
+volume regions own their interactions: they neither animate the whole player nor
+open the queue. The Workbench player and controls stories use this same surface;
+activating its background toggles the local NOW PLAYING / QUEUE OPENED label. Mute restores the
 last audible volume; it does not reset volume to a fixed level.
 Volume reuses Bar plus a mute button.
 
