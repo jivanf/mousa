@@ -144,6 +144,14 @@ pub mod shadow {
 /// with the shadow removed, so it looks pushed into the page.
 pub mod press {
     use super::*;
+    pub fn duration() -> std::time::Duration {
+        std::time::Duration::from_millis(150)
+    }
+    pub fn progress(elapsed: std::time::Duration) -> f32 {
+        let t = elapsed.as_secs_f32() / duration().as_secs_f32();
+        let t = if t <= 1. { t } else { (2. - t).max(0.) };
+        t * t * (3. - 2. * t)
+    }
     pub fn sm() -> Pixels {
         px(3.)
     }
