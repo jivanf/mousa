@@ -5,9 +5,9 @@ use std::time::Duration;
 use windows::{
     Foundation::{TimeSpan, TypedEventHandler},
     Media::{
-        MediaPlaybackStatus, MediaPlaybackType, SystemMediaTransportControls,
-        SystemMediaTransportControlsButton, SystemMediaTransportControlsButtonPressedEventArgs,
-        PlaybackPositionChangeRequestedEventArgs,
+        MediaPlaybackStatus, MediaPlaybackType, PlaybackPositionChangeRequestedEventArgs,
+        SystemMediaTransportControls, SystemMediaTransportControlsButton,
+        SystemMediaTransportControlsButtonPressedEventArgs,
         SystemMediaTransportControlsTimelineProperties,
     },
     Win32::{

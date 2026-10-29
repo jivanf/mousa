@@ -1363,10 +1363,18 @@ impl Render for CatalogScrollbar {
         div()
             .id("catalog-scrollbar")
             .relative()
-            .w(if self.show_rail { crate::theme::scrollbar::width() } else { px(0.) })
+            .w(if self.show_rail {
+                crate::theme::scrollbar::width()
+            } else {
+                px(0.)
+            })
             .h_full()
             .flex_shrink_0()
-            .when(self.show_rail, |s| s.bg(color::white()).border_l(border::strong()).border_color(color::ink()))
+            .when(self.show_rail, |s| {
+                s.bg(color::white())
+                    .border_l(border::strong())
+                    .border_color(color::ink())
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e: &MouseDownEvent, _, cx| {
@@ -1389,7 +1397,9 @@ impl Render for CatalogScrollbar {
                             let overflowing = this.scroll.max_offset().height > px(0.);
                             if this.show_rail != overflowing {
                                 this.show_rail = overflowing;
-                                if !overflowing { this.grab = None; }
+                                if !overflowing {
+                                    this.grab = None;
+                                }
                                 cx.notify();
                             }
                             let (top, height) = this.geometry();

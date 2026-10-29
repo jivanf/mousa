@@ -38,7 +38,11 @@ impl Gallery {
             }),
         ];
         let short = state == "scrollbar-short";
-        let track_list = ListState::new(if short { 2 } else { 1230 }, ListAlignment::Top, layout::list_overscan());
+        let track_list = ListState::new(
+            if short { 2 } else { 1230 },
+            ListAlignment::Top,
+            layout::list_overscan(),
+        );
         track_list.scroll_to(ListOffset {
             item_ix: if short { 0 } else { 154 },
             offset_in_item: px(0.),
@@ -365,7 +369,11 @@ impl Render for Gallery {
     }
 }
 fn main() {
-    let state = std::env::args().nth(1).unwrap_or_default().trim_start_matches("--").replace("player-only", "player");
+    let state = std::env::args()
+        .nth(1)
+        .unwrap_or_default()
+        .trim_start_matches("--")
+        .replace("player-only", "player");
     let only_player = state == "player";
     Application::new().with_assets(ui::Assets).run(move |cx| {
         ui::init(cx);
