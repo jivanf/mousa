@@ -150,9 +150,8 @@ impl Mousa {
         #[cfg(target_os = "windows")]
         mousa::windows_media::start(window, player.clone());
         let (tx, rx) = mpsc::channel();
-        let volume_slider =
-            cx.new(|cx| Bar::new("Volume · Arrow keys adjust; Home mutes", 0.05, cx));
-        let seek = cx.new(|cx| Bar::new("Seek · Arrow keys adjust; Home / End jump", 0.01, cx));
+        let volume_slider = cx.new(|cx| Bar::new(0.05, cx));
+        let seek = cx.new(|cx| Bar::new(0.01, cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tracks…"));
         let playlist_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists…"));
@@ -2130,12 +2129,6 @@ impl Render for Mousa {
             volume,
             window.viewport_size().width < layout::player_breakpoint(),
         )
-        .id("now-playing-open-queue")
-        .tab_index(0)
-        .focus(|s| s.shadow(vec![shadow::focus_ring()]))
-        .cursor_pointer()
-        .hover(|s| s.bg(color::white()))
-        .active(|s| s.bg(color::canvas()))
         .on_click(cx.listener(|this, _, _, cx| {
             let state = this.player.state.lock().unwrap();
             if !Arc::ptr_eq(&this.queue, &state.queue) {

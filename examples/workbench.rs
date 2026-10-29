@@ -57,6 +57,21 @@ const STORIES: &[(&str, &str)] = &[
     ("Playlist editor", "empty"),
     ("Playlist editor", "discard"),
     ("Playlist editor", "local"),
+    // Append stories to preserve the numeric identities saved by older workbenches.
+    ("Catalog", "channel"),
+    ("Catalog", "channel-loading"),
+    ("Catalog", "channel-error"),
+    ("Catalog", "channel-empty"),
+    ("Catalog", "channel-search-videos"),
+    ("Catalog", "channel-search-playlists"),
+    ("Catalog", "channel-search-mixed"),
+    ("Catalog", "channel-no-results"),
+    ("Catalog", "channel-selection-single"),
+    ("Catalog", "channel-selection"),
+    ("Catalog", "channel-selection-unavailable"),
+    ("Catalog", "channel-playing"),
+    ("Catalog", "channel-feedback"),
+    ("Catalog", "channel-save-picker"),
 ];
 
 #[derive(Default, Serialize, Deserialize)]
@@ -178,7 +193,13 @@ impl Render for Workbench {
             .gap(space::sm())
             .p(space::sm());
         let mut previous_group = "";
-        for (index, &(group, state)) in STORIES.iter().enumerate() {
+        let mut ordered_stories: Vec<_> = STORIES.iter().enumerate().collect();
+        ordered_stories.sort_by_key(|(_, (group, _))| match *group {
+            "Components" => 0,
+            "Catalog" => 1,
+            _ => 2,
+        });
+        for (index, &(group, state)) in ordered_stories {
             if !format!("{group} {state}").to_lowercase().contains(&filter) {
                 continue;
             }

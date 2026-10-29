@@ -32,7 +32,9 @@ pub fn sample(state: &str) -> (Page, Option<Item>) {
             serde_json::from_str(include_str!("../tests/fixtures/catalog/songs.json")).unwrap();
         return (catalog::parse(&raw, "search"), None);
     }
-    let state = if state == "alert-info" {
+    let state = if state.starts_with("channel") {
+        "channel"
+    } else if state == "alert-info" {
         "playlist"
     } else if state.starts_with("selection") || state == "alert-success" {
         "album"
@@ -220,10 +222,12 @@ pub fn sample(state: &str) -> (Page, Option<Item>) {
         })
         .collect();
     if state == "channel" {
-        for row in &mut page.items {
+        for (index, row) in page.items.iter_mut().enumerate() {
             row.kind = "Video".into();
             row.category = "Videos".into();
+            row.video = Some(format!("preview-channel-{index}"));
         }
+        page.items[0].title = format!("Bach: {}", page.items[0].title);
         for title in ["Bach for Studying", "Classical Favorites"] {
             page.items.push(Item {
                 title: title.into(),
@@ -309,4 +313,37 @@ fn main() {
         )
         .unwrap();
     });
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::sample;
+
+    #[test]
+    fn channel_fixture_supports_video_playlist_and_mixed_searches() {
+        let (page, item) = sample("channel-search-mixed");
+        assert_eq!(item.unwrap().kind, "Channel");
+        let matches = |query: &str| {
+            page.items
+                .iter()
+                .filter(|item| item.title.to_lowercase().contains(query))
+                .map(|item| item.kind.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(matches("cello"), ["Video"]);
+        assert_eq!(matches("studying"), ["Playlist"]);
+        assert_eq!(matches("bach"), ["Video", "Playlist"]);
+        assert!(matches("no matching title").is_empty());
+        let videos: Vec<_> = page
+            .items
+            .iter()
+            .filter_map(|item| item.video.as_ref())
+            .collect();
+        let unique: std::collections::HashSet<_> = videos.iter().collect();
+        assert_eq!(
+            videos.len(),
+            unique.len(),
+            "Only the played row should highlight"
+        );
+    }
 }

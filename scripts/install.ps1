@@ -4,13 +4,16 @@ param(
     [switch]$Launch,
     [switch]$RunTests,
     [switch]$SkipInteractiveTests,
-    [switch]$Workbench
+    [switch]$WorkbenchOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    if ($WorkbenchOnly -and !$PSBoundParameters.ContainsKey('InstallDir')) {
+        $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Mousa\Workbench'
+    }
     if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This installer requires x64 Windows.' }
     $cargo = Get-Command cargo -ErrorAction SilentlyContinue
     if (!$cargo) {
@@ -77,13 +80,12 @@ try {
     try {
         $env:LIB = "$deps;$env:LIB"
         $env:GPUI_FXC_PATH = $fxcPath
-        & $cargo.Source build --release --locked
-        if ($LASTEXITCODE -ne 0) { throw 'Mousa build failed.' }
-        if ($Workbench) {
-            # Keep GPUI debug assertions enabled in this development tool.
-            & $cargo.Source build --locked --example workbench
-            if ($LASTEXITCODE -ne 0) { throw 'Workbench build failed.' }
+        if ($WorkbenchOnly) {
+            & $cargo.Source build --release --locked --example workbench
+        } else {
+            & $cargo.Source build --release --locked
         }
+        if ($LASTEXITCODE -ne 0) { throw 'Mousa build failed.' }
         if ($RunTests) {
             $env:PATH = "$deps;$env:PATH"
             & $cargo.Source test --release --locked
@@ -99,6 +101,27 @@ try {
         $env:PATH = $previousPath
     }
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
+    if ($WorkbenchOnly) {
+        $installed = Join-Path $InstallDir 'workbench.exe'
+        Get-Process workbench -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -eq $installed
+        } | ForEach-Object {
+            Stop-Process -Id $_.Id
+            if (!$_.WaitForExit(10000)) { throw 'The running Workbench did not close.' }
+        }
+        Copy-Item 'target\release\examples\workbench.exe', "$deps\libmpv-2.dll", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
+        if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\examples\workbench.exe').Hash) { throw 'Installed Workbench does not match the build.' }
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa Workbench.lnk'))
+        $shortcut.TargetPath = $installed
+        $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.Description = 'Mousa UI workbench'
+        $shortcut.IconLocation = "$installed,0"
+        $shortcut.Save()
+        Write-Host "Installed Mousa Workbench to $InstallDir."
+        if ($Launch) { Start-Process -FilePath $installed -WorkingDirectory $InstallDir -WindowStyle Hidden }
+        return
+    }
     Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
@@ -113,21 +136,5 @@ try {
     $shortcut.IconLocation = "$installed,0"
     $shortcut.Save()
     Write-Host "Installed Mousa to $InstallDir (Start menu: Mousa)."
-    if ($Workbench) {
-        $workbenchDir = Join-Path $InstallDir 'Workbench'
-        New-Item -ItemType Directory -Force $workbenchDir | Out-Null
-        Copy-Item 'target\debug\examples\workbench.exe', "$deps\libmpv-2.dll" -Destination $workbenchDir -Force
-        $workbenchExe = Join-Path $workbenchDir 'workbench.exe'
-        if ((Get-FileHash $workbenchExe).Hash -ne (Get-FileHash 'target\debug\examples\workbench.exe').Hash) {
-            throw 'Installed workbench does not match the build.'
-        }
-        $workbenchShortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Mousa Workbench.lnk'))
-        $workbenchShortcut.TargetPath = $workbenchExe
-        $workbenchShortcut.WorkingDirectory = $workbenchDir
-        $workbenchShortcut.Description = 'Mousa UI stories and visual states'
-        $workbenchShortcut.IconLocation = "$installed,0"
-        $workbenchShortcut.Save()
-        Write-Host 'Installed Mousa Workbench (Start menu: Mousa Workbench).'
-    }
     if ($Launch) { Start-Process -FilePath $launcher -WorkingDirectory $InstallDir }
 } finally { Pop-Location }

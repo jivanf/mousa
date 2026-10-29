@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mousa Workbench
+Comment=Review Mousa application UI states
+Exec=mousa-workbench
+Icon=mousa
+Terminal=false
+Categories=Development;

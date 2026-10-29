@@ -4,6 +4,7 @@ name: Mousa
 description: Neobrutalist native desktop music player. Rust, GPUI, Linux first. Not a webview.
 x-workbench-navigation: searchable-grouped-stories
 x-workbench-persistence: story-filter-viewport-mode
+x-workbench-coverage: every-application-ui-state
 colors:
   primary: "#111111"
   secondary: "#3B3B3B"
@@ -80,12 +81,17 @@ x-shadows:
   lg: "8px 8px 0 0 {colors.primary}"
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
+x-tooltips:
+  seek-bar: false
+  volume-slider: false
 x-motion:
   button-press-duration: 150ms
   button-release-duration: 150ms
   button-easing: smoothstep
   button-trigger: press-and-release
   button-focus-ring: keyboard-only
+  player-panel-depth: 8px
+  player-panel-trigger: press-and-release
 x-alignment:
   playlist-editor-character-counters: right
 x-scrolling:
@@ -472,6 +478,8 @@ emitting changes on mouse down and drag, including release outside its bounds. C
 Arrow keys adjust, Home/End jump to bounds. Disabled progress controls do not
 receive keyboard focus. GPUI itself has no built-in slider; the existing
 component dependency has one, but Mousa uses a custom Bar for this geometry.
+The seek bar and volume slider show no tooltips, as requested by the user;
+mouse and keyboard interactions remain available.
 
 **Transport row.** 44px buttons with md gaps. Play is the 72px hero in
 tertiary with the md shadow.
@@ -510,7 +518,12 @@ outer side inset aligned with the sidebar controls, 32px bottom inset, and
 24px inner padding.
 Three zones as described in Layout. Center zone is 512px at widths of at least
 1200px and 432px below that breakpoint; volume is 224px. Track info wraps.
-Clicking track info opens the queue at the current track. Mute restores the
+Clicking track info or the player background opens the queue at the current track.
+The player surface uses the shared button press/hold/release animation at its
+existing 8px shadow depth, with no mouse-focus outline. Transport, timeline, and
+volume regions own their interactions: they neither animate the whole player nor
+open the queue. The Workbench player and controls stories use this same surface;
+activating its background toggles the local NOW PLAYING / QUEUE OPENED label. Mute restores the
 last audible volume; it does not reset volume to a fixed level.
 Volume reuses Bar plus a mute button.
 
@@ -823,12 +836,26 @@ rebuilds; transient interaction state resets. Catalog service actions are
 simulated or remain on their fixture, with isolated local data. No new product
 screen design is implied by the workbench shell.
 
+Every application UI state must be represented in the Workbench. Every UI change
+updates its affected stories and local interactions in the same change, including
+loading, empty, error/retry, success, disabled, selection, playback, focus/hover,
+dialogs, and navigation. Standalone galleries do not substitute for Workbench
+coverage. The Workbench is the default development installation; the main app is
+reinstalled only on explicit user request.
+
+Channel stories cover populated content, loading, error, empty content, video-only,
+playlist-only and mixed search matches, no matches, single/multiple/unavailable
+selection, playing-row highlighting, queue feedback, and the playlist destination
+picker. Channel search and clear use the production filter locally, with no
+service requests. Keep saved story identities stable as the story list grows.
+
 ### Checks
 
 1. Run `npx @google/design.md lint DESIGN.md`. It must report no errors.
 2. Add or update the component in `examples/gallery.rs` in every state:
    default, hover, pressed, focused, disabled, on.
-3. Run the gallery and compare against this file, not against memory.
+3. Register every affected state in the Workbench, run the installed Workbench,
+   and compare against this file, not against memory. Verify local interactions.
 4. Commit gallery screenshots to `docs/` so reviewers can see the result
    without running the app.
 
