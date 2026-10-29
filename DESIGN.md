@@ -2,6 +2,8 @@
 version: alpha
 name: Mousa
 description: Neobrutalist native desktop music player. Rust, GPUI, Linux first. Not a webview.
+x-workbench-navigation: searchable-grouped-stories
+x-workbench-persistence: story-filter-viewport-mode
 colors:
   primary: "#111111"
   secondary: "#3B3B3B"
@@ -10,10 +12,15 @@ colors:
   canvas: "#E6DFD0"
   field: "#FFFFFF"
   danger: "#FF8FC7"
+  scrim: "rgba(17, 17, 17, 0.55)"
   on-primary: "#C8F560"
   on-tertiary: "#111111"
   on-danger: "#111111"
 typography:
+  playlist-title-input:
+    fontFamily: Space Grotesk
+    fontSize: 16px
+    fontWeight: 500
   landing-title:
     fontFamily: Space Grotesk
     fontSize: 56px
@@ -58,6 +65,7 @@ typography:
 rounded:
   none: 0px
 spacing:
+  playlist-editor-gap: 20px
   xs: 4px
   sm: 8px
   md: 12px
@@ -72,7 +80,64 @@ x-shadows:
   lg: "8px 8px 0 0 {colors.primary}"
   on: "3px 3px 0 0 {colors.tertiary}"
   focus-ring: "0 0 0 3px {colors.primary}"
+x-motion:
+  button-press-duration: 150ms
+  button-release-duration: 150ms
+  button-easing: smoothstep
+  button-trigger: press-and-release
+  button-focus-ring: keyboard-only
+x-alignment:
+  playlist-editor-character-counters: right
+x-scrolling:
+  scrollbar-gutter: overflow-only
+  catalog-collection-detail: table-with-fixed-header-and-selection
+  catalog-artist-detail: page
+  pagination: automatic-virtual-scroll
+x-session:
+  catalog: preserve-query-page-history-filter-and-scroll
+x-search-navigation:
+  video: uploader-channel-detail
+  channel-search: case-insensitive-video-and-playlist-titles
 components:
+  workbench-sidebar:
+    width: 272px
+    padding: 8px
+  workbench-preview:
+    width: 1280px
+    height: 840px
+  workbench-preview-compact:
+    width: 1100px
+  workbench-toolbar:
+    padding: 16px
+  feedback-alert:
+    width: 100%
+    padding: 12px
+    textColor: "{colors.primary}"
+    typography: "{typography.body-md}"
+  feedback-alert-success:
+    backgroundColor: "{colors.tertiary}"
+  feedback-alert-info:
+    backgroundColor: "{colors.neutral}"
+  playlist-editor:
+    width: 520px
+    padding: 24px
+  modal-backdrop:
+    backgroundColor: "{colors.scrim}"
+  playlist-editor-header:
+    height: 56px
+  playlist-editor-title:
+    height: 44px
+    padding: 14px
+    typography: "{typography.playlist-title-input}"
+  playlist-editor-description:
+    height: 150px
+    padding: 10px
+  playlist-editor-counter:
+    height: 22px
+  playlist-editor-icon:
+    size: 16px
+  playlist-editor-close-icon:
+    size: 18px
   landing-card:
     width: 520px
     padding: 48px
@@ -161,9 +226,20 @@ components:
   track-row-playing:
     backgroundColor: "{colors.tertiary}"
     textColor: "{colors.on-tertiary}"
+  selection-bar:
+    height: 66px
+    backgroundColor: "{colors.canvas}"
+    padding: 16px
+  selection-bar-unavailable:
+    height: 90px
+  selection-summary:
+    width: 128px
+  selection-count:
+    height: 36px
   track-row-selected:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.primary}"
+    borderLeftWidth: 6px
   track-scrollbar:
     width: 20px
   track-scrollbar-thumb:
@@ -194,6 +270,8 @@ components:
     typography: "{typography.catalog-control}"
   catalog-result:
     height: 64px
+    x-interaction: navigation-only
+    x-multi-selection: false
   catalog-thumbnail:
     size: 48px
   catalog-result-trailing:
@@ -260,6 +338,7 @@ and quiet by default.
 Principles:
 
 1. Hard edges. Zero radius, zero blur, no gradients, no transparency tricks.
+   The functional modal scrim is the sole translucent surface exception.
 2. Heavy 3px ink outlines on anything interactive. 1px hairlines only as
    dividers inside lists.
 3. One hero per view. In the player it is the play button.
@@ -277,7 +356,7 @@ do not reinterpret a final design without authorization.
 - **Secondary (#3B3B3B), "muted":** secondary text such as artist names and
   captions. Passes 4.5:1 on neutral.
 - **Tertiary (#C8F560), "lime":** playing or primary. The currently playing
-  row, the play button, bar fills, and at most one primary action per view.
+  row, the play button, bar fills, success alerts, and at most one primary action per view.
 - **Neutral (#FBF7EE), "surface":** resting fill for buttons, cards, rows,
   the player bar.
 - **Canvas (#E6DFD0):** window and panel background, including the sidebar.
@@ -285,10 +364,16 @@ do not reinterpret a final design without authorization.
 - **Danger (#FF8FC7), pink:** destructive actions (Delete, Remove) and error banner backgrounds.
   This replaces the original prototype pink.
 - **On-primary (#C8F560):** text and icons on an ink fill.
+- **Scrim (ink at 55% opacity):** modal backdrop only. It covers the complete
+  window content, including sidebar and player, and makes the background inert.
+  No translucent cards, fields, decorative overlays, or glass effects. Fully
+  transparent hit targets and hidden controls are not translucent surfaces.
 
 On / selected is expressed by inversion: ink fill with lime text. Used for
-the selected playlist, selected row, active shuffle or repeat. Never use pink
-for selection.
+the selected playlist, active shuffle or repeat. Track multi-selection preserves
+the existing playlist appearance: canvas fill with a 6px ink left rule; playing
+rows keep their lime fill and unavailable inverted rows keep their existing fill.
+Never use pink for selection.
 
 Drift to fix in the current app: the sidebar background, every playlist card
 and several buttons are lime, so lime no longer signals anything. Sidebar
@@ -347,10 +432,18 @@ not put shadowed controls inside an `overflow_hidden` or scroll container
 without padding, or the shadow is clipped. Rows in lists and items in the
 sidebar carry no shadow.
 
-Pressed state: GPUI has no transform. In `.active(...)`, offset the element
-by the shadow offset (top and left) and drop the shadow, so it looks pushed
-in. Keyboard focus adds the focus ring (3px ink, outside the border) as an
-extra shadow. Every interactive element must be focusable and show it.
+Button motion adapts neobrutalism.dev's hover effect to press and release.
+On left mouse-down, move the face down/right by its shadow offset over 150ms
+using smoothstep easing. Hold that position for as long as the button is held.
+On mouse-up, including outside the control, animate back over 150ms. Quick
+releases and repeated presses reverse smoothly from the current position.
+Shrink the shadow offset by the same amount so its outer edge stays fixed.
+Enter/Space use the same down/hold/up feedback. Losing window activation resets
+the pressed state. Native click actions keep their existing activation timing.
+Hover changes fill only. Shadowless and disabled controls stay still.
+Mouse presses and mouse focus add no outer outline. Keyboard navigation retains
+the 3px focus ring. Preserve reserved margins; surrounding layout
+must not shift. Every interactive element must be focusable and show focus.
 
 ## Shapes
 
@@ -360,7 +453,8 @@ cards, bars, and inputs. Row dividers are 1px ink. No other border widths.
 ## Components
 
 **Button.** Neutral fill, 3px ink border, sm shadow, 36px high, mono label
-(uppercase for text buttons). Hover: field fill. Pressed: offset, no shadow.
+(uppercase for text buttons). Hover: field fill. Press: animated offset and
+shadow collapse, held until release; release animates back.
 Disabled: canvas fill, secondary text, no shadow.
 
 **Primary button.** Tertiary fill. At most one per view.
@@ -389,9 +483,9 @@ the left of the duration, retaining their space so neither metadata nor duration
 shifts on hover; each action is also revealed on keyboard focus.
 Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
-Playing row is tertiary. Selected row is inverted.
+Playing row is tertiary. Multi-selected rows use canvas with a 6px ink left rule.
 
-**Track scrollbar.** Playlist and queue lists reserve a 20px white rail with a
+**Track scrollbar.** Overflowing playlist and queue lists reserve a 20px white rail with a
 3px ink divider on the left. The square ink thumb has 3px side insets and a
 proportional height with a 48px minimum (capped to the viewport). While dragging,
 the thumb becomes white with a 3px ink outline; a 30px-high ink readout sits
@@ -400,7 +494,9 @@ as `612 / 1230` in bold 12px Space Mono, lime. The readout appears only during
 dragging and stays within the viewport vertically. No shadows or explanatory
 labels. The thumb follows wheel scrolling and programmatic navigation. Clicking
 the rail seeks; dragging continues outside the rail. Arrow keys, Page Up/Down,
-and Home/End work when focused. Non-overflowing lists have no thumb or readout.
+and Home/End work when focused. Non-overflowing lists have no rail, divider, thumb, readout, or reserved gutter.
+This user-authorized correction also applies to catalog and description scrollbars.
+The rail updates when content or viewport size changes.
 Preview with `cargo run --example gallery -- --scrollbar`.
 
 **Playlist item.** Neutral card with 3px border: name over a mono label of
@@ -419,7 +515,53 @@ last audible volume; it does not reset volume to a fixed level.
 Volume reuses Bar plus a mute button.
 
 **Page header.** page-title in ink, a secondary metadata line, and actions at
-top right (Rename default, Delete destructive).
+top right (Edit default, Delete destructive).
+
+## Playlist editing
+
+Source: the approved Claude artifact's **Edit playlist** and **Edit playlist
+states** artboards. Edit opens a 520px surface dialog with a 3px ink outline,
+8px hard shadow and the scrim above. Center it in the window; allow vertical
+scrolling with 32px total viewport clearance when the dialog exceeds the window.
+The 56px header has a 3px lower rule, 24px left and 12px right padding, a 13px
+bold mono heading, and a 32px close control with an 18px icon. The body has 24px
+padding and 20px between field groups. Labels use label-caps with an 8px field gap.
+
+Title uses a 44px white input with 16px medium text, 14px horizontal inset,
+and the standard focus ring. Its right-aligned 12px mono counter is below, with at least 22px
+height. Description is a 150px multiline white field with 14px text at 1.45 line
+height, 10px vertical and 14px horizontal text insets, a scrolling
+viewport using the shared 20px ruled scrollbar, and a right-aligned 12px mono counter. Preserve newlines and URLs as
+plain text. The editor limits are 150 title characters and 5000 description
+characters; over-limit text stays editable with Save disabled. Empty or
+whitespace-only titles show inline guidance and REQUIRED, without a red field.
+**User-authorized correction to the mock:** both character counts align to the
+right edge of their fields. Title validation guidance remains left-aligned.
+
+YouTube privacy uses three equal 36px buttons, 12px gaps, 16px icons, 13px bold
+mono text, and the standard inverted selected state. Public, Unlisted and Private
+each have explanatory helper text underneath. Local playlists have title and
+description only: local storage has no YouTube visibility setting.
+
+The footer has a 3px upper rule, 16px vertical and 24px horizontal padding.
+Show UNSAVED CHANGES on the left when dirty, Cancel and lime Save on the right.
+Disable Save when pristine or invalid. While saving, disable fields and dismissal,
+show SAVING…, and keep the dialog open. Load authoritative YouTube metadata before
+enabling editing. Failed loading offers Retry. Failed saving preserves the draft
+and offers Save again. Form-level errors sit above all fields below the header.
+**User-authorized deviation:** reuse the application's existing pink error alert
+with Dismiss, not the mock's custom alert. Delete remains separate in the page header.
+
+Cancel, close, and Escape ask before discarding a dirty draft. Keep editing returns
+to the draft; Discard closes without writing. Clicking the scrim does not dismiss.
+Tab/Shift+Tab stay inside the dialog; closing restores previous focus. Background
+navigation and player controls are inert while the dialog is open.
+
+GPUI 0.2.2's `Hsla` has a public alpha channel (`a`). `color::scrim()` uses
+`Hsla { a: 0.55, ..color::ink() }` as the backdrop fill, so the scrim needs no
+whole-window opacity, blur, or custom shader. This API was verified in the pinned
+crate source. Preview with `cargo run --release --example playlist_editor_gallery
+-- dirty` (also `pristine`, `saving`, `error`, `empty`, `discard`, and `local`).
 
 ## Catalog search and browsing
 
@@ -434,6 +576,12 @@ returns through detail navigation. The existing full player retains its seek
 controls and account panels; integration mocks illustrate their placement.
 The Add YouTube workaround is removed. Sidebar and track inputs are explicitly
 labeled “Filter playlists…” and “Filter tracks…”, distinct from catalog search.
+
+Closing and reopening the app preserves the active catalog screen, query,
+category, loaded results, detail navigation history, and each page's scroll
+position. Restore loaded content without requiring a network request; retry a
+page that was still loading without content. Transient selections, dialogs,
+feedback, and account operations are not restored.
 
 The catalog field is 56px high with a leading search icon and the placeholder
 “Search songs, videos, albums, artists…”. Search content has a 16px inset in the
@@ -476,12 +624,35 @@ where useful. These catalog recovery panels are distinct from pink error banners
 
 ### Results
 
-Mixed results have a Results for heading and a ruled surface list. Rows are
+**User-authorized navigation:** clicking a Video search result opens its uploader's
+Channel detail page. Reuse the artist page's 160px portrait, header typography,
+spacing, and whole-page scrolling, with Videos in selectable track rows and
+Playlists in the existing card grid. The separate Play control plays audio.
+Place a standard compact search field 24px below the header, labelled “Search
+channel videos and playlists…”. Match titles case-insensitively across all public
+videos and playlists after loading; clearing restores both sections. Search is
+local to the channel and does not change the main catalog query. Clear selection
+when filtering and restrict range selection to visible matches. Show loading,
+retryable errors, no public content, and no matching content explicitly. Back
+restores the previous catalog page. This channel page is a user-authorized
+extension of the artist reference; it has no artist shuffle or subscribe actions.
+
+Mixed results use a ruled surface list without a redundant query heading. Rows are
 64px high, with 48px bordered real thumbnails, 14px medium titles, and 13px muted
 secondary descriptions. **Put the record category in the description, not in a
 separate badge**—the user's approved exception. Durations or collection counts
 occupy an 84px trailing column in 14px regular Space Mono. Do not duplicate this
 metadata in the description or invent missing values.
+
+Track tables in library, queue, and catalog details use plain click to select one occurrence, Ctrl-click to toggle
+an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
+range. Selection is independent per table. Clicking a track row never starts
+playback; its Play button does. Row actions do not change selection or start
+a drag. Playlist reordering retains its existing restrictions and deferred
+selection collapse during dragging; catalog and queue rows cannot reorder.
+Catalog selection resets on page replacement and survives append-only loading.
+Queue selection resets when queue contents/order change, so duplicate entries
+never transfer selection to a different occurrence.
 
 Playable rows reveal a play overlay on the thumbnail and 32px queue/save actions
 with 18px icons on hover or keyboard focus. Reserve action space to prevent text
@@ -490,9 +661,60 @@ icon placeholders; bundled icons are fallbacks only. Use the persistent 20px
 white scrollbar rail with an ink divider and a thumb proportional to actual
 overflow; illustrative fixed mock thumb lengths are not normative.
 
+### Multi-selection actions
+
+Source: the final **Multi-selection bar** and **Selection bar variants** boards.
+The first selected occurrence reveals a minimum 66px canvas strip directly above its
+track table. It has a 3px ink outline in flow; when pinned it spans the content
+viewport with only its 3px bottom rule. It remains reachable during wheel,
+scrollbar, and programmatic scrolling. Clear removes the selection and the strip.
+Library and queue keep their bounded virtualized lists; their strip stays above
+the scrolling rows. Search results have no selection strip.
+
+The inverted count tag uses label-caps, ink fill, lime text, and 8px horizontal
+padding. Its height matches the 36px action buttons, with text vertically centered,
+as in the approved mock. It reuses the control-height token.
+Neutral 36px Play, Queue, and Add to playlist buttons use
+13px bold mono text and 18px icons, with 12px gaps. Clear sits at the far right.
+The header retains its lime primary. Owned library playlists add pink Remove,
+separated by 24px; removal asks for confirmation and reports partial failures.
+Unavailable selected tracks count toward selection and show `N UNAVAILABLE,
+SKIPPED`; playback, queueing, and saving use the remaining available occurrences
+in displayed order, including duplicates. No available tracks makes those actions
+inactive. Single-selection uses the identical bar with `1 SELECTED`.
+Unavailable summaries use a 128px column and a 90px strip so the note can wrap
+without displacing Clear. At narrow library widths, action buttons wrap within
+their group and the strip grows vertically; Clear remains at the far right.
+Count tags retain their intrinsic width. Shared actions have no bottom margin;
+the strip's 12px vertical inset provides clearance for their hard shadows.
+
+Hide per-row queue/save/remove actions while that table has a selection. Keep
+single-track hover Play. Compensate the 6px left selection rule in the number
+slot to preserve title alignment. Collection and artist cards are not selectable.
+Search results, including filtered song results, are navigation-only and never
+support multi-selection. Clicking an album opens its details; clicking a song
+opens the album linked in its metadata. If search omits that link, resolve it
+from the song’s next metadata without starting playback; stale responses cannot
+replace newer navigation. If the service still provides no album, report that
+album information is unavailable. Play, Queue, and Add to playlist
+remain independent row actions and do not trigger navigation.
+
 ### Detail pages
 
-Detail pages replace the search field with Back and scroll as one page. Use
+Detail pages replace the search field with Back. **User-authorized correction
+to the selection mock:** album, single, EP, playlist, and podcast details keep
+Back, artwork, metadata, and actions fixed. The track table fills the remaining
+height and scrolls internally with the same scrollbar as search results.
+The selection strip stays fixed directly above the scrolling rows; selecting
+or clearing tracks changes the table viewport height, not the header position.
+Supplementary sections remain inside the scroll area.
+**User-authorized correction:** paginated results load automatically as the viewport
+approaches the end, including short pages that do not yet overflow. Never show a
+Load more button. Catalog rows reserve their specified heights and construct
+controls only in the visible viewport. Refresh tokens are not pagination; empty
+pages and consumed continuation tokens terminate loading. Errors retain explicit
+Retry recovery rather than automatically retrying.
+Artist pages also retain whole-page scrolling. Use
 32px page padding, 24px after the 36px Back control, and a 32px cover/text gap.
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
 have 3px borders and 5px hard shadows. Align header information to the cover's
@@ -501,17 +723,33 @@ label-caps, and byline/metadata use body-md/body-sm. Navigable creator credits
 are underlined. Metadata reflects the service; missing values are omitted.
 
 Header actions are 44px high, with 18px horizontal padding, 10px icon/text gaps,
-18px icons, and 13px bold Space Mono labels. Allow wrapping. Album actions are
-Play, Shuffle, Queue, and Save to playlist; playlist actions replace the latter
-with Add to library. Artist actions are Shuffle and Subscribe. Play or artist
-Shuffle is the single lime primary action. Add to library saves a local playlist
-snapshot; Save to playlist opens the destination picker.
+18px icons, and 13px bold Space Mono labels. Allow wrapping. Album and playlist
+actions are Play, Shuffle, Queue, Add to playlist, and Add to library. Artist
+actions are Shuffle and Subscribe. Play or artist Shuffle is the single lime
+primary action. Add to library saves a local playlist snapshot; Add to playlist
+opens the destination picker.
+
+**User-authorized correction:** action feedback spans the full content width
+beneath the entire detail header, separated by 24px. Only completed queue,
+playlist, and library additions appear here; an already-saved playlist uses the
+info variant. Every playlist-related alert includes the destination playlist's
+name, including library additions and already-saved feedback. Use definite
+articles: “Added {count} tracks to the queue”, “Added {count} tracks to the
+playlist ‘{name}’”, “Added the playlist ‘{name}’ to your library”, and “The
+playlist ‘{name}’ is already in your library”. Display names in double curly
+quotes. Success alerts use lime, info alerts use neutral, both with a 3px
+ink border, 12px padding/gap, body-md text, wrapping message, and Dismiss button.
+Reuse the shared error-alert geometry and existing theme tokens. Do not render
+playback, preparation/progress, or cancellation messages as bare text beneath
+artwork. Loading and error states retain their dedicated UI. Catalog search
+uses the same alerts for these action outcomes. Preview both variants with
+`catalog_gallery -- alert-success` and `catalog_gallery -- alert-info`.
 
 Collection tables start 32px below the header, with a 3px outer border and 56px
 rows separated by 1px rules. Number columns are 56px, duration columns 60px,
 both 14px regular Space Mono. Album rows omit redundant artist subtitles;
-playlist rows retain them. These catalog rows are distinct from the existing
-variable-height library/queue rows.
+playlist rows retain them. These catalog rows retain their distinct layout from the existing
+library/queue rows while sharing track selection and action isolation.
 
 Artist pages separate Top songs and Albums. Section headings have 32px height,
 32px top spacing, 12px before their content, and a right-aligned See all control.
@@ -565,6 +803,27 @@ content; obvious Play, Pause, and clear-input controls do not need them.
 Accessibility labels and keyboard behavior are independent of tooltips.
 
 ## Verification
+
+### Native development workbench
+
+The user-authorized development workbench unifies the existing galleries in a
+native window. Its shell reuses the shared controls and theme: 272px sidebar,
+8px sidebar padding and story gaps, 16px toolbar padding, and 12px toolbar gaps.
+Story rows have no shadow; the active story uses ink/lime inversion. Group labels
+use label-caps. The initial window is the 1280px preview width plus the sidebar,
+with an 840px height. Compact mode fixes the preview width at the existing 1100px
+minimum desktop width, with horizontal scrolling when needed; Fill uses available
+space. These dimensions reuse `size::sidebar`, `layout::viewport_width`,
+`layout::viewport_height`, and `layout::min_width` without new tokens.
+
+The searchable story list, Reset, and Fill/Compact controls belong to the
+development shell. The preview renders the production components and existing
+approved gallery states. Search, selected story, and viewport mode survive
+rebuilds; transient interaction state resets. Catalog service actions are
+simulated or remain on their fixture, with isolated local data. No new product
+screen design is implied by the workbench shell.
+
+### Checks
 
 1. Run `npx @google/design.md lint DESIGN.md`. It must report no errors.
 2. Add or update the component in `examples/gallery.rs` in every state:

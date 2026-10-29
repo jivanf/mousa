@@ -88,6 +88,24 @@ fn details_have_titles_and_navigable_content() {
 }
 
 #[test]
+fn video_rows_open_the_uploader_channel_without_changing_playback() {
+    let page = fixture("videos");
+    for video in page.items {
+        let target = video.search_target().expect("video uploader link");
+        assert_eq!(target.kind, "Channel");
+        let destination = target.destination.unwrap();
+        assert_eq!(destination.body["mousaChannel"], true);
+        assert!(
+            destination.body["browseId"]
+                .as_str()
+                .unwrap()
+                .starts_with("UC")
+        );
+        assert!(video.track().is_some());
+    }
+}
+
+#[test]
 fn unknown_types_and_missing_optional_metadata_remain_visible() {
     let page = catalog::parse(
         &json!({"musicShelfRenderer":{"title":{"runs":[{"text":"New category"}]},"contents":[{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Future item"}]},"navigationEndpoint":{"browseEndpoint":{"browseId":"future"}}}}]}}),
@@ -187,4 +205,115 @@ fn live_catalog_categories_and_pagination() {
             assert!(!next.items.is_empty(), "{label}: empty continuation");
         }
     }
+}
+
+#[test]
+fn detail_metadata_and_creator_navigation_survive_parsing() {
+    let page = fixture("albums_detail");
+    assert!(page.metadata.contains("30 songs"));
+    assert!(page.metadata.contains("2 hours"));
+    let page = catalog::parse(
+        &json!({"musicResponsiveHeaderRenderer":{
+            "title":{"runs":[{"text":"Example album"}]},
+            "straplineText":{"runs":[{"text":"Example artist","navigationEndpoint":{"browseEndpoint":{"browseId":"UCcreator"}}}]},
+            "secondSubtitle":{"runs":[{"text":"12 tracks"}]}
+        }}),
+        "browse",
+    );
+    assert_eq!(page.byline, "Example artist");
+    assert_eq!(page.creator.unwrap().body["browseId"], "UCcreator");
+    assert_eq!(page.metadata, "12 tracks");
+}
+
+#[test]
+fn song_results_navigate_to_their_album_not_the_watch_or_artist_endpoint() {
+    for name in ["songs", "all"] {
+        let page = fixture(name);
+        let songs: Vec<_> = page.items.iter().filter(|i| i.kind == "Song").collect();
+        assert!(!songs.is_empty());
+        for song in songs {
+            let Some(album) = song.album.as_ref() else {
+                assert_eq!(name, "all", "filtered songs include album links");
+                assert!(song.search_target().is_none());
+                continue;
+            };
+            assert!(!album.title.is_empty());
+            let target = song.search_target().unwrap();
+            assert_eq!(target.kind, "Album");
+            assert_eq!(target.title, album.title);
+            assert_eq!(target.destination.as_ref().unwrap(), &album.destination);
+            assert_eq!(album.destination.api, "browse");
+            assert!(target.video.is_none());
+            assert!(song.video.is_some(), "explicit Play remains available");
+        }
+    }
+    let album = fixture("albums").items.remove(0);
+    assert_eq!(
+        album.search_target().unwrap().destination,
+        album.destination
+    );
+}
+
+#[test]
+fn missing_album_metadata_never_falls_back_to_playback_navigation() {
+    let song = Item {
+        kind: "Song".into(),
+        video: Some("song".into()),
+        destination: Some(catalog::Destination {
+            api: "next".into(),
+            body: json!({"videoId":"song"}),
+        }),
+        ..Default::default()
+    };
+    assert!(song.search_target().is_none());
+    assert!(song.track().is_some());
+    let old_cache = serde_json::to_value(&song).unwrap();
+    let mut old_cache = old_cache.as_object().unwrap().clone();
+    old_cache.remove("album");
+    assert!(
+        serde_json::from_value::<Item>(old_cache.into())
+            .unwrap()
+            .album
+            .is_none()
+    );
+}
+
+#[test]
+fn next_metadata_preserves_the_current_songs_album_link() {
+    let page = catalog::parse(
+        &json!({"playlistPanelVideoRenderer": {
+            "title": {"runs":[{"text":"Song"}]}, "videoId":"current",
+            "longBylineText":{"runs":[{"text":"Album title", "navigationEndpoint":{
+                "browseEndpoint":{"browseId":"album-id", "browseEndpointContextSupportedConfigs":{
+                    "browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}
+                }}
+            }}]}
+        }}),
+        "next",
+    );
+    let song = &page.items[0];
+    assert_eq!(song.video.as_deref(), Some("current"));
+    let album = song.album.as_ref().unwrap();
+    assert_eq!(album.title, "Album title");
+    assert_eq!(album.destination.body["browseId"], "album-id");
+}
+
+#[test]
+fn refresh_tokens_do_not_offer_another_page() {
+    let page = catalog::parse(
+        &json!({"continuations": [
+            {"reloadContinuationData": {"continuation": "refresh"}},
+            {"nextContinuationData": {"continuation": "next"}}
+        ]}),
+        "browse",
+    );
+    assert_eq!(page.more.len(), 1);
+    assert_eq!(page.more[0].1.body["continuation"], "next");
+    let complete = catalog::parse(
+        &json!({"continuations": [
+            {"reloadContinuationData": {"continuation": "refresh"}}
+        ]}),
+        "browse",
+    );
+    assert!(complete.more.is_empty());
 }

@@ -25,10 +25,47 @@ pub struct Item {
     pub duration: f64,
     pub artist: String,
     pub destination: Option<Destination>,
+    #[serde(default)]
+    pub album: Option<AlbumLink>,
+    #[serde(default)]
+    pub channel: Option<ChannelLink>,
     pub unavailable: bool,
     pub collection_member: bool,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AlbumLink {
+    pub title: String,
+    pub destination: Destination,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChannelLink {
+    pub title: String,
+    pub destination: Destination,
+}
 impl Item {
+    /// Search rows navigate; watch endpoints are reserved for explicit playback.
+    pub fn search_target(&self) -> Option<Self> {
+        if self.kind == "Video" {
+            let channel = self.channel.as_ref()?;
+            return Some(Self {
+                title: channel.title.clone(),
+                kind: "Channel".into(),
+                destination: Some(channel.destination.clone()),
+                ..Default::default()
+            });
+        }
+        if self.kind == "Song" {
+            let album = self.album.as_ref()?;
+            return Some(Self {
+                title: album.title.clone(),
+                kind: "Album".into(),
+                destination: Some(album.destination.clone()),
+                ..Default::default()
+            });
+        }
+        self.destination.as_ref().filter(|d| d.api == "browse")?;
+        Some(self.clone())
+    }
     pub fn track(&self) -> Option<crate::db::Track> {
         let video = self.video.as_ref()?;
         if self.unavailable {
@@ -51,6 +88,9 @@ impl Item {
 pub struct Page {
     pub title: String,
     pub subtitle: String,
+    pub metadata: String,
+    pub byline: String,
+    pub creator: Option<Destination>,
     pub thumbnail: Option<String>,
     pub items: Vec<Item>,
     pub filters: Vec<(String, Destination)>,
@@ -94,6 +134,14 @@ pub fn fetch_cancellable(destination: &Destination, cancelled: impl Fn() -> bool
         && at.elapsed() < Duration::from_secs(300)
     {
         return Ok(page.clone());
+    }
+    if destination.body["mousaChannel"] == true || destination.body["mousaPlaylist"] == true {
+        let page = crate::channel_catalog::fetch(destination, &cancelled)?;
+        if cache.pages.len() >= 64 {
+            cache.pages.clear();
+        }
+        cache.pages.insert(key, (Instant::now(), page.clone()));
+        return Ok(page);
     }
     if cache
         .blocked_until
@@ -204,6 +252,26 @@ fn seconds(s: &str) -> Option<f64> {
                 .and_then(|v| n.checked_mul(60)?.checked_add(v))
         })
         .map(|n| n as f64)
+}
+fn album_link(v: &Value) -> Option<AlbumLink> {
+    if let Some(destination) = endpoint(&v["navigationEndpoint"])
+        && destination.api == "browse"
+        && find(&destination.body, "pageType").and_then(Value::as_str)
+            == Some("MUSIC_PAGE_TYPE_ALBUM")
+    {
+        return Some(AlbumLink {
+            title: v["text"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| text(v)),
+            destination,
+        });
+    }
+    match v {
+        Value::Object(values) => values.values().find_map(album_link),
+        Value::Array(values) => values.iter().find_map(album_link),
+        _ => None,
+    }
 }
 fn item(v: &Value, category: &str) -> Option<Item> {
     let title = if v.get("flexColumns").is_some() {
@@ -322,10 +390,35 @@ fn item(v: &Value, category: &str) -> Option<Item> {
         duration,
         artist: artists.join(" · "),
         destination: dest.or(play),
+        album: album_link(&v["flexColumns"])
+            .or_else(|| album_link(&v["subtitle"]))
+            .or_else(|| album_link(&v["longBylineText"])),
+        channel: channel_link(&v["flexColumns"])
+            .or_else(|| channel_link(&v["subtitle"]))
+            .or_else(|| channel_link(&v["longBylineText"])),
         unavailable: v["isPlayable"].as_bool() == Some(false)
             || v["musicItemRendererDisplayPolicy"] == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT",
         collection_member: true,
     })
+}
+
+fn channel_link(v: &Value) -> Option<ChannelLink> {
+    if let Some(mut destination) = endpoint(&v["navigationEndpoint"])
+        && destination.body["browseId"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("UC"))
+    {
+        destination.body["mousaChannel"] = true.into();
+        return Some(ChannelLink {
+            title: v["text"].as_str().unwrap_or("Channel").into(),
+            destination,
+        });
+    }
+    match v {
+        Value::Object(values) => values.values().find_map(channel_link),
+        Value::Array(values) => values.iter().find_map(channel_link),
+        _ => None,
+    }
 }
 
 pub fn parse(v: &Value, api: &str) -> Page {
@@ -394,7 +487,8 @@ pub fn parse(v: &Value, api: &str) -> Page {
                                 page.more.push((format!("More {category}"), e));
                             }
                         }
-                        "nextContinuationData" | "reloadContinuationData" => {
+                        "reloadContinuationData" => {}
+                        "nextContinuationData" => {
                             if let Some(token) = value["continuation"].as_str() {
                                 page.more.push((
                                     "Load more".into(),
@@ -422,6 +516,16 @@ pub fn parse(v: &Value, api: &str) -> Page {
                         | "musicVisualHeaderRenderer" => {
                             page.title = text(&value["title"]);
                             page.subtitle = text(&value["subtitle"]);
+                            page.metadata = text(&value["secondSubtitle"]);
+                            page.byline = text(&value["straplineText"]);
+                            page.creator = find(&value["straplineText"], "navigationEndpoint")
+                                .and_then(endpoint);
+                            if page.byline.is_empty() {
+                                page.byline = text(&value["straplineTextOne"]);
+                                page.creator =
+                                    find(&value["straplineTextOne"], "navigationEndpoint")
+                                        .and_then(endpoint);
+                            }
                             page.thumbnail = thumbnail(&value["thumbnail"]);
                             if let Some(e) =
                                 find(&value["playButton"], "navigationEndpoint").and_then(endpoint)

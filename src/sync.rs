@@ -149,8 +149,20 @@ impl Google {
     ) -> Result<Value> {
         let quota_db = db::library()?;
         policy::init(&quota_db)?;
+        self.request_with_db(&quota_db, method, resource, query, body)
+    }
+
+    /// Bulk operations reuse their initialized database as well as the HTTP client.
+    fn request_with_db(
+        &self,
+        quota_db: &Library,
+        method: Method,
+        resource: &str,
+        query: &[(&str, &str)],
+        body: Option<Value>,
+    ) -> Result<Value> {
         policy::reserve(
-            &quota_db,
+            quota_db,
             integrations::now(),
             &format!("{} {resource}", method),
             if method == Method::GET { 1 } else { 50 },
@@ -165,7 +177,7 @@ impl Google {
             request = request.json(&body);
         }
         let response=request.send().context("YouTube is unreachable. Cached playlists are still available; edits were not confirmed.")?;
-        decode_response(response, &quota_db)
+        decode_response(response, quota_db)
     }
     fn pages(&self, resource: &str, query: &[(&str, &str)]) -> Result<Vec<Value>> {
         let mut result = Vec::new();
@@ -211,6 +223,16 @@ impl Google {
         if db.recently_written(id)? {
             return Ok(());
         }
+        self.refresh_after_write(db, id, remote, durations)
+    }
+
+    fn refresh_after_write(
+        &self,
+        db: &mut Library,
+        id: i64,
+        remote: &str,
+        durations: &mut HashMap<String, f64>,
+    ) -> Result<()> {
         policy::init(db)?;
         let now = integrations::now();
         policy::attempted(db, id, now)?;
@@ -364,6 +386,119 @@ pub fn create(name: &str, google: bool) -> Result<i64> {
     tx.commit()?;
     Ok(id)
 }
+/// Fetch authoritative metadata before enabling the editor. Never substitute an
+/// empty description/private visibility for a failed remote read.
+pub fn playlist_details(id: i64) -> Result<crate::playlist_edit::Details> {
+    use crate::playlist_edit::{Details, Fields, Remote};
+    let _guard = OPERATIONS.lock().unwrap();
+    let db = db::library()?;
+    let fields = db.playlist_fields(id)?;
+    let Some((remote, account)) = db.google_playlist(id)? else {
+        return Ok(Details {
+            fields,
+            remote: None,
+        });
+    };
+    let g = Google::connect()?;
+    g.check(&account)?;
+    let mut playlist = None;
+    for delay in [0, 1, 2, 4] {
+        if delay > 0 {
+            std::thread::sleep(Duration::from_secs(delay));
+        }
+        let v = g.request(
+            Method::GET,
+            "playlists",
+            &[("part", "snippet,status"), ("id", &remote)],
+            None,
+        )?;
+        playlist = v["items"]
+            .as_array()
+            .and_then(|items| items.first())
+            .cloned();
+        if playlist.is_some() {
+            break;
+        }
+    }
+    let p = playlist.context("Playlist is not available on YouTube. Refresh and retry.")?;
+    let fields = Fields {
+        title: p["snippet"]["title"]
+            .as_str()
+            .context("Missing playlist title")?
+            .into(),
+        description: p["snippet"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .into(),
+        privacy: Some(
+            p["status"]["privacyStatus"]
+                .as_str()
+                .context("Missing playlist privacy")?
+                .into(),
+        ),
+    };
+    Ok(Details {
+        fields,
+        remote: Some(Remote {
+            id: remote,
+            account,
+            etag: p["etag"]
+                .as_str()
+                .context("Missing playlist version")?
+                .into(),
+            snippet: p["snippet"].clone(),
+        }),
+    })
+}
+
+pub fn edit_playlist(
+    id: i64,
+    original: &crate::playlist_edit::Details,
+    fields: &crate::playlist_edit::Fields,
+) -> Result<()> {
+    fields.validate()?;
+    let _guard = OPERATIONS.lock().unwrap();
+    let db = db::library()?;
+    let mapping = db.google_playlist(id)?;
+    if let Some(remote) = &original.remote {
+        ensure!(
+            mapping.as_ref() == Some(&(remote.id.clone(), remote.account.clone())),
+            "Playlist account changed. Close and reopen the editor."
+        );
+        let g = Google::connect()?;
+        g.check(&remote.account)?;
+        let body = crate::playlist_edit::update_body(remote, fields)?;
+        policy::init(&db)?;
+        policy::reserve(&db, integrations::now(), "PUT playlists", 50, false)?;
+        let response = g
+            .client
+            .put(format!("{API}/playlists"))
+            .bearer_auth(&g.token)
+            .query(&[("part", "snippet,status")])
+            .header("If-Match", &remote.etag)
+            .json(&body)
+            .send()?;
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            bail!(
+                "This playlist changed on YouTube. Your edits are still here; copy them before reopening the editor to load the latest version."
+            );
+        }
+        decode_response(response, &db)?;
+    } else {
+        ensure!(
+            mapping.is_none() && fields.privacy.is_none(),
+            "Playlist source changed. Close and reopen the editor."
+        );
+    }
+    let tx = db.conn.unchecked_transaction()?;
+    db.edit_playlist(id, fields)?;
+    if original.remote.is_some() {
+        db.mark_written(id)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn rename(id: i64, name: &str) -> Result<()> {
     ensure!(!name.trim().is_empty(), "Enter a playlist name");
     let _guard = OPERATIONS.lock().unwrap();
@@ -433,56 +568,167 @@ pub fn delete(id: i64) -> Result<()> {
     db.delete(id)
 }
 pub fn add(id: i64, tracks: &[Track]) -> Result<()> {
-    let _guard = OPERATIONS.lock().unwrap();
+    if tracks.is_empty() {
+        return Ok(());
+    }
     let mut db = db::library()?;
     let Some((remote, account)) = db.google_playlist(id)? else {
         return db.add(id, tracks);
     };
+    let _guard = OPERATIONS.lock().unwrap();
     let g = Google::connect()?;
     g.check(&account)?;
-    for (added, t) in tracks.iter().enumerate() {
-        let url = url::Url::parse(&t.url)?;
-        let video = url
-            .query_pairs()
-            .find(|(k, _)| k == "v")
-            .map(|(_, v)| v.into_owned())
-            .context("Track has no YouTube video ID")?;
-        let result = g.request(Method::POST,"playlistItems",&[("part","snippet")],Some(json!({"snippet":{"playlistId":remote,"resourceId":{"kind":"youtube#video","videoId":video}}})));
-        let value = match result {
-            Ok(v) => v,
-            Err(e) => bail!(
-                "Added {added} of {} tracks before an error: {e}. Refresh before retrying to avoid duplicates.",
-                tracks.len()
-            ),
-        };
-        let remote_item = value["id"]
-            .as_str()
-            .context("YouTube accepted an addition without an item ID. Refresh before retrying.")?;
-        db.append_google(id, remote_item, t)
-            .context("Track added on YouTube but cache update failed. Refresh before retrying.")?;
+    policy::init(&db)?;
+    let mut needs_refresh = !cache_fresh_for_append(&db, id, integrations::now())?;
+    let mut expected_position: i64 = db.conn.query_row(
+        "SELECT count(*) FROM entries WHERE playlist_id=?",
+        [id],
+        |row| row.get(0),
+    )?;
+    let addition = (|| -> Result<()> {
+        for (added, t) in tracks.iter().enumerate() {
+            let url = url::Url::parse(&t.url)?;
+            let video = url
+                .query_pairs()
+                .find(|(k, _)| k == "v")
+                .map(|(_, v)| v.into_owned())
+                .context("Track has no YouTube video ID")?;
+            let result = g.request_with_db(&db,Method::POST,"playlistItems",&[("part","snippet")],Some(json!({"snippet":{"playlistId":remote,"resourceId":{"kind":"youtube#video","videoId":video}}})));
+            let value = match result {
+                Ok(v) => v,
+                Err(e) => bail!(
+                    "Added {added} of {} tracks before an error: {e}. Refresh before retrying to avoid duplicates.",
+                    tracks.len()
+                ),
+            };
+            // Detect incomplete caches and external changes using the confirmed position.
+            needs_refresh |= value["snippet"]["position"].as_i64() != Some(expected_position);
+            expected_position += 1;
+            let remote_item = value["id"].as_str().context(
+                "YouTube accepted an addition without an item ID. Refresh before retrying.",
+            )?;
+            db.append_google(id, remote_item, t).context(
+                "Track added on YouTube but cache update failed. Refresh before retrying.",
+            )?;
+        }
+        Ok(())
+    })();
+    finish_addition(addition, needs_refresh, || {
+        // The normal refresh skips recently written playlists, but additions
+        // must also fetch entries that were never present in the local cache.
+        g.refresh_after_write(&mut db, id, &remote, &mut HashMap::new())
+    })
+}
+
+fn cache_fresh_for_append(db: &Library, id: i64, now: i64) -> Result<bool> {
+    Ok(db.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM youtube_refresh WHERE playlist_id=? AND checked>0 AND checked>=? AND attempted<=checked)",
+        rusqlite::params![id, now - 60], |row| row.get(0))?)
+}
+
+fn finish_addition(
+    addition: Result<()>,
+    needs_refresh: bool,
+    refresh: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if addition.is_ok() && !needs_refresh {
+        return Ok(());
     }
-    Ok(())
+    let refreshed = refresh();
+    match (addition, refreshed) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.context(
+            "Tracks added, but playlist refresh failed. Refresh before retrying to avoid duplicates",
+        )),
+        (Err(addition), Err(refresh)) => {
+            bail!("{addition}. Playlist refresh also failed: {refresh}")
+        }
+    }
 }
 
 pub fn remove(id: i64) -> Result<()> {
-    let _guard = OPERATIONS.lock().unwrap();
-    let db = db::library()?;
-    let playlist = db.entry_playlist(id)?;
-    if let Some((_, account)) = db.google_playlist(playlist)? {
+    let (_, error) = remove_many(&[id]);
+    match error {
+        Some(error) => Err(anyhow::anyhow!(error)),
+        None => Ok(()),
+    }
+}
+
+/// Reuse one connection; stop on failure and report durably confirmed removals.
+pub fn remove_many(ids: &[i64]) -> (usize, Option<String>) {
+    let mut removed = 0;
+    let result = (|| -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let _guard = OPERATIONS.lock().unwrap();
+        let mut db = db::library()?;
+        let mut seen = HashSet::new();
+        let ids: Vec<_> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+        let entries = ids
+            .iter()
+            .map(|id| {
+                let playlist = db.entry_playlist(*id)?;
+                let remote = db
+                    .google_playlist(playlist)?
+                    .map(|(_, account)| Ok::<_, anyhow::Error>((account, db.google_entry(*id)?)))
+                    .transpose()?;
+                Ok((*id, playlist, remote))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if entries.iter().all(|(_, _, remote)| remote.is_none()) {
+            db.remove_many(&ids)?;
+            removed = ids.len();
+            return Ok(());
+        }
         let g = Google::connect()?;
-        g.check(&account)?;
-        g.request(
-            Method::DELETE,
-            "playlistItems",
-            &[("id", &db.google_entry(id)?)],
-            None,
-        )?;
+        policy::init(&db)?;
+        for (_, _, remote) in &entries {
+            if let Some((account, _)) = remote {
+                g.check(account)?;
+            }
+        }
+        let (count, error) = confirmed_prefix(&entries, |(id, playlist, remote)| {
+            if let Some((_, remote_id)) = remote {
+                g.request_with_db(
+                    &db,
+                    Method::DELETE,
+                    "playlistItems",
+                    &[("id", remote_id)],
+                    None,
+                )
+                .context("Removal was not confirmed. Refresh before retrying")?;
+            }
+            let tx = db.conn.unchecked_transaction()?;
+            db.remove(*id)
+                .context("Removal cache update failed. Refresh before retrying")?;
+            if remote.is_some() {
+                db.mark_written(*playlist)?;
+            }
+            tx.commit()
+                .context("Removal cache commit failed. Refresh before retrying")?;
+            Ok(())
+        });
+        removed = count;
+        if let Some(error) = error {
+            return Err(error);
+        }
+        Ok(())
+    })();
+    (removed, result.err().map(|error| format!("{error:#}")))
+}
+
+fn confirmed_prefix<T>(
+    items: &[T],
+    mut apply: impl FnMut(&T) -> Result<()>,
+) -> (usize, Option<anyhow::Error>) {
+    for (count, item) in items.iter().enumerate() {
+        if let Err(error) = apply(item) {
+            return (count, Some(error));
+        }
     }
-    db.remove(id)?;
-    if db.google_playlist(playlist)?.is_some() {
-        db.mark_written(playlist)?;
-    }
-    Ok(())
+    (items.len(), None)
 }
 pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     ensure!(matches!(delta, -1 | 1), "Move by one position at a time");
@@ -688,6 +934,80 @@ fn youtube_duration(value: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod duration_tests {
+    #[test]
+    fn confirmed_removals_stop_at_each_failure_in_selection_order() {
+        for failure in 0..=4 {
+            let mut visited = Vec::new();
+            let (count, error) = super::confirmed_prefix(&[3, 1, 4, 2], |id| {
+                if visited.len() == failure {
+                    anyhow::bail!("offline");
+                }
+                visited.push(*id);
+                Ok(())
+            });
+            assert_eq!(count, failure);
+            assert_eq!(visited, [3, 1, 4, 2][..failure]);
+            assert_eq!(error.is_some(), failure < 4);
+        }
+    }
+
+    #[test]
+    fn fresh_confirmed_additions_skip_refresh_but_failures_do_not() {
+        super::finish_addition(Ok(()), false, || panic!("redundant refresh")).unwrap();
+        let mut refreshed = false;
+        assert!(
+            super::finish_addition(Err(anyhow::anyhow!("uncertain write")), false, || {
+                refreshed = true;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(refreshed);
+    }
+
+    #[test]
+    fn append_fast_path_requires_recent_successful_snapshot() {
+        let db = crate::db::Library::open(":memory:").unwrap();
+        super::policy::init(&db).unwrap();
+        let id = db.create("test").unwrap();
+        assert!(!super::cache_fresh_for_append(&db, id, 1000).unwrap());
+        super::policy::completed(&db, id, 1000, "snapshot").unwrap();
+        assert!(super::cache_fresh_for_append(&db, id, 1030).unwrap());
+        assert!(!super::cache_fresh_for_append(&db, id, 1061).unwrap());
+        super::policy::attempted(&db, id, 1001).unwrap();
+        assert!(!super::cache_fresh_for_append(&db, id, 1030).unwrap());
+    }
+
+    #[test]
+    fn additions_refresh_on_success_and_partial_failure() {
+        for failed in [false, true] {
+            let mut refreshed = false;
+            let addition = if failed {
+                Err(anyhow::anyhow!("Partial addition"))
+            } else {
+                Ok(())
+            };
+            let result = super::finish_addition(addition, true, || {
+                refreshed = true;
+                Ok(())
+            });
+            assert!(refreshed);
+            assert_eq!(result.is_err(), failed);
+        }
+    }
+
+    #[test]
+    fn addition_refresh_failures_warn_against_duplicate_retries() {
+        let error = super::finish_addition(Ok(()), true, || anyhow::bail!("Offline")).unwrap_err();
+        assert!(error.to_string().contains("avoid duplicates"));
+        let error = super::finish_addition(Err(anyhow::anyhow!("Partial addition")), false, || {
+            anyhow::bail!("Offline")
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("Partial addition"));
+        assert!(error.to_string().contains("Offline"));
+    }
+
     #[test]
     fn quota_error_is_readable_and_persistently_stops_requests() {
         let db = crate::db::Library::open(":memory:").unwrap();

@@ -11,6 +11,39 @@ fn track(title: &str) -> Track {
     }
 }
 #[test]
+fn bulk_removal_preserves_survivor_order_and_rolls_back_on_failure() {
+    let mut db = Library::open(":memory:").unwrap();
+    let playlist = db.create("Bulk").unwrap();
+    db.add(
+        playlist,
+        &[
+            track("Same"),
+            track("Same"),
+            track("Third"),
+            track("Fourth"),
+        ],
+    )
+    .unwrap();
+    let rows = db.tracks(playlist, "", Sort::Position).unwrap();
+    db.conn.execute_batch(&format!("CREATE TRIGGER fail_delete BEFORE DELETE ON entries WHEN old.id={} BEGIN SELECT RAISE(ABORT, 'test failure'); END;", rows[2].id)).unwrap();
+    assert!(db.remove_many(&[rows[0].id, rows[2].id]).is_err());
+    assert_eq!(db.tracks(playlist, "", Sort::Position).unwrap(), rows);
+    db.conn.execute_batch("DROP TRIGGER fail_delete").unwrap();
+    db.remove_many(&[rows[2].id, rows[0].id, rows[0].id])
+        .unwrap();
+    let remaining = db.tracks(playlist, "", Sort::Position).unwrap();
+    assert_eq!(
+        remaining.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![rows[1].id, rows[3].id]
+    );
+    assert_eq!(
+        db.tracks(playlist, "Same", Sort::Position).unwrap().len(),
+        1
+    );
+    db.remove_many(&[]).unwrap();
+}
+
+#[test]
 fn crud_search_sort_and_duplicate_identity() {
     let mut db = Library::open(":memory:").unwrap();
     let id = db.create("Library").unwrap();
@@ -414,7 +447,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.add(id, &[track("Preserved")]).unwrap();
         db.save("session", "saved queue").unwrap();
         db.conn
-            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=0;")
+            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=0;")
             .unwrap();
     }
     let db = Library::open(&path).unwrap();
@@ -422,7 +455,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.conn
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
     assert_eq!(db.load("session").as_deref(), Some("saved queue"));
@@ -620,7 +653,7 @@ fn old_library_migrates_explicit_unavailable_titles_only() {
     )
     .unwrap();
     db.conn
-        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; PRAGMA user_version=1;")
+        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=1;")
         .unwrap();
     drop(db);
     let db = Library::open(path).unwrap();

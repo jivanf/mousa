@@ -162,8 +162,21 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
 }
 fn google_client_at(directory: &std::path::Path) -> Result<Value> {
     let path = directory.join("google-client.json");
+    let read = std::fs::read(&path);
+    let diagnostic = format!(
+        "time={} pid={} path={:?} cwd={:?} exe={:?} result={:?}\n",
+        now(),
+        std::process::id(),
+        path,
+        std::env::current_dir(),
+        std::env::current_exe(),
+        read.as_ref()
+            .map(|v| v.len())
+            .map_err(|e| (e.kind(), e.raw_os_error()))
+    );
+    let _ = std::fs::write(directory.join("configuration-read.log"), diagnostic);
     let v: Value = serde_json::from_slice(
-        &std::fs::read(&path)
+        &read
             .with_context(|| format!("Google configuration is unavailable. Save Google Desktop OAuth JSON to {}. If MOUSA_DATA_DIR is set, check that it points to your library", path.display()))?,
     ).with_context(|| format!("Invalid Google Desktop OAuth JSON in {}", path.display()))?;
     anyhow::ensure!(

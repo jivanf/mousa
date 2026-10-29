@@ -41,6 +41,7 @@ actions!(
 );
 
 enum Reply {
+    SelectionRemoved(usize, Option<String>),
     Reordered(Result<(), String>),
     Library(Vec<Playlist>),
     Tracks(u64, Vec<Track>, String),
@@ -55,7 +56,6 @@ enum Reply {
 enum Form {
     None,
     Create,
-    Rename,
     Delete,
 }
 #[derive(Clone)]
@@ -70,10 +70,15 @@ struct TrackDrag {
     generation: u64,
 }
 struct Mousa {
+    remove_selection: Option<Vec<i64>>,
+    removing_selection: bool,
+    playlist_editor: Option<Entity<mousa::playlist_editor::PlaylistEditor>>,
+    editor_subscription: Option<Subscription>,
     catalog: Entity<mousa::catalog_view::CatalogView>,
     catalog_open: bool,
     track_drag: Option<TrackDrag>,
     track_selection: mousa::track_selection::TrackSelection,
+    queue_selection: mousa::track_selection::TrackSelection,
     selection_playlist: Option<i64>,
     reorder_focus: Option<(i64, FocusHandle)>,
     reorder_reveal: Option<i64>,
@@ -170,17 +175,28 @@ impl Mousa {
         sidebar_scroll.set_offset(point(px(0.), px(saved.library_scroll.min(0.))));
         let track_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
         let queue_list = ListState::new(0, ListAlignment::Top, layout::list_overscan());
-        let catalog =
-            cx.new(|cx| mousa::catalog_view::CatalogView::new(player.clone(), window, cx));
+        let catalog = cx.new(|cx| {
+            mousa::catalog_view::CatalogView::with_saved_state(
+                player.clone(),
+                saved.catalog.clone(),
+                window,
+                cx,
+            )
+        });
         let mut app = Self {
+            playlist_editor: None,
+            editor_subscription: None,
             catalog: catalog.clone(),
-            catalog_open: false,
+            catalog_open: saved.catalog_open,
             track_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(track_list.clone(), cx)),
             queue_scrollbar: cx.new(|cx| ui::TrackScrollbar::new(queue_list.clone(), cx)),
             sidebar_scroll,
             view_state: saved.clone(),
             track_drag: None,
+            remove_selection: None,
+            removing_selection: false,
             track_selection: Default::default(),
+            queue_selection: Default::default(),
             selection_playlist: saved.playlist,
             reorder_focus: None,
             reorder_reveal: None,
@@ -389,6 +405,7 @@ impl Mousa {
         }
     }
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
+        self.remove_selection = None;
         self.track_selection.clear();
         self.track_drag = None;
         self.generation += 1; // Invalidate an in-flight result as soon as input changes.
@@ -401,6 +418,7 @@ impl Mousa {
     }
     fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
         if self.selection_playlist != self.selected {
+            self.remove_selection = None;
             self.track_selection.clear();
             self.track_drag = None;
             self.selection_playlist = self.selected;
@@ -565,6 +583,14 @@ impl Mousa {
                         self.freshness = freshness;
                     }
                 }
+                Reply::SelectionRemoved(count, error) => {
+                    self.removing_selection = false;
+                    self.remove_selection = None;
+                    self.status = format!("Removed {count} tracks");
+                    self.error = error;
+                    self.refresh_library();
+                    self.refresh_tracks(cx);
+                }
                 Reply::Done(s) => {
                     self.status = s;
                     self.refresh_library();
@@ -602,6 +628,15 @@ impl Mousa {
         if self.revision != s.revision {
             self.revision = s.revision;
             if !Arc::ptr_eq(&self.queue, &s.queue) {
+                // Occurrence indices remain valid until queue contents/order change.
+                if !self
+                    .queue
+                    .iter()
+                    .map(|t| (t.id, &t.url))
+                    .eq(s.queue.iter().map(|t| (t.id, &t.url)))
+                {
+                    self.queue_selection.clear();
+                }
                 let offset = &self.view_state.queue_position;
                 self.queue_list.reset(s.queue.len());
                 if !s.queue.is_empty() {
@@ -657,27 +692,38 @@ impl Mousa {
                 .send(Command::Volume(self.audible_volume.max(1.)));
         }
     }
+    fn edit_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else {
+            return;
+        };
+        let previous_focus = window.focused(cx);
+        let editor = cx.new(|cx| mousa::playlist_editor::PlaylistEditor::new(id, window, cx));
+        self.editor_subscription =
+            Some(
+                cx.subscribe_in(&editor, window, move |this, _, event, window, cx| {
+                    this.playlist_editor = None;
+                    if let Some(focus) = &previous_focus {
+                        focus.focus(window);
+                    } else {
+                        this.focus.focus(window);
+                    }
+                    if matches!(event, mousa::playlist_editor::Event::Saved) {
+                        this.status = "Playlist saved".into();
+                        this.refresh_library();
+                        this.refresh_tracks(cx);
+                    }
+                    cx.notify();
+                }),
+            );
+        self.playlist_editor = Some(editor);
+        cx.notify();
+    }
     fn show_form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
         self.catalog_open = false;
         self.form = form;
-        let value = if form == Form::Rename {
-            self.playlists
-                .iter()
-                .find(|p| Some(p.id) == self.selected)
-                .map(|p| p.name.clone())
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
         self.field.update(cx, |s, cx| {
-            s.set_placeholder(
-                match form {
-                    _ => "Playlist name",
-                },
-                window,
-                cx,
-            );
-            s.set_value(value, window, cx);
+            s.set_placeholder("Playlist name", window, cx);
+            s.set_value("", window, cx);
         });
         cx.notify();
     }
@@ -690,13 +736,6 @@ impl Mousa {
         self.status = "Working…".into();
         self.job(move || match form {
             Form::Create => Ok(Reply::Created(sync::create(&text, create_google)?)),
-            Form::Rename => {
-                sync::rename(
-                    selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?,
-                    &text,
-                )?;
-                Ok(Reply::Done("Playlist renamed".into()))
-            }
             Form::Delete => {
                 sync::delete(selected.ok_or_else(|| anyhow::anyhow!("Select a playlist"))?)?;
                 Ok(Reply::Done(
@@ -776,6 +815,118 @@ impl Mousa {
             height * (boundary as f32 - scroll.item_ix as f32) - scroll.offset_in_item,
         ))
     }
+    fn selection_strip(&self, cx: &Context<Self>) -> Option<Div> {
+        let queue = self.queue_view;
+        let tracks = if queue { &self.queue } else { &self.tracks };
+        let selection = if queue {
+            &self.queue_selection
+        } else {
+            &self.track_selection
+        };
+        let selected: Vec<_> = tracks
+            .iter()
+            .enumerate()
+            .filter(|(i, t)| {
+                selection
+                    .ids
+                    .contains(&if queue { *i as i64 } else { t.id })
+            })
+            .map(|(_, t)| t.clone())
+            .collect();
+        if selected.is_empty() {
+            return None;
+        }
+        let count = selected.len();
+        let playable: Vec<_> = selected
+            .iter()
+            .filter(|t| t.unavailable.is_none())
+            .cloned()
+            .collect();
+        let unavailable = count - playable.len();
+        let mut actions = div().flex().items_center().gap(space::md());
+        for (id, label) in [
+            ("selection-play", "PLAY"),
+            ("selection-queue", "QUEUE"),
+            ("selection-save", "ADD TO PLAYLIST"),
+        ] {
+            let tracks = playable.clone();
+            actions = actions.child(
+                ui::selection_action(
+                    id,
+                    label,
+                    match id {
+                        "selection-play" => "player-play",
+                        "selection-queue" => "playlist-add",
+                        _ => "plus",
+                    },
+                    false,
+                )
+                .when(tracks.is_empty(), |d| {
+                    d.bg(color::canvas())
+                        .text_color(color::muted())
+                        .shadow(vec![])
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if tracks.is_empty() {
+                        return;
+                    }
+                    match id {
+                        "selection-play" => {
+                            this.player.send(Command::SetShuffle(false));
+                            this.player.send(Command::Queue(tracks.clone(), 0));
+                        }
+                        "selection-queue" => {
+                            for track in &tracks {
+                                this.player.send(Command::Append(track.clone()));
+                            }
+                        }
+                        _ => {
+                            this.catalog
+                                .update(cx, |catalog, cx| catalog.save_tracks(tracks.clone(), cx));
+                            this.catalog_open = true;
+                        }
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        if !queue && self.selected.is_some() {
+            let ids: Vec<_> = selected.iter().map(|t| t.id).collect();
+            actions = actions.child(
+                ui::selection_action(
+                    "selection-remove",
+                    if self.removing_selection {
+                        "REMOVING…"
+                    } else {
+                        "REMOVE"
+                    },
+                    "x",
+                    true,
+                )
+                .ml(space::xl())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if !this.removing_selection {
+                        this.remove_selection = Some(ids.clone());
+                        cx.notify();
+                    }
+                })),
+            );
+        }
+        let clear = ui::selection_action("selection-clear", "CLEAR", "x", false).on_click(
+            cx.listener(move |this, _, _, cx| {
+                if queue {
+                    this.queue_selection.clear();
+                } else {
+                    this.track_selection.clear();
+                }
+                this.remove_selection = None;
+                this.unavailable_selection = None;
+                cx.notify();
+            }),
+        );
+        Some(ui::selection_bar(count, unavailable, true, actions, clear))
+    }
+
     fn rows(&self, queue: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let tracks = if queue {
             self.queue.clone()
@@ -792,7 +943,13 @@ impl Mousa {
             .as_ref()
             .filter(|d| d.active)
             .map(|d| d.index);
-        let selected_ids = self.track_selection.ids.clone();
+        let selected_ids = if queue {
+            &self.queue_selection
+        } else {
+            &self.track_selection
+        }
+        .ids
+        .clone();
         let dragging_ids = self
             .track_drag
             .as_ref()
@@ -855,10 +1012,6 @@ impl Mousa {
                         })
                         .when(inverted, |d| d.bg(color::ink()).text_color(color::lime()))
                     })
-                    .when(!queue && selected_ids.contains(&id), |d| {
-                        d.border_l(reorder::line())
-                            .when(!is_active && !inverted, |d| d.bg(color::canvas()))
-                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.unavailable_selection = if unavailable {
                             Some((queue, if queue { i as i64 } else { id }))
@@ -904,81 +1057,93 @@ impl Mousa {
                             cx.stop_propagation();
                         }
                     }))
-                    .when(!queue, |d| {
-                        d.when(can_move, |d| d.cursor(CursorStyle::OpenHand))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
-                                    // A focused child control owns this press.
-                                    if window.default_prevented() {
-                                        return;
-                                    }
-                                    if !this.tracks_ready || this.reorder_busy {
-                                        return;
-                                    }
-                                    let order: Vec<_> = this.tracks.iter().map(|t| t.id).collect();
-                                    let collapse_on_release = this.track_selection.press(
+                    .map(|d| {
+                        ui::selectable_track_row(
+                            d.when(can_move, |d| d.cursor(CursorStyle::OpenHand)).when(
+                                selected_ids.contains(&if queue { i as i64 } else { id }),
+                                |d| d.pl(space::lg() - mousa::theme::selection::marker()),
+                            ),
+                            selected_ids.contains(&if queue { i as i64 } else { id }),
+                            is_active || inverted,
+                            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                if !this.removing_selection {
+                                    this.remove_selection = None;
+                                }
+                                if queue {
+                                    let order: Vec<_> = (0..this.queue.len() as i64).collect();
+                                    this.queue_selection.click(
                                         &order,
                                         i,
                                         e.modifiers.control,
                                         e.modifiers.shift,
                                     );
-                                    this.unavailable_selection =
-                                        if unavailable { Some((false, id)) } else { None };
                                     cx.notify();
-                                    if !can_move {
-                                        if collapse_on_release {
-                                            this.track_selection.only(id);
-                                        }
-                                        return;
+                                    return;
+                                }
+                                if !this.tracks_ready || this.reorder_busy {
+                                    return;
+                                }
+                                let order: Vec<_> = this.tracks.iter().map(|t| t.id).collect();
+                                let collapse_on_release = this.track_selection.press(
+                                    &order,
+                                    i,
+                                    e.modifiers.control,
+                                    e.modifiers.shift,
+                                );
+                                this.unavailable_selection =
+                                    if unavailable { Some((false, id)) } else { None };
+                                cx.notify();
+                                if !can_move {
+                                    if collapse_on_release {
+                                        this.track_selection.only(id);
                                     }
-                                    if !this.track_selection.ids.contains(&id) {
-                                        return;
-                                    }
-                                    let ids = order
-                                        .iter()
-                                        .filter(|id| this.track_selection.ids.contains(id))
-                                        .copied()
-                                        .collect();
-                                    let top = this
-                                        .track_list
-                                        .bounds_for_item(i)
-                                        .map(|b| b.top())
-                                        .unwrap_or(e.position.y);
-                                    this.track_drag = Some(TrackDrag {
-                                        index: i,
-                                        ids,
-                                        collapse_on_release,
-                                        pointer: e.position,
-                                        origin: e.position,
-                                        active: false,
-                                        offset: e.position.y - top,
-                                        generation: this.generation,
-                                    });
-                                    cx.spawn(async move |this, cx| {
-                                        loop {
-                                            cx.background_executor()
-                                                .timer(Duration::from_millis(16))
-                                                .await;
-                                            let keep = this
-                                                .update(cx, |this, cx| {
-                                                    let Some(drag) = this.track_drag.clone() else {
-                                                        return false;
-                                                    };
-                                                    if drag.generation != this.generation
-                                                        || this.queue_view
-                                                    {
-                                                        this.track_drag = None;
-                                                        cx.notify();
-                                                        return false;
-                                                    }
-                                                    let bounds = this.track_list.viewport_bounds();
-                                                    if drag.active && bounds.contains(&drag.pointer)
-                                                    {
-                                                        let band = control_size::row();
-                                                        let delta = if drag.pointer.y
-                                                            < bounds.top() + band
-                                                        {
+                                    return;
+                                }
+                                if !this.track_selection.ids.contains(&id) {
+                                    return;
+                                }
+                                let ids = order
+                                    .iter()
+                                    .filter(|id| this.track_selection.ids.contains(id))
+                                    .copied()
+                                    .collect();
+                                let top = this
+                                    .track_list
+                                    .bounds_for_item(i)
+                                    .map(|b| b.top())
+                                    .unwrap_or(e.position.y);
+                                this.track_drag = Some(TrackDrag {
+                                    index: i,
+                                    ids,
+                                    collapse_on_release,
+                                    pointer: e.position,
+                                    origin: e.position,
+                                    active: false,
+                                    offset: e.position.y - top,
+                                    generation: this.generation,
+                                });
+                                cx.spawn(async move |this, cx| {
+                                    loop {
+                                        cx.background_executor()
+                                            .timer(Duration::from_millis(16))
+                                            .await;
+                                        let keep = this
+                                            .update(cx, |this, cx| {
+                                                let Some(drag) = this.track_drag.clone() else {
+                                                    return false;
+                                                };
+                                                if drag.generation != this.generation
+                                                    || this.queue_view
+                                                {
+                                                    this.track_drag = None;
+                                                    cx.notify();
+                                                    return false;
+                                                }
+                                                let bounds = this.track_list.viewport_bounds();
+                                                if drag.active && bounds.contains(&drag.pointer) {
+                                                    let band = control_size::row();
+                                                    let delta =
+                                                        if drag.pointer.y < bounds.top() + band {
                                                             -reorder::scroll_step()
                                                         } else if drag.pointer.y
                                                             > bounds.bottom() - band
@@ -987,36 +1152,34 @@ impl Mousa {
                                                         } else {
                                                             px(0.)
                                                         };
-                                                        if delta != px(0.) {
-                                                            let current = this
-                                                                .track_list
-                                                                .scroll_px_offset_for_scrollbar();
-                                                            let max = this
-                                                                .track_list
-                                                                .max_offset_for_scrollbar()
-                                                                .height;
-                                                            let next = (-current.y + delta)
-                                                                .clamp(px(0.), max);
-                                                            this.track_list
-                                                                .set_offset_from_scrollbar(point(
-                                                                    px(0.),
-                                                                    -next,
-                                                                ));
-                                                        }
+                                                    if delta != px(0.) {
+                                                        let current = this
+                                                            .track_list
+                                                            .scroll_px_offset_for_scrollbar();
+                                                        let max = this
+                                                            .track_list
+                                                            .max_offset_for_scrollbar()
+                                                            .height;
+                                                        let next =
+                                                            (-current.y + delta).clamp(px(0.), max);
+                                                        this.track_list.set_offset_from_scrollbar(
+                                                            point(px(0.), -next),
+                                                        );
                                                     }
-                                                    cx.notify();
-                                                    true
-                                                })
-                                                .unwrap_or(false);
-                                            if !keep {
-                                                break;
-                                            }
+                                                }
+                                                cx.notify();
+                                                true
+                                            })
+                                            .unwrap_or(false);
+                                        if !keep {
+                                            break;
                                         }
-                                    })
-                                    .detach();
-                                    cx.notify();
-                                }),
-                            )
+                                    }
+                                })
+                                .detach();
+                                cx.notify();
+                            }),
+                        )
                     })
                     .child(
                         div()
@@ -1077,7 +1240,7 @@ impl Mousa {
                                     .child(artist),
                             ),
                     )
-                    .when(!unavailable || queue, |d| {
+                    .when((!unavailable || queue) && selected_ids.is_empty(), |d| {
                         d.child(
                             icon_button(
                                 ("enqueue", i),
@@ -1139,7 +1302,7 @@ impl Mousa {
                             )),
                         )
                     })
-                    .when(!queue, |d| {
+                    .when(!queue && selected_ids.is_empty(), |d| {
                         d.child(
                             icon_button(
                                 ("remove", i),
@@ -1478,7 +1641,7 @@ impl Render for Mousa {
             .p(space::lg())
             .flex()
             .flex_col()
-            .gap(space::lg())
+            .gap(mousa::theme::catalog::nav_gap())
             .child(
                 button(
                     "library",
@@ -1489,6 +1652,8 @@ impl Render for Mousa {
                         color::surface()
                     },
                 )
+                .justify_start()
+                .h(mousa::theme::catalog::nav_height())
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.catalog_open = false;
                     this.queue_view = false;
@@ -1505,6 +1670,8 @@ impl Render for Mousa {
                         color::surface()
                     },
                 )
+                .justify_start()
+                .h(mousa::theme::catalog::nav_height())
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.catalog_open = false;
                     this.queue_view = true;
@@ -1521,14 +1688,16 @@ impl Render for Mousa {
                         color::surface()
                     },
                 )
+                .justify_start()
+                .h(mousa::theme::catalog::nav_height())
                 .on_click(cx.listener(|this, _, w, cx| {
                     this.catalog_open = true;
                     this.track_drag = None;
-                    this.catalog.read(cx).focus(w, cx);
+                    this.catalog.update(cx, |catalog, cx| catalog.focus(w, cx));
                     cx.notify();
                 })),
             )
-            .child(ui::input(&self.playlist_search, cx))
+            .child(ui::search_input(&self.playlist_search, false, cx))
             .child(
                 button("new", "+ NEW PLAYLIST", color::surface())
                     .on_click(cx.listener(|this, _, w, cx| this.show_form(Form::Create, w, cx))),
@@ -1599,7 +1768,11 @@ impl Render for Mousa {
             .flex()
             .items_center()
             .gap(space::sm())
-            .child(div().flex_1().child(ui::input(&self.search, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .child(ui::search_input(&self.search, false, cx)),
+            )
             .child(
                 button("refresh-current", "REFRESH", color::surface())
                     .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
@@ -1625,9 +1798,10 @@ impl Render for Mousa {
                             .child(title),
                     )
                     .when(!self.queue_view && self.selected.is_some(), |d| {
-                        d.child(button("rename", "RENAME", color::surface()).on_click(
-                            cx.listener(|this, _, w, cx| this.show_form(Form::Rename, w, cx)),
-                        ))
+                        d.child(
+                            button("rename", "EDIT", color::surface())
+                                .on_click(cx.listener(|this, _, w, cx| this.edit_playlist(w, cx))),
+                        )
                         .child(
                             button("delete", "DELETE", color::pink()).on_click(
                                 cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
@@ -1646,25 +1820,15 @@ impl Render for Mousa {
                 },
             ));
         if let Some(error) = self.error.clone() {
-            content = content.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(space::md())
-                    .p(space::md())
-                    .border(border::strong())
-                    .border_color(color::ink())
-                    .bg(color::pink())
-                    .child(div().flex_1().child(error))
-                    .child(
-                        button("dismiss-error", "DISMISS", color::surface()).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.error = None;
-                                cx.notify();
-                            },
-                        )),
-                    ),
-            );
+            content = content.child(ui::error_alert(
+                error,
+                button("dismiss-error", "DISMISS", color::surface()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.error = None;
+                        cx.notify();
+                    },
+                )),
+            ));
         }
         if !self.queue_view {
             content = content.child(toolbar);
@@ -1672,7 +1836,6 @@ impl Render for Mousa {
         if self.form != Form::None {
             let label = match self.form {
                 Form::Create => "NEW PLAYLIST",
-                Form::Rename => "RENAME PLAYLIST",
                 Form::Delete => {
                     if self
                         .playlists
@@ -1746,10 +1909,50 @@ impl Render for Mousa {
             );
             content = content.child(form);
         }
+        if let Some(ids) = self.remove_selection.clone().filter(|_| !self.queue_view) {
+            let count = ids.len();
+            content = content.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(space::md())
+                    .child(format!(
+                        "Remove {count} selected tracks from this playlist?"
+                    ))
+                    .child(
+                        button("confirm-remove-selection", "REMOVE TRACKS", color::pink())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if this.removing_selection {
+                                    return;
+                                }
+                                this.removing_selection = true;
+                                let ids = ids.clone();
+                                this.job(move || {
+                                    let (removed, error) = sync::remove_many(&ids);
+                                    Ok(Reply::SelectionRemoved(removed, error))
+                                });
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        button("cancel-remove-selection", "CANCEL", color::surface()).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                if !this.removing_selection {
+                                    this.remove_selection = None;
+                                    cx.notify();
+                                }
+                            }),
+                        ),
+                    ),
+            );
+        }
         content = content.child(
             div()
                 .flex_1()
                 .min_h_0()
+                .flex()
+                .flex_col()
+                .when_some(self.selection_strip(cx), |d, bar| d.child(bar))
                 .border(border::strong())
                 .border_color(color::ink())
                 .when(n == 0, |d| {
@@ -1776,7 +1979,14 @@ impl Render for Mousa {
                             "Open Search to find music and add it to a playlist."
                         })
                 })
-                .when(n > 0, |d| d.child(self.rows(self.queue_view, cx))),
+                .when(n > 0, |d| {
+                    d.child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.rows(self.queue_view, cx)),
+                    )
+                }),
         );
         let controls = div()
             .flex()
@@ -1945,7 +2155,7 @@ impl Render for Mousa {
             }
             cx.notify();
         }));
-        div()
+        let background = div()
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" && this.catalog_open {
                     this.catalog.update(cx, |view, cx| view.back(cx));
@@ -1968,7 +2178,8 @@ impl Render for Mousa {
             )
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
                 if this.catalog_open {
-                    this.catalog.read(cx).focus(window, cx);
+                    this.catalog
+                        .update(cx, |catalog, cx| catalog.focus(window, cx));
                 } else {
                     this.search.read(cx).focus_handle(cx).focus(window);
                 }
@@ -1976,7 +2187,8 @@ impl Render for Mousa {
             .on_action(cx.listener(|this, _: &OpenCatalog, window, cx| {
                 this.catalog_open = true;
                 this.track_drag = None;
-                this.catalog.read(cx).focus(window, cx);
+                this.catalog
+                    .update(cx, |catalog, cx| catalog.focus(window, cx));
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SeekBack, _, _| {
@@ -2017,7 +2229,12 @@ impl Render for Mousa {
                         content.into_any_element()
                     }),
             )
-            .child(player)
+            .child(player);
+        div()
+            .relative()
+            .size_full()
+            .child(background)
+            .children(self.playlist_editor.clone())
             .into_any_element()
     }
 }
@@ -2102,6 +2319,8 @@ fn main() {
                 cx.on_app_quit(move |cx| {
                     let browsing = saved_view.update(cx, |v, cx| {
                         v.remember_view(cx);
+                        v.view_state.catalog_open = v.catalog_open;
+                        v.view_state.catalog = Some(v.catalog.read(cx).snapshot(cx));
                         v.view_state.clone()
                     });
                     let snapshot = player.state.lock().unwrap().clone();
