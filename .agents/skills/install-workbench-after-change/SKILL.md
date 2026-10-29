@@ -1,13 +1,20 @@
 ---
 name: install-workbench-after-change
-description: Rebuild and reinstall the Mousa Workbench after repository changes and commits, or when asked to refresh the Workbench. Main-app installation requires an explicit user request.
+description: Rebuild and reinstall the Mousa Workbench after UI changes, or when explicitly asked to refresh it. Do not rebuild for documentation or other non-UI changes. Main-app installation requires an explicit user request.
 ---
 
 # Update the installed Workbench
 
-After each change set and every successful commit (including amendments and
-documentation-only commits), rebuild and reinstall the Workbench before reporting
-completion. Run from the repository root and wait for completion:
+Rebuild and reinstall the Workbench only after UI changes or an explicit request
+to refresh it. UI changes include application or Workbench appearance,
+interactions, components, theme tokens, assets, and preview states. Documentation,
+guidelines, skills, and other non-UI changes do not trigger a rebuild. A commit or
+amendment alone does not trigger a rebuild; do not repeat a verified rebuild if
+the UI source has not changed. Honor an explicit user instruction to skip rebuilding.
+
+When required, rebuild and reinstall before reporting completion.
+Run from the current task's worktree root, not the primary checkout
+or another task's worktree, and wait for completion:
 
 - Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\install-workbench.ps1`
 - Linux: `bash ./scripts/install-workbench.sh`
