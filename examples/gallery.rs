@@ -206,8 +206,12 @@ impl Render for Gallery {
             );
         let info = div()
             .child(
-                ui::caps(if self.queue_opened { "QUEUE OPENED" } else { "NOW PLAYING" })
-                    .mb(space::sm()),
+                ui::caps(if self.queue_opened {
+                    "QUEUE OPENED"
+                } else {
+                    "NOW PLAYING"
+                })
+                .mb(space::sm()),
             )
             .child(
                 div()
@@ -371,7 +375,10 @@ impl Render for Gallery {
         }
         root.child(
             ui::player_panel(
-                info, controls, timeline, volume,
+                info,
+                controls,
+                timeline,
+                volume,
                 window.viewport_size().width < layout::player_breakpoint(),
             )
             .on_click(cx.listener(|this, _, _, cx| {
@@ -379,7 +386,7 @@ impl Render for Gallery {
                 cx.notify();
             })),
         )
-            .into_any_element()
+        .into_any_element()
     }
 }
 fn main() {
