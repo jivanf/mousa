@@ -122,7 +122,7 @@ try {
         if ($Launch) { Start-Process -FilePath $installed -WorkingDirectory $InstallDir -WindowStyle Hidden }
         return
     }
-    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
+    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-mcp.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
     $shell = New-Object -ComObject WScript.Shell

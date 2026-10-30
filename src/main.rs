@@ -41,6 +41,7 @@ actions!(
 );
 
 enum Reply {
+    ExternalChange(Vec<Playlist>),
     SelectionRemoved(usize, Option<String>),
     Reordered(Result<(), String>),
     Library(Vec<Playlist>),
@@ -71,6 +72,7 @@ struct TrackDrag {
     generation: u64,
 }
 struct Mousa {
+    _control: Option<mousa::control::RuntimeGuard>,
     remove_selection: Option<Vec<i64>>,
     removing_selection: bool,
     playlist_editor: Option<Entity<mousa::playlist_editor::PlaylistEditor>>,
@@ -151,6 +153,22 @@ impl Mousa {
         #[cfg(target_os = "windows")]
         mousa::windows_media::start(window, player.clone());
         let (tx, rx) = mpsc::channel();
+        let control_tx = tx.clone();
+        let control = match mousa::control::start(
+            mousa::control::Service::new(player.clone()).with_change_notifier(move || {
+                if let Ok(db) = db::library()
+                    && let Ok(playlists) = db.playlists()
+                {
+                    let _ = control_tx.send(Reply::ExternalChange(playlists));
+                }
+            }),
+        ) {
+            Ok(control) => Some(control),
+            Err(error) => {
+                eprintln!("MCP control unavailable: {error}");
+                None
+            }
+        };
         let volume_slider = cx.new(|cx| Bar::new(0.05, cx));
         let seek = cx.new(|cx| Bar::new(0.01, cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search tracks…"));
@@ -184,6 +202,7 @@ impl Mousa {
             )
         });
         let mut app = Self {
+            _control: control,
             playlist_editor: None,
             editor_subscription: None,
             catalog: catalog.clone(),
@@ -489,6 +508,18 @@ impl Mousa {
         while let Ok(reply) = self.rx.try_recv() {
             changed = true;
             match reply {
+                Reply::ExternalChange(playlists) => {
+                    self.playlists = playlists;
+                    if !self
+                        .selected
+                        .is_some_and(|id| self.playlists.iter().any(|p| p.id == id))
+                    {
+                        self.selected = self.playlists.first().map(|p| p.id);
+                    }
+                    self.tracks_ready = false;
+                    self.refresh_tracks(cx);
+                    self.player.refresh_metadata();
+                }
                 Reply::Reordered(result) => {
                     self.reorder_busy = false;
                     self.tracks_ready = false;
