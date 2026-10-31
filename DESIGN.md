@@ -94,6 +94,7 @@ x-motion:
   player-panel-trigger: press-and-release
 x-alignment:
   playlist-editor-character-counters: right
+x-collection-layout: shared-artwork-header-and-right-aligned-search-toolbar
 x-scrolling:
   scrollbar-gutter: overflow-only
   catalog-collection-detail: table-with-fixed-header-and-selection
@@ -287,6 +288,9 @@ components:
   catalog-detail:
     padding: 32px
     gap: 32px
+  collection-search:
+    width: 224px
+    height: 36px
   catalog-cover:
     size: 192px
   catalog-portrait:
@@ -734,6 +738,23 @@ have 3px borders and 5px hard shadows. Align header information to the cover's
 bottom edge. Titles use page-title with 1.1 line height; category labels use
 label-caps, and byline/metadata use body-md/body-sm. Navigable creator credits
 are underlined. Metadata reflects the service; missing values are omitted.
+
+**User-authorized shared collection layout:** library playlists use the same
+192px artwork, bottom-aligned metadata, 32px page padding and cover/text gap
+as catalog albums. Reuse the production header and toolbar components. Put
+collection actions below the artwork/header, with a 224px, 36px search field
+at the right and 12px gaps. Keep 32px between header and toolbar and 32px
+before the fixed selection strip/scrolling table. At narrow widths actions wrap
+while search remains right-aligned. Library playlists retain Edit, Delete,
+Refresh, track reordering and their existing track-row interactions; they do
+not need catalog Back navigation. Queue layout remains unchanged.
+Search matches track titles and artists case-insensitively; clearing restores
+tracks, and filtering clears selection and returns the table to the top.
+Show a no-matches state. Catalog search filters loaded collection rows as
+pagination continues. Full-collection actions continue to use the full collection.
+Use cached service artwork for synced playlists and saved catalog snapshots;
+playlists without artwork use the existing disc fallback. Artwork settings are
+additive and readable by the prior release without migration.
 
 Header actions are 44px high, with 18px horizontal padding, 10px icon/text gaps,
 18px icons, and 13px bold Space Mono labels. Allow wrapping. Album and playlist

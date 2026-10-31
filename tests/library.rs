@@ -1,4 +1,19 @@
 use mousa::db::{Library, Sort, Track};
+#[test]
+fn playlist_artwork_is_optional_and_never_reused_for_a_new_playlist() {
+    let db = Library::open(":memory:").unwrap();
+    let id = db.create("Artwork").unwrap();
+    assert_eq!(db.playlists().unwrap()[0].thumbnail, None);
+    db.save(
+        &format!("playlist-thumbnail:{id}"),
+        "https://i.ytimg.com/vi/test/hqdefault.jpg",
+    )
+    .unwrap();
+    assert!(db.playlists().unwrap()[0].thumbnail.is_some());
+    db.delete(id).unwrap();
+    db.create("No artwork").unwrap();
+    assert_eq!(db.playlists().unwrap()[0].thumbnail, None);
+}
 fn track(title: &str) -> Track {
     Track {
         id: 0,
