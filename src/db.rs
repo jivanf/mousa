@@ -23,6 +23,7 @@ pub struct Playlist {
     pub name: String,
     pub count: usize,
     pub google: bool,
+    pub thumbnail: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Sort {
@@ -117,13 +118,15 @@ impl Library {
         Ok(())
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
-        Ok(self.conn.prepare("SELECT p.id,p.name,count(e.id),EXISTS(SELECT 1 FROM google_playlists g WHERE g.playlist_id=p.id) FROM playlists p LEFT JOIN entries e ON e.playlist_id=p.id GROUP BY p.id ORDER BY p.name COLLATE NOCASE")?.query_map([],|r|Ok(Playlist{id:r.get(0)?,name:r.get(1)?,count:r.get(2)?,google:r.get(3)?}))?.collect::<rusqlite::Result<_>>()?)
+        Ok(self.conn.prepare("SELECT p.id,p.name,count(e.id),EXISTS(SELECT 1 FROM google_playlists g WHERE g.playlist_id=p.id) FROM playlists p LEFT JOIN entries e ON e.playlist_id=p.id GROUP BY p.id ORDER BY p.name COLLATE NOCASE")?.query_map([],|r|Ok(Playlist{id:r.get(0)?,name:r.get(1)?,count:r.get(2)?,google:r.get(3)?,thumbnail:self.load(&format!("playlist-thumbnail:{}",r.get::<_,i64>(0)?)).filter(|s| !s.is_empty())}))?.collect::<rusqlite::Result<_>>()?)
     }
     pub fn create(&self, name: &str) -> Result<i64> {
         anyhow::ensure!(!name.trim().is_empty(), "Enter a playlist name");
         self.conn
             .execute("INSERT INTO playlists(name) VALUES(?)", [name.trim()])?;
-        Ok(self.conn.last_insert_rowid())
+        let id = self.conn.last_insert_rowid();
+        self.save(&format!("playlist-thumbnail:{id}"), "")?;
+        Ok(id)
     }
     pub fn rename(&self, id: i64, name: &str) -> Result<()> {
         anyhow::ensure!(!name.trim().is_empty(), "Enter a playlist name");

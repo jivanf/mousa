@@ -192,6 +192,9 @@ pub mod text {
 /// Exact measurements from the Search, Album, Playlist and Artist artboards.
 pub mod catalog {
     use super::*;
+    pub fn search_width() -> Pixels {
+        px(224.)
+    }
     pub fn action_padding() -> Pixels {
         px(18.)
     }

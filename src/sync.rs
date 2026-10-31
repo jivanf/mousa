@@ -320,7 +320,18 @@ pub fn refresh_catalog(force: bool, mut progress: impl FnMut()) -> Result<()> {
             ))
         })
         .collect::<Result<_>>()?;
-    db.reconcile_catalog(&g.account, &catalog)?;
+    let reconciled = db.reconcile_catalog(&g.account, &catalog)?;
+    for (id, remote) in reconciled {
+        let thumbnail = lists
+            .iter()
+            .find(|p| p["id"].as_str() == Some(&remote))
+            .and_then(|p| {
+                ["maxres", "standard", "high", "medium", "default"]
+                    .into_iter()
+                    .find_map(|size| p["snippet"]["thumbnails"][size]["url"].as_str())
+            });
+        db.save(&format!("playlist-thumbnail:{id}"), thumbnail.unwrap_or(""))?;
+    }
     db.save("youtube-catalog-checked", &now.to_string())?;
     progress();
     Ok(())

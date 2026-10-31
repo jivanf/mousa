@@ -44,6 +44,7 @@ enum Reply {
     SelectionRemoved(usize, Option<String>),
     Reordered(Result<(), String>),
     Library(Vec<Playlist>),
+    ArtworkReady,
     Tracks(u64, Vec<Track>, String),
     OpenQueueTrack(u64, i64, usize),
     Done(String),
@@ -152,7 +153,7 @@ impl Mousa {
         let (tx, rx) = mpsc::channel();
         let volume_slider = cx.new(|cx| Bar::new(0.05, cx));
         let seek = cx.new(|cx| Bar::new(0.01, cx));
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tracks…"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search tracks…"));
         let playlist_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists…"));
         let field = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
@@ -368,7 +369,21 @@ impl Mousa {
         });
     }
     fn refresh_library(&self) {
-        self.job(|| Ok(Reply::Library(db::library()?.playlists()?)));
+        let tx = self.tx.clone();
+        self.job(move || {
+            let playlists = db::library()?.playlists()?;
+            let thumbnails: std::collections::HashSet<_> = playlists
+                .iter()
+                .filter_map(|p| p.thumbnail.clone())
+                .collect();
+            let _ = tx.send(Reply::Library(playlists));
+            for url in thumbnails {
+                if mousa::catalog::load_thumbnail(&url).is_ok() {
+                    let _ = tx.send(Reply::ArtworkReady);
+                }
+            }
+            Ok(Reply::ArtworkReady)
+        });
     }
     fn sync_google(&mut self) {
         self.last_sync = std::time::Instant::now();
@@ -511,6 +526,7 @@ impl Mousa {
                         }
                     }
                 }
+                Reply::ArtworkReady => {}
                 Reply::Library(p) => {
                     self.player.refresh_metadata();
                     if !self.library_ready {
@@ -1763,61 +1779,58 @@ impl Render for Mousa {
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.account_action(false, cx))),
             );
-        let toolbar = div()
-            .flex()
-            .items_center()
-            .gap(space::sm())
-            .child(
-                div()
-                    .flex_1()
-                    .child(ui::search_input(&self.search, false, cx)),
+        let metadata = if self.queue_view || self.freshness.is_empty() {
+            format!("{n} tracks{availability_summary}")
+        } else {
+            format!(
+                "{n} cached tracks{availability_summary} · {}",
+                self.freshness
             )
-            .child(
-                button("refresh-current", "REFRESH", color::surface())
-                    .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
-            );
+        };
         let mut content = div()
             .flex_1()
             .min_w_0()
             .h_full()
-            .p(space::xl())
+            .p(space::xxl())
             .flex()
             .flex_col()
-            .gap(space::lg())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(space::md())
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(text::page_title())
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(title),
+            .gap(space::xxl())
+            .when(self.queue_view, |d| d.p(space::xl()).gap(space::lg()));
+        if self.queue_view {
+            content = content
+                .child(div().text_size(text::page_title()).child(title))
+                .child(div().text_size(text::secondary()).child(metadata));
+        } else {
+            let playlist = self.playlists.iter().find(|p| Some(p.id) == self.selected);
+            let thumbnail = playlist.and_then(|p| p.thumbnail.as_deref());
+            let info = ui::collection_info("PLAYLIST", title, metadata);
+            content = content.child(ui::collection_header(
+                mousa::catalog_view::cover(thumbnail, f32::from(mousa::theme::catalog::cover())),
+                info,
+            ));
+            let actions = div()
+                .when(self.selected.is_some(), |d| {
+                    d.child(
+                        mousa::catalog_view::action_button("rename", "EDIT", None, false)
+                            .on_click(cx.listener(|this, _, w, cx| this.edit_playlist(w, cx))),
                     )
-                    .when(!self.queue_view && self.selected.is_some(), |d| {
-                        d.child(
-                            button("rename", "EDIT", color::surface())
-                                .on_click(cx.listener(|this, _, w, cx| this.edit_playlist(w, cx))),
-                        )
-                        .child(
-                            button("delete", "DELETE", color::pink()).on_click(
+                    .child(
+                        mousa::catalog_view::action_button("delete", "DELETE", None, false)
+                            .bg(color::pink())
+                            .on_click(
                                 cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
                             ),
-                        )
-                    }),
-            )
-            .child(div().text_size(text::secondary()).child(
-                if self.queue_view || self.freshness.is_empty() {
-                    format!("{n} tracks{availability_summary}")
-                } else {
-                    format!(
-                        "{n} cached tracks{availability_summary} · {}",
-                        self.freshness
                     )
-                },
+                })
+                .child(
+                    mousa::catalog_view::action_button("refresh-current", "REFRESH", None, false)
+                        .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
+                );
+            content = content.child(ui::collection_toolbar(
+                actions,
+                ui::search_input(&self.search, false, cx),
             ));
+        }
         if let Some(error) = self.error.clone() {
             content = content.child(ui::error_alert(
                 error,
@@ -1828,9 +1841,6 @@ impl Render for Mousa {
                     },
                 )),
             ));
-        }
-        if !self.queue_view {
-            content = content.child(toolbar);
         }
         if self.form != Form::None {
             let label = match self.form {

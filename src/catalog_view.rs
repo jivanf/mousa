@@ -154,6 +154,7 @@ pub struct CatalogView {
     name: Entity<InputState>,
     picker_filter: Entity<InputState>,
     channel_filter: Entity<InputState>,
+    collection_filter: Entity<InputState>,
     view: View,
     history: Vec<View>,
     filters: Vec<(String, Destination)>,
@@ -213,6 +214,14 @@ impl CatalogView {
             }));
         view._subscriptions
             .push(cx.subscribe(&view.picker_filter, |_, _, _: &InputEvent, cx| cx.notify()));
+        view._subscriptions
+            .push(cx.subscribe(&view.collection_filter, |this, _, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.view.selection.clear();
+                    this.view.scroll.set_offset(point(px(0.), px(0.)));
+                    cx.notify();
+                }
+            }));
         view.input.update(cx, |s, cx| {
             s.set_value(
                 if matches!(state, "empty" | "first-use") {
@@ -226,9 +235,19 @@ impl CatalogView {
                 cx,
             )
         });
+        if state.ends_with("-search") {
+            view.collection_filter
+                .update(cx, |s, cx| s.set_value("aria", window, cx));
+        } else if state.ends_with("-no-matches") {
+            view.collection_filter
+                .update(cx, |s, cx| s.set_value("missing title", window, cx));
+        }
         view.filters = page.filters.clone();
         view.view.page = page;
         view.view.item = item;
+        if matches!(state, "album-empty" | "album-loading" | "playlist-empty") {
+            view.view.page.items.clear();
+        }
         if state.starts_with("channel") {
             let query = match state {
                 "channel-search-videos" => "cello",
@@ -308,9 +327,10 @@ impl CatalogView {
         if state == "first-use" {
             view.recent.clear();
         }
-        view.busy = matches!(state, "loading" | "channel-loading");
-        view.error = matches!(state, "error" | "channel-error").then(|| "Offline preview".into());
-        if state == "channel-error" {
+        view.busy = matches!(state, "loading" | "channel-loading" | "album-loading");
+        view.error = matches!(state, "error" | "channel-error" | "album-error")
+            .then(|| "Offline preview".into());
+        if matches!(state, "channel-error" | "album-error") {
             view.last_request = Some((view.view.destination.clone(), false));
         }
         if state == "no-results" {
@@ -365,6 +385,8 @@ impl CatalogView {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("New playlist name"));
         let picker_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter destination playlists…"));
+        let collection_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search tracks…"));
         let channel_filter = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search channel videos and playlists…")
         });
@@ -382,6 +404,13 @@ impl CatalogView {
                 if matches!(e, InputEvent::Change) && query != previous_query {
                     previous_query = query;
                     this.schedule(cx);
+                }
+            }),
+            cx.subscribe(&collection_filter, |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.view.selection.clear();
+                    this.view.scroll.set_offset(point(px(0.), px(0.)));
+                    cx.notify();
                 }
             }),
             cx.subscribe(&picker_filter, |_, _, _: &InputEvent, cx| cx.notify()),
@@ -414,6 +443,7 @@ impl CatalogView {
             name,
             picker_filter,
             channel_filter,
+            collection_filter,
             view: View {
                 page: Page::default(),
                 destination: catalog::search(""),
@@ -882,6 +912,12 @@ impl CatalogView {
                     .as_ref()
                     .map(|i| i.title.clone())
                     .unwrap_or_default();
+                let thumbnail = self
+                    .view
+                    .page
+                    .thumbnail
+                    .clone()
+                    .or_else(|| self.view.item.as_ref().and_then(|i| i.thumbnail.clone()));
                 let key = format!("catalog-library:{}", self.view.destination.body);
                 self.save_busy = true;
                 let tx = self.tx.clone();
@@ -897,6 +933,10 @@ impl CatalogView {
                         let name = if name.is_empty() { fallback } else { name };
                         let id = db.create(&name)?;
                         db.add(id, &tracks)?;
+                        db.save(
+                            &format!("playlist-thumbnail:{id}"),
+                            thumbnail.as_deref().unwrap_or(""),
+                        )?;
                         db.save(&key, &id.to_string())?;
                         Ok(Feedback::Library(name))
                     })()
@@ -1153,33 +1193,16 @@ impl CatalogView {
         }
     }
 }
-fn cover(url: Option<&str>, size: f32) -> AnyElement {
-    let frame = div()
-        .size(px(size))
-        .flex_shrink_0()
-        .bg(color::canvas())
-        .border(border::strong())
-        .border_color(color::ink())
-        .overflow_hidden();
-    if let Some(path) = url.map(catalog::thumbnail_path).filter(|p| p.is_file()) {
-        frame
-            .child(
-                img(path)
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
-                    .with_fallback(|| div().child(ui::icon("disc", false)).into_any_element()),
-            )
-            .into_any_element()
-    } else {
-        frame
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(ui::icon("disc", false))
-            .into_any_element()
-    }
+pub fn cover(url: Option<&str>, size: f32) -> AnyElement {
+    ui::collection_artwork(
+        url.map(catalog::thumbnail_path)
+            .filter(|p| p.is_file())
+            .map(ImageSource::from),
+        px(size),
+    )
 }
-fn action_button(
+
+pub fn action_button(
     id: impl Into<ElementId>,
     label: &str,
     icon: Option<&'static str>,
@@ -1660,6 +1683,17 @@ impl CatalogView {
                             channel_matches(&this.view.page.items[*id as usize], &query)
                         });
                     }
+                    if table == TrackTable::Collection {
+                        let query = this
+                            .collection_filter
+                            .read(cx)
+                            .value()
+                            .trim()
+                            .to_lowercase();
+                        order.retain(|id| {
+                            collection_matches(&this.view.page.items[*id as usize], &query)
+                        });
+                    }
                     if let Some(position) = order.iter().position(|id| *id == index as i64) {
                         let selection = this.view.selection.entry(table.clone()).or_default();
                         selection.retain(&order);
@@ -1715,6 +1749,12 @@ impl CatalogView {
         let page = &self.view.page;
         let artist = item.kind == "Artist";
         let channel = item.kind == "Channel";
+        let collection_query = self
+            .collection_filter
+            .read(cx)
+            .value()
+            .trim()
+            .to_lowercase();
         let channel_query = self.channel_filter.read(cx).value().trim().to_lowercase();
         let album = matches!(item.kind.as_str(), "Album" | "Single" | "EP");
         let finite = album || matches!(item.kind.as_str(), "Playlist" | "Podcast");
@@ -1723,7 +1763,11 @@ impl CatalogView {
         } else {
             &page.title
         };
-        let mut actions = div().flex().flex_wrap().gap(space::md()).mt(space::md());
+        let mut actions = div()
+            .flex()
+            .flex_wrap()
+            .gap(space::md())
+            .when(!finite, |d| d.mt(space::md()));
         if finite {
             for (id, label, icon, action, primary) in [
                 (
@@ -1849,7 +1893,14 @@ impl CatalogView {
                     .child(meta),
             );
         }
-        info = info.child(actions);
+        let collection_actions = if finite {
+            Some(std::mem::replace(&mut actions, div()))
+        } else {
+            None
+        };
+        if !finite {
+            info = info.child(actions);
+        }
         let mut content = div()
             .flex()
             .flex_col()
@@ -1864,22 +1915,26 @@ impl CatalogView {
                         .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
                 ),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .items_end()
-                    .gap(space::xxl())
-                    .child(div().flex_shrink_0().shadow(shadow::md()).child(cover(
-                        page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
-                        f32::from(if artist || channel {
-                            metrics::portrait()
-                        } else {
-                            metrics::cover()
-                        }),
-                    )))
-                    .child(info),
+            .child(ui::collection_header(
+                cover(
+                    page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
+                    f32::from(if artist || channel {
+                        metrics::portrait()
+                    } else {
+                        metrics::cover()
+                    }),
+                ),
+                info,
+            ));
+        if let Some(actions) = collection_actions {
+            content = content.child(
+                ui::collection_toolbar(
+                    actions,
+                    ui::search_input(&self.collection_filter, false, cx),
+                )
+                .mt(space::xxl()),
             );
+        }
         if channel {
             content = content.child(div().mt(space::xl()).child(ui::search_input(
                 &self.channel_filter,
@@ -1918,13 +1973,22 @@ impl CatalogView {
         // Collection headers and selection controls stay outside the track viewport.
         let header = finite.then(|| std::mem::replace(&mut content, div()));
         if finite {
-            let indices = page
+            let indices: Vec<usize> = page
                 .items
                 .iter()
                 .enumerate()
                 .filter(|(_, i)| i.collection_member && (i.video.is_some() || i.unavailable))
+                .filter(|(_, i)| collection_matches(i, &collection_query))
                 .map(|(index, _)| index)
                 .collect();
+            if indices.is_empty() {
+                content =
+                    content.child(div().p(space::xl()).child(if collection_query.is_empty() {
+                        "No tracks."
+                    } else {
+                        "No matching tracks."
+                    }));
+            }
             content =
                 content.child(self.virtual_rows(indices, true, album, TrackTable::Collection, cx));
         }
@@ -2131,6 +2195,10 @@ impl CatalogView {
     }
 }
 
+fn collection_matches(item: &Item, query: &str) -> bool {
+    item.title.to_lowercase().contains(query) || item.artist.to_lowercase().contains(query)
+}
+
 fn channel_matches(item: &Item, query: &str) -> bool {
     item.title.to_lowercase().contains(query)
 }
@@ -2142,12 +2210,14 @@ fn preview_playlists() -> Vec<Playlist> {
             name: "Bach for Studying".into(),
             count: 12,
             google: false,
+            thumbnail: None,
         },
         Playlist {
             id: -2,
             name: "Classical Favorites".into(),
             count: 24,
             google: true,
+            thumbnail: None,
         },
     ]
 }
@@ -2167,6 +2237,8 @@ impl Render for CatalogView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.restore_focus {
             self.restore_focus = false;
+            self.collection_filter
+                .update(cx, |input, cx| input.set_value("", window, cx));
             if self.view.item.is_some() {
                 self.focus_handle.focus(window);
             } else {
@@ -2667,9 +2739,36 @@ mod persistence_tests {
 
 #[cfg(test)]
 mod presentation_tests {
-    use super::{description, item_matches_track, time_label, trailing_metadata};
+    use super::{
+        collection_matches, description, item_matches_track, time_label, trailing_metadata,
+    };
     use crate::catalog::Item;
     use crate::db::Track;
+    #[test]
+    fn collection_search_matches_title_artist_and_keeps_duplicate_occurrences() {
+        let items = [
+            Item {
+                title: "Aria".into(),
+                artist: "Karl Richter".into(),
+                ..Default::default()
+            },
+            Item {
+                title: "Aria".into(),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| collection_matches(i, "aria"))
+                .count(),
+            2
+        );
+        assert!(collection_matches(&items[0], "richter"));
+        assert!(!collection_matches(&items[0], "missing"));
+        assert!(collection_matches(&items[0], ""));
+    }
+
     #[test]
     fn channel_search_matches_video_and_playlist_titles() {
         for kind in ["Video", "Playlist"] {

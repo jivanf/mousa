@@ -7,6 +7,81 @@ use gpui_component::{
 };
 use std::borrow::Cow;
 
+pub fn collection_artwork(source: Option<ImageSource>, size: Pixels) -> AnyElement {
+    let frame = div()
+        .size(size)
+        .flex_shrink_0()
+        .bg(color::canvas())
+        .border(border::strong())
+        .border_color(color::ink())
+        .overflow_hidden();
+    if let Some(source) = source {
+        frame
+            .child(
+                img(source)
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .with_fallback(|| div().child(icon("disc", false)).into_any_element()),
+            )
+            .into_any_element()
+    } else {
+        frame
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(icon("disc", false))
+            .into_any_element()
+    }
+}
+
+/// Shared album and library-playlist geometry. Callers supply their own actions.
+pub fn collection_header(artwork: AnyElement, info: Div) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_end()
+        .gap(space::xxl())
+        .child(div().flex_shrink_0().shadow(shadow::md()).child(artwork))
+        .child(info.flex_1().min_w_0())
+}
+
+pub fn collection_info(kind: &str, title: String, metadata: String) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(space::sm())
+        .pb(space::xs())
+        .child(caps(kind))
+        .child(
+            div()
+                .text_size(text::page_title())
+                .line_height(relative(1.1))
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(text::secondary())
+                .text_color(color::muted())
+                .child(metadata),
+        )
+}
+
+pub fn collection_toolbar(actions: Div, search: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .flex_wrap()
+        .gap(space::md())
+        .child(actions.flex().flex_wrap().gap(space::md()).flex_1())
+        .child(
+            div()
+                .w(crate::theme::catalog::search_width())
+                .min_w_0()
+                .child(search),
+        )
+}
+
 pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {

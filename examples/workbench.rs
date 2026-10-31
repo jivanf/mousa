@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "catalog_gallery.rs"]
 mod catalog;
+#[path = "support/collection_preview.rs"]
+mod collection_preview;
 #[allow(dead_code)]
 #[path = "gallery.rs"]
 mod components;
@@ -72,6 +74,20 @@ const STORIES: &[(&str, &str)] = &[
     ("Catalog", "channel-playing"),
     ("Catalog", "channel-feedback"),
     ("Catalog", "channel-save-picker"),
+    ("Catalog", "album-search"),
+    ("Catalog", "album-no-matches"),
+    ("Catalog", "album-empty"),
+    ("Catalog", "album-loading"),
+    ("Catalog", "album-error"),
+    ("Catalog", "playlist-search"),
+    ("Catalog", "playlist-no-matches"),
+    ("Catalog", "playlist-empty"),
+    ("Library", "library-playlist"),
+    ("Library", "library-playlist-search"),
+    ("Library", "library-playlist-no-matches"),
+    ("Library", "library-playlist-empty"),
+    ("Library", "library-playlist-error"),
+    ("Library", "library-playlist-no-artwork"),
 ];
 
 #[derive(Default, Serialize, Deserialize)]
@@ -108,6 +124,9 @@ impl Workbench {
     fn preview(index: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyView {
         let (group, state) = STORIES[index];
         match group {
+            "Library" => cx
+                .new(|cx| collection_preview::Preview::new(state, window, cx))
+                .into(),
             "Catalog" => {
                 let (page, item) = catalog::sample(state);
                 let (tx, _) = mpsc::channel();
