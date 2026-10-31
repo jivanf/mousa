@@ -54,13 +54,23 @@ impl Sort {
 pub struct Library {
     pub conn: Connection,
 }
+#[derive(Debug)]
+pub struct NewerLibrary;
+impl std::fmt::Display for NewerLibrary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Library was created by a newer Mousa version")
+    }
+}
+impl std::error::Error for NewerLibrary {}
 impl Library {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let mut conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        anyhow::ensure!(version <= 3, "Library was created by a newer Mousa version");
+        if version > 3 {
+            return Err(NewerLibrary.into());
+        }
         if version == 0 {
             Self::initialize(&mut conn)?;
         }

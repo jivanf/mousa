@@ -18,6 +18,10 @@ colors:
   on-tertiary: "#111111"
   on-danger: "#111111"
 typography:
+  update-body:
+    fontFamily: Space Grotesk
+    fontSize: 16px
+    fontWeight: 500
   playlist-title-input:
     fontFamily: Space Grotesk
     fontSize: 16px
@@ -106,6 +110,12 @@ x-search-navigation:
   video: uploader-channel-detail
   channel-search: case-insensitive-video-and-playlist-titles
 components:
+  update-required:
+    width: 520px
+    padding: 48px
+    typography: "{typography.update-body}"
+  update-required-button:
+    height: 56px
   workbench-sidebar:
     width: 272px
     padding: 8px
@@ -889,6 +899,19 @@ service requests. Keep saved story identities stable as the story list grows.
 
 
 ## Account and landing screens
+
+### Required compatibility update
+
+The approved Update required mock replaces the entire application shell when the
+library schema is newer than this build supports. It does not appear for ordinary
+available updates. Center a 520px surface card with 48px padding, 3px outline and
+8px hard shadow on canvas. Reuse the 100px landing logo, 32px section gaps,
+28px page title with 1.2 line height and 16px muted supporting copy with 1.5 line height. The full-width
+lime Update button is 56px high with the 5px medium hard shadow. Preserve the mock's text. During download the
+button reads Updating… and is disabled; failures retain the card and show a
+retryable explanation. Successful installation automatically restarts the app.
+Workbench previews simulate this flow without installing or restarting anything.
+Normal updates continue staging in the background for the next launch.
 
 The landing card is 520px wide with 48px padding, a 100px logo, a 56px bold
 Mousa title with a 56px line height, and the 18px tagline “Just a fast music client.”

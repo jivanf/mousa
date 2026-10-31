@@ -363,6 +363,15 @@ pub mod layout {
 }
 
 // Landing page proportions from the supplied desktop reference.
+pub mod update_required {
+    use super::*;
+    pub fn body() -> Pixels {
+        px(16.)
+    }
+    pub fn button_height() -> Pixels {
+        px(56.)
+    }
+}
 pub mod landing {
     use super::*;
     pub fn width() -> Pixels {

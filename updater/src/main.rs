@@ -227,6 +227,8 @@ fn probe(path: &Path, version: &str) -> Result<()> {
 }
 
 fn stage(cache: &Path, current: &str, rejected: &[String], repair: bool) -> Result<Option<String>> {
+    static STAGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = STAGING.lock().unwrap_or_else(|error| error.into_inner());
     let current = valid_version(current)?;
     let client = Client::builder()
         .user_agent(concat!("Mousa/", env!("CARGO_PKG_VERSION")))
@@ -369,6 +371,23 @@ fn launch(
     state: &mut State,
     args: &[std::ffi::OsString],
 ) -> Result<bool> {
+    launch_with_update(root, cache, state, args, |state| {
+        let receipt: Receipt =
+            serde_json::from_reader(File::open(root.join("mousa-managed.json"))?)?;
+        let current = state.active.as_deref().unwrap_or(&receipt.version);
+        let version = stage(cache, current, &state.rejected, false)?
+            .context("No newer release is available yet. Please try again later.")?;
+        activate(cache, state, version)
+    })
+}
+
+fn launch_with_update(
+    root: &Path,
+    cache: &Path,
+    state: &mut State,
+    args: &[std::ffi::OsString],
+    mut update: impl FnMut(&mut State) -> Result<()>,
+) -> Result<bool> {
     let health_dir = tempfile::tempdir_in(cache)?;
     let health = health_dir.path().join("ready");
     let app = app_path(root, cache, &state.active);
@@ -376,6 +395,7 @@ fn launch(
         .args(args)
         .env("MOUSA_SUPERVISED", "1")
         .env("MOUSA_HEALTH_FILE", &health)
+        .env("MOUSA_UPDATE_CHANNEL", health_dir.path())
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
@@ -385,7 +405,32 @@ fn launch(
         }
         Err(error) => return Err(error.into()),
     };
+    let mut restart = false;
     loop {
+        let request = health_dir.path().join("request");
+        if request.exists() && !restart {
+            fs::remove_file(request)?;
+            let result = update(state);
+            let message = match result {
+                Ok(()) => {
+                    restart = true;
+                    "ready".to_owned()
+                }
+                Err(error) => format!("Could not install the update: {error:#}"),
+            };
+            let mut response = tempfile::NamedTempFile::new_in(health_dir.path())?;
+            response.write_all(message.as_bytes())?;
+            response
+                .persist(health_dir.path().join("response"))
+                .map_err(|error| error.error)?;
+        }
+        if restart {
+            if child.try_wait()?.is_some() {
+                return Ok(false);
+            }
+            thread::sleep(Duration::from_millis(250));
+            continue;
+        }
         if state.pending && health.exists() {
             state.pending = false;
             write_json(&cache.join("state.json"), state)?;
@@ -501,12 +546,14 @@ fn run() -> Result<()> {
             ),
         }
     });
-    if !launch(root, &cache, &mut state, &args)? {
-        launch(root, &cache, &mut state, &args)?;
-    }
+    while !launch(root, &cache, &mut state, &args)? {}
     // A partial download never delays closing the app or becomes active.
     if let Ok(version) = rx.try_recv()
         && !state.rejected.contains(&version)
+        && state
+            .active
+            .as_ref()
+            .is_none_or(|active| valid_version(&version).ok() > valid_version(active).ok())
         && let Err(error) = activate(&cache, &mut state, version)
     {
         log(&cache, &format!("Activation deferred: {error:#}"));
@@ -658,6 +705,42 @@ mod tests {
     #[ignore = "subprocess fixture invoked by lifecycle test"]
     fn child_fails() {
         std::process::exit(1);
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture invoked by recovery test"]
+    fn child_requests_update() {
+        let path = PathBuf::from(std::env::var_os("MOUSA_UPDATE_CHANNEL").unwrap());
+        fs::write(path.join("request"), b"update").unwrap();
+        let start = std::time::Instant::now();
+        while !path.join("response").exists() {
+            assert!(start.elapsed() < Duration::from_secs(10));
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(fs::read_to_string(path.join("response")).unwrap(), "ready");
+    }
+
+    #[test]
+    fn explicit_update_restarts_without_confirming_old_process_health() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        fs::copy(
+            std::env::current_exe().unwrap(),
+            root.path().join(executable("mousa")),
+        )
+        .unwrap();
+        let mut state = State::default();
+        let args = ["--exact", "tests::child_requests_update", "--ignored"].map(Into::into);
+        let finished = launch_with_update(root.path(), cache.path(), &mut state, &args, |state| {
+            state.active = Some("0.3.0".into());
+            state.pending = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!finished);
+        assert!(state.pending);
+        assert_eq!(state.active.as_deref(), Some("0.3.0"));
+        assert!(state.rejected.is_empty());
     }
 
     #[test]
