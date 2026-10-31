@@ -124,6 +124,7 @@ mod tests {
 }
 impl Render for UpdateRequired {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content_width = landing::width() - landing::padding() * 2.;
         let action = if self.busy || self.complete {
             ui::disabled_button(if self.complete {
                 "RESTARTING…"
@@ -146,6 +147,17 @@ impl Render for UpdateRequired {
                 .on_click(cx.listener(|this, _, _, cx| this.update(cx)))
                 .into_any_element()
         };
+        let error = self.error.clone().map(|message| {
+            ui::error_alert(
+                message,
+                ui::button("dismiss-required-update-error", "DISMISS", color::surface()).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.error = None;
+                        cx.notify();
+                    }),
+                ),
+            )
+        });
         div().size_full().bg(color::canvas()).text_color(color::ink())
             .font_family(font::SANS).font_weight(FontWeight::MEDIUM)
             .flex().items_center().justify_center().p(space::xxl())
@@ -159,7 +171,6 @@ impl Render for UpdateRequired {
                     .child(div().text_size(text::page_title()).line_height(relative(1.2)).child("Mousa needs an update"))
                     .child(div().text_size(crate::theme::update_required::body()).line_height(relative(1.5)).text_color(color::muted())
                         .child("A recent change means this version can no longer work. Restart Mousa to install the latest version and keep listening.")))
-                .child(action)
-                .when_some(self.error.clone(), |d, error| d.child(div().text_size(text::body()).text_color(color::muted()).child(error))))
+                .child(div().w(content_width).flex().flex_col().gap(space::lg()).children(error).child(action)))
     }
 }

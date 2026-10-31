@@ -908,8 +908,9 @@ available updates. Center a 520px surface card with 48px padding, 3px outline an
 8px hard shadow on canvas. Reuse the 100px landing logo, 32px section gaps,
 28px page title with 1.2 line height and 16px muted supporting copy with 1.5 line height. The full-width
 lime Update button is 56px high with the 5px medium hard shadow. Preserve the mock's text. During download the
-button reads Updating… and is disabled; failures retain the card and show a
-retryable explanation. Successful installation automatically restarts the app.
+button reads Updating… and is disabled. Failures retain the card and show the
+shared pink error alert with Dismiss directly above the retryable Update action.
+Successful installation automatically restarts the app.
 Workbench previews simulate this flow without installing or restarting anything.
 Normal updates continue staging in the background for the next launch.
 
