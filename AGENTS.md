@@ -6,10 +6,10 @@ Follow this workflow for every new repository task, including code, UI,
 documentation, tooling, and maintenance work:
 
 1. Create a new, dedicated Git worktree and branch before making changes.
-   Prefer the Codex managed-worktree tool. Do not work in the primary
-   checkout or reuse another task's worktree. Start from current `main` unless
-   the user specifies a different base or the task depends on unmerged work;
-   make that dependency explicit and preserve unrelated changes.
+   Do not work in the primary checkout or reuse another task's worktree. Start
+   from current `main` unless the user specifies a different base or the task
+   depends on unmerged work; make that dependency explicit and preserve
+   unrelated changes.
 2. Use the task's worktree for all edits, checks, commits, and Workbench builds
    and installation. Keep the same worktree and branch throughout the task.
 3. Implement and verify the changes, update all affected Workbench states, commit
@@ -30,9 +30,10 @@ documentation, tooling, and maintenance work:
    failures and requested revisions in the same worktree and PR. Required Windows,
    Linux, and Release policy checks must pass; never bypass them or push directly
    to `main`. Verify the actual merge result before reporting the PR as merged.
-7. After the PR is merged and no task work remains, archive its managed worktree
-   using the Codex worktree tool. Preserve any needed ignored artifacts first.
-   Keep the worktree available while review, revisions, or merge checks are pending.
+7. After the PR is merged and no task work remains, delete its task worktree and
+   prune stale worktree metadata using standard Git commands. Preserve any needed
+   ignored artifacts first. Keep the worktree available while review, revisions,
+   or merge checks are pending.
 
 # Changes and releases
 
