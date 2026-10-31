@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0](https://github.com/jivanf/mousa/compare/v0.1.1...v0.2.0) - 2026-10-31
+
+### Features
+
+- *(catalog)* Add catalog browsing and playlist editing (#7)
+
+### Fixes and performance
+
+- *(playback)* Restore player interaction feedback (#8)
+
 ## [0.1.1](https://github.com/jivanf/mousa/compare/v0.1.0...v0.1.1) - 2026-10-27
 
 ### Fixes and performance
