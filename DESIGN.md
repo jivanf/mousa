@@ -210,6 +210,7 @@ components:
   input:
     backgroundColor: "{colors.field}"
     textColor: "{colors.primary}"
+    caretColor: "{colors.primary}"
     typography: "{typography.body-md}"
     height: 36px
   bar-track:
@@ -466,6 +467,8 @@ cards, bars, and inputs. Row dividers are 1px ink. No other border widths.
 (uppercase for text buttons). Hover: field fill. Press: animated offset and
 shadow collapse, held until release; release animates back.
 Disabled: canvas fill, secondary text, no shadow.
+
+**Input.** Field fill with ink text, border, and blinking caret.
 
 **Primary button.** Tertiary fill. At most one per view.
 
