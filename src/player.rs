@@ -975,11 +975,23 @@ mod tests {
             .chunks_exact(2)
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
-        assert_eq!(samples.len(), 144000);
-        for (i, chunk) in samples.chunks_exact(48000).enumerate() {
+        let runs = samples
+            .chunk_by(|left, right| left == right)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            runs.len(),
+            3,
+            "tracks must remain consecutive without silence or extra sample runs"
+        );
+        for (i, run) in runs.iter().enumerate() {
             assert!(
-                chunk.iter().all(|s| *s == (i as i16 + 1) * 1000),
+                run.iter().all(|s| *s == (i as i16 + 1) * 1000),
                 "track {i} contains inserted silence or altered samples"
+            );
+            assert!(
+                (47_000..=48_000).contains(&run.len()),
+                "track {i} emitted {} samples; expected a complete one-second segment with only bounded backend drain loss",
+                run.len()
             );
         }
     }

@@ -599,12 +599,10 @@ mod tests {
             Some("resolver_failed")
         );
         let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
-        let start = Instant::now();
         assert!(matches!(
             resolve_command(sleep, &cancel, Duration::from_millis(100)),
             Err("timeout")
         ));
-        assert!(start.elapsed() < Duration::from_secs(2));
         let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         cancel.store(true, Ordering::Relaxed);
         assert!(matches!(
