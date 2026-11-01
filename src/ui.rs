@@ -156,6 +156,7 @@ pub fn init(cx: &mut App) {
     t.colors.foreground = color::ink();
     t.colors.border = color::ink();
     t.colors.input = color::ink();
+    t.colors.caret = color::ink();
     t.colors.muted = color::canvas();
     t.colors.muted_foreground = color::muted();
     t.colors.ring = color::ink();
