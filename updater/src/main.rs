@@ -18,7 +18,6 @@ use std::{
 
 const REPOSITORY: &str = "jivanf/mousa";
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
-const INTERVAL: u64 = 24 * 60 * 60;
 const PUBLIC_KEY: &str = include_str!("../release-public-key.hex");
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -490,29 +489,16 @@ fn run() -> Result<()> {
     let update_cache = cache.clone();
     let rejected = state.rejected.clone();
     thread::spawn(move || {
-        loop {
-            // Persist the attempt time, including failures, to avoid API storms on relaunch.
-            let last: u64 = fs::read(update_cache.join("checked.json"))
-                .ok()
-                .and_then(|v| serde_json::from_slice(&v).ok())
-                .unwrap_or(0);
-            if last <= now() && now() - last < INTERVAL {
-                thread::sleep(Duration::from_secs(60));
-                continue;
+        thread::sleep(Duration::from_secs(10 + rand::random_range(0..20)));
+        match stage(&update_cache, &current, &rejected, false) {
+            Ok(Some(version)) => {
+                let _ = tx.send(version);
             }
-            thread::sleep(Duration::from_secs(10 + rand::random_range(0..20)));
-            let _ = write_json(&update_cache.join("checked.json"), &now());
-            match stage(&update_cache, &current, &rejected, false) {
-                Ok(Some(version)) => {
-                    let _ = tx.send(version);
-                    return;
-                }
-                Ok(None) => {}
-                Err(error) => log(
-                    &update_cache,
-                    &format!("Background update failed: {error:#}"),
-                ),
-            }
+            Ok(None) => {}
+            Err(error) => log(
+                &update_cache,
+                &format!("Background update failed: {error:#}"),
+            ),
         }
     });
     if !launch(root, &cache, &mut state, &args)? {
