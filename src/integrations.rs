@@ -34,23 +34,51 @@ fn client() -> Result<Client> {
 // rejected credentials, and keep the waits on the existing background worker.
 const GOOGLE_RETRY_DELAYS: [u64; 5] = [2, 4, 8, 16, 30];
 
-fn retry_google_token<T>(
-    mut request: impl FnMut() -> std::result::Result<T, reqwest::Error>,
+#[derive(Debug)]
+enum RetryError<E> {
+    Terminal(E),
+    Exhausted { error: E, attempts: usize },
+}
+
+fn retry_with_delays<T, E>(
+    mut request: impl FnMut() -> std::result::Result<T, E>,
+    mut retryable: impl FnMut(&E) -> bool,
     mut wait: impl FnMut(Duration),
-) -> Result<T> {
-    let mut delays = GOOGLE_RETRY_DELAYS.into_iter();
+    delays: impl IntoIterator<Item = Duration>,
+) -> std::result::Result<T, RetryError<E>> {
+    let mut attempts = 0;
+    let mut delays = delays.into_iter();
     loop {
+        attempts += 1;
         match request() {
             Ok(value) => return Ok(value),
-            Err(error) if error.is_connect() || error.is_timeout() => {
-                if let Some(seconds) = delays.next() {
-                    wait(Duration::from_secs(seconds));
+            Err(error) if retryable(&error) => {
+                if let Some(delay) = delays.next() {
+                    wait(delay);
                 } else {
-                    return Err(error).context("Google connection failed after 6 attempts");
+                    return Err(RetryError::Exhausted { error, attempts });
                 }
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(RetryError::Terminal(error)),
         }
+    }
+}
+
+fn retry_google_token<T>(
+    request: impl FnMut() -> std::result::Result<T, reqwest::Error>,
+    wait: impl FnMut(Duration),
+) -> Result<T> {
+    match retry_with_delays(
+        request,
+        |error| error.is_connect() || error.is_timeout(),
+        wait,
+        GOOGLE_RETRY_DELAYS.map(Duration::from_secs),
+    ) {
+        Ok(value) => Ok(value),
+        Err(RetryError::Terminal(error)) => Err(error.into()),
+        Err(RetryError::Exhausted { error, attempts }) => Err(error).context(format!(
+            "Google connection failed after {attempts} attempts"
+        )),
     }
 }
 
@@ -540,34 +568,22 @@ mod auth_tests {
     }
 
     use super::*;
-    fn connection_error() -> reqwest::Error {
-        // Reserve then close a local port; no external network or DNS required.
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        drop(listener);
-        Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap()
-            .get(format!("http://{address}"))
-            .send()
-            .unwrap_err()
-    }
-
     #[test]
     fn google_token_recovers_without_waiting_again_after_success() {
         let mut attempts = 0;
         let mut waits = Vec::new();
-        let value = retry_google_token(
+        let value = retry_with_delays(
             || {
                 attempts += 1;
                 if attempts < 3 {
-                    Err(connection_error())
+                    Err("transport")
                 } else {
                     Ok("token")
                 }
             },
+            |_| true,
             |delay| waits.push(delay),
+            GOOGLE_RETRY_DELAYS.map(Duration::from_secs),
         )
         .unwrap();
         assert_eq!(value, "token");
@@ -579,18 +595,25 @@ mod auth_tests {
     fn google_token_reports_failure_after_all_retries() {
         let mut attempts = 0;
         let mut waits = Vec::new();
-        let error = retry_google_token::<()>(
+        let error = retry_with_delays::<(), _>(
             || {
                 attempts += 1;
-                Err(connection_error())
+                Err("transport")
             },
+            |_| true,
             |delay| waits.push(delay),
+            GOOGLE_RETRY_DELAYS.map(Duration::from_secs),
         )
         .unwrap_err();
         assert_eq!(attempts, 6);
         assert_eq!(waits, GOOGLE_RETRY_DELAYS.map(Duration::from_secs));
-        assert!(format!("{error:#}").contains("after 6 attempts"));
-        assert!(error.chain().count() > 1);
+        assert!(matches!(
+            error,
+            RetryError::Exhausted {
+                error: "transport",
+                attempts: 6
+            }
+        ));
     }
 
     #[test]

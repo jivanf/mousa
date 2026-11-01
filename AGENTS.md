@@ -1,15 +1,15 @@
-# Mousa project instructions
+# Workflow
 
 ## Required task workflow
 
 Follow this workflow for every new repository task, including code, UI,
 documentation, tooling, and maintenance work:
 
-1. Create a new, dedicated Git worktree and a `codex/` branch before making
-   changes. Prefer the Codex managed-worktree tool. Do not work in the primary
-   checkout or reuse another task's worktree. Start from current `main` unless
-   the user specifies a different base or the task depends on unmerged work;
-   make that dependency explicit and preserve unrelated changes.
+1. Create a new, dedicated Git worktree and branch before making changes.
+   Do not work in the primary checkout or reuse another task's worktree. Start
+   from current `main` unless the user specifies a different base or the task
+   depends on unmerged work; make that dependency explicit and preserve
+   unrelated changes.
 2. Use the task's worktree for all edits, checks, commits, and Workbench builds
    and installation. Keep the same worktree and branch throughout the task.
 3. Implement and verify the changes, update all affected Workbench states, commit
@@ -30,11 +30,12 @@ documentation, tooling, and maintenance work:
    failures and requested revisions in the same worktree and PR. Required Windows,
    Linux, and Release policy checks must pass; never bypass them or push directly
    to `main`. Verify the actual merge result before reporting the PR as merged.
-7. After the PR is merged and no task work remains, archive its managed worktree
-   using the Codex worktree tool. Preserve any needed ignored artifacts first.
-   Keep the worktree available while review, revisions, or merge checks are pending.
+7. After the PR is merged and no task work remains, delete its task worktree and
+   prune stale worktree metadata using standard Git commands. Preserve any needed
+   ignored artifacts first. Keep the worktree available while review, revisions,
+   or merge checks are pending.
 
-## Changes and releases
+# Changes and releases
 
 - Follow the required task workflow above for worktree isolation, user review, PR creation, and squash auto-merge. The Conventional Commit PR title becomes the squash commit title.
 - Classify actual user impact: `fix` and `perf` produce patch releases; `feat` produces minor releases. Use `docs`, `test`, `ci`, `build`, `chore`, `refactor`, or `style` only when the change has no releasable behavior impact. Runtime dependency fixes are `fix`, not merely `chore`. A revert is classified by its resulting user impact.
@@ -42,19 +43,28 @@ documentation, tooling, and maintenance work:
 - Leave version bumps, changelog generation, release tags, and publication to release automation. Both packages share one version. Daily batches run at 17:00 UTC; urgent preparation uses the manual workflow and still requires all checks. Breaking releases and the 1.0.0 milestone require the repository owner's approval of the current release PR revision. Use `release/hold` to pause a release.
 - Never move release tags or replace published assets. Retry a failed publication before preparing another release. Follow [release maintenance](docs/releases.md) for setup, previews, and recovery. Do not create a release solely for automation or documentation maintenance.
 
-## Project requirements
+# Project requirements
 
 - Only change `README.md` when the user explicitly requests a README change.
 - Mousa supports both Windows and Linux. Ensure every change is compatible with both platforms. Gate unavoidable platform-specific code explicitly and provide equivalent behavior for the other supported platform; keep build, installation, release, and test workflows working on both operating systems.
 - Rebuild, reinstall, and verify the Workbench only when UI changes are made, following [install-workbench-after-change](.agents/skills/install-workbench-after-change/SKILL.md). UI changes include application or Workbench appearance, interactions, components, theme tokens, assets, and preview states. Documentation, guidelines, skills, and other non-UI changes do not trigger a Workbench rebuild; a commit or amendment alone is not a trigger. Honor explicit user instructions to skip rebuilding. Reinstall the main Mousa app only when the user explicitly requests it; routine development and commits do not authorize a main-app reinstall.
 
-- Use button tooltips selectively, only when they clarify an otherwise ambiguous action. Do not add tooltips merely because a button uses an icon: universally understood controls such as Play, Pause, and the search input's clear (×) button need none. Avoid tooltips that simply repeat a visible label or an obvious action. Keep useful explanations for ambiguous actions or destinations, error details, and truncated content; preserve accessibility labels independently of tooltips.
-
 - For UI changes, read `DESIGN.md` and the relevant approved mocks before editing. Keep `DESIGN.md` synchronized in the same change whenever tokens, dimensions, typography, component appearance, interaction states, navigation, or approved design exceptions change. Update its normative front matter and prose together, and keep `src/theme.rs` and shared components consistent with them. Add new design values to the specification and theme tokens rather than introducing undocumented one-off values. Follow final designer mocks; document user-authorized deviations explicitly instead of silently redesigning them.
 - Reflect every UI change in the Workbench in the same change. The Workbench must expose every possible application UI state, including loading, empty, error/retry, success, disabled, selection, playback, focus/hover, dialogs, and navigation states. Add or update deterministic stories and working local interactions for all affected states; a standalone gallery alone is insufficient. Keep previews isolated from real accounts, network mutations, playback, and user library data.
 - Verify changed UI states against the approved references in the Workbench, and run the design-document lint when `DESIGN.md` changes. Report any missing state coverage or verification blocker explicitly.
 
-<vcs description="Guidelines for version control in Mousa.">
+# UX
+
+Read [UX guidelines](UX.md) before changing user-facing interactions, controls,
+navigation, feedback, accessibility behavior, or other UX conventions.
+
+# VCS
+
+## Branches
+
+- Branch names must follow the format `<type>/<n>`, where:
+  - `<type>` is one of the commit types.
+  - `<n>` is a brief, descriptive name summarizing the changes in the branch.
 
 ## Commit
 
@@ -133,5 +143,3 @@ test(sync): Cover quota reset across daylight saving time
 build(gpui): Update the pinned GPUI dependency
 docs(repo): Define commit guidelines
 ```
-
-</vcs>
