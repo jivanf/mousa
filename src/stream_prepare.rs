@@ -498,6 +498,8 @@ mod tests {
     fn direct_stream_headers_survive_mpv_option_parsing_and_are_file_local() {
         use libmpv2::{Mpv, events::Event};
         use std::{io::Write, net::TcpListener};
+        const TRANSITIONS: usize = 13;
+        const TRANSITION_TIMEOUT: Duration = Duration::from_secs(15);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/audio.wav", listener.local_addr().unwrap());
@@ -505,7 +507,8 @@ mod tests {
         let server = std::thread::spawn(move || {
             let start = Instant::now();
             let mut served = 0;
-            while served < 13 && start.elapsed() < Duration::from_secs(20) {
+            while served < TRANSITIONS && start.elapsed() < TRANSITION_TIMEOUT * TRANSITIONS as u32
+            {
                 let Ok((mut socket, _)) = listener.accept() else {
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
@@ -562,7 +565,7 @@ mod tests {
         )
         .unwrap();
         // Exercise repeated prepared-to-prepared transitions, then ordinary loading.
-        for attempt in 0..13 {
+        for attempt in 0..TRANSITIONS {
             let prepared = attempt < 12;
             if prepared {
                 mpv.command("loadfile", &[&url, "replace", "-1", &stream.options()])
@@ -573,7 +576,7 @@ mod tests {
             let start = Instant::now();
             loop {
                 assert!(
-                    start.elapsed() < Duration::from_secs(15),
+                    start.elapsed() < TRANSITION_TIMEOUT,
                     "transition {attempt} hung"
                 );
                 match events.wait_event(0.1) {
