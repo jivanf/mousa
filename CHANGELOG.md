@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/jivanf/mousa/compare/v0.2.0...v0.3.0) - 2026-11-02
+
+### Features
+
+- *(ui)* Share collection layouts and add track search (#11)
+
+### Fixes and performance
+
+- *(ui)* Make input caret black (#15)
+- *(windows)* Check for updates on every launch (#14)
+
 ## [0.2.0](https://github.com/jivanf/mousa/compare/v0.1.1...v0.2.0) - 2026-10-31
 
 ### Features
