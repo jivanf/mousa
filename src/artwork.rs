@@ -49,7 +49,9 @@ pub fn source(path: PathBuf, logical_size: f32) -> ImageSource {
 }
 
 fn load_cover(path: &PathBuf, target_pixels: u32) -> anyhow::Result<RenderImage> {
-    let source = image::open(path)?;
+    let source = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .decode()?;
     let resized = resize_cover(source, target_pixels);
     let mut pixels = resized.into_rgba8();
 
@@ -101,5 +103,19 @@ mod tests {
                 .pixels()
                 .all(|pixel| pixel[1] > pixel[0] && pixel[1] > pixel[2])
         );
+    }
+
+    #[test]
+    fn cached_img_files_are_detected_from_their_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("thumbnail.img");
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(4, 4, Rgba([1, 2, 3, 255])))
+            .save_with_format(&path, image::ImageFormat::Png)
+            .unwrap();
+
+        let rendered = load_cover(&path, 2).unwrap();
+
+        assert_eq!(rendered.size(0).width.0, 2);
+        assert_eq!(rendered.size(0).height.0, 2);
     }
 }
