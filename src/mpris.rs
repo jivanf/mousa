@@ -8,6 +8,14 @@ use zbus::zvariant::{ObjectPath, OwnedValue};
 
 const LOG_LIMIT: u64 = 64 * 1024;
 
+fn track_path(id: i64) -> String {
+    if id < 0 {
+        format!("/app/mousa/track/n{}", id.unsigned_abs())
+    } else {
+        format!("/app/mousa/track/{id}")
+    }
+}
+
 fn log(event: &str, error: Option<&anyhow::Error>) {
     let path = crate::db::data_dir().join("mpris.jsonl");
     let value = json!({
@@ -122,7 +130,7 @@ impl Controls {
     fn set_position(&self, track_id: ObjectPath<'_>, position: i64) {
         let s = self.0.state.lock().unwrap();
         if let Some(t) = s.current()
-            && track_id.as_str() == format!("/app/mousa/track/{}", t.id)
+            && track_id.as_str() == track_path(t.id)
         {
             self.0.send(Command::Seek(position as f64 / 1_000_000.));
         }
@@ -146,9 +154,7 @@ impl Controls {
         if let Some(t) = s.current() {
             m.insert(
                 "mpris:trackid".into(),
-                ObjectPath::try_from(format!("/app/mousa/track/{}", t.id))
-                    .unwrap()
-                    .into(),
+                ObjectPath::try_from(track_path(t.id)).unwrap().into(),
             );
             m.insert(
                 "xesam:title".into(),
@@ -349,4 +355,20 @@ pub fn start(player: Player) {
             log("unavailable", Some(&e));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_path;
+    use zbus::zvariant::ObjectPath;
+
+    #[test]
+    fn transient_catalog_track_ids_are_valid_mpris_object_paths() {
+        for id in [0, 42, -1, i64::MIN, i64::MAX] {
+            let path = track_path(id);
+            assert!(ObjectPath::try_from(path.as_str()).is_ok(), "{path}");
+        }
+        assert_eq!(track_path(-42), "/app/mousa/track/n42");
+        assert_eq!(track_path(42), "/app/mousa/track/42");
+    }
 }
