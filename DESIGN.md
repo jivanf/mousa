@@ -780,10 +780,11 @@ playlist ‘{name}’ is already in your library”. Display names in double cur
 quotes. Success alerts use lime, info alerts use neutral, both with a 3px
 ink border, 12px padding/gap, body-md text, wrapping message, and Dismiss button.
 Reuse the shared error-alert geometry and existing theme tokens. Do not render
-playback, preparation/progress, or cancellation messages as bare text beneath
-artwork. Loading and error states retain their dedicated UI. Catalog search
-uses the same alerts for these action outcomes. Preview both variants with
-`catalog_gallery -- alert-success` and `catalog_gallery -- alert-info`.
+playback, preparation/progress, or cancellation messages or controls beneath
+artwork; collection playback preparation is visually silent. Loading and error
+states retain their dedicated UI. Catalog search uses the same alerts for these
+action outcomes. Preview both variants with `catalog_gallery -- alert-success`
+and `catalog_gallery -- alert-info`.
 
 Collection tables start 32px below the header, with a 3px outer border and 56px
 rows separated by 1px rules. Number columns are 56px, duration columns 60px,
