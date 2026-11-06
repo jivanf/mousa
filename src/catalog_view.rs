@@ -1197,7 +1197,7 @@ pub fn cover(url: Option<&str>, size: f32) -> AnyElement {
     ui::collection_artwork(
         url.map(catalog::thumbnail_path)
             .filter(|p| p.is_file())
-            .map(ImageSource::from),
+            .map(|path| crate::artwork::source(path, size)),
         px(size),
     )
 }

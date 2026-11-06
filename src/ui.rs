@@ -21,7 +21,15 @@ pub fn collection_artwork(source: Option<ImageSource>, size: Pixels) -> AnyEleme
                 img(source)
                     .size_full()
                     .object_fit(ObjectFit::Cover)
-                    .with_fallback(|| div().child(icon("disc", false)).into_any_element()),
+                    .with_fallback(|| {
+                        div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("disc", false))
+                            .into_any_element()
+                    }),
             )
             .into_any_element()
     } else {
