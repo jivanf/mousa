@@ -3,6 +3,7 @@ pub mod artwork;
 pub mod catalog;
 pub mod catalog_view;
 mod channel_catalog;
+pub mod control;
 pub mod db;
 pub mod integrations;
 #[cfg(target_os = "linux")]

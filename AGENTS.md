@@ -123,6 +123,7 @@ Use the affected feature or subsystem, including for its related tests and docum
 | `accounts` | Authentication, credentials, and connected-account management |
 | `lastfm` | Last.fm integration and scrobbling |
 | `media-controls` | Linux MPRIS and Windows system media controls |
+| `mcp` | Local MCP tools, resources, control protocol, and agent integration |
 | `ui` | Shared GPUI components, theme tokens, assets, and design specification |
 | `windows` | Windows-specific platform behavior and installation |
 | `linux` | Linux-specific platform behavior and installation |

@@ -3,7 +3,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 pub struct Track {
     pub id: i64,
     /// One-based position in the complete playlist, independent of search and sort.

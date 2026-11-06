@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 pub struct Destination {
     pub api: String,
     pub body: Value,
