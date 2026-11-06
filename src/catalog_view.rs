@@ -1953,17 +1953,6 @@ impl CatalogView {
         if let Some(alert) = self.feedback_alert(cx) {
             content = content.child(alert.mt(space::xl()));
         }
-        if self.preparing {
-            content = content.child(
-                button("cancel-loading", "CANCEL LOADING", color::surface()).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.cancel_collection();
-                        this.feedback = None;
-                        cx.notify();
-                    },
-                )),
-            );
-        }
         if self.busy && page.items.is_empty() {
             return content.child(div().mt(space::xxl()).child(ui::caps("LOADING…")));
         }
