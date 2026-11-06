@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/jivanf/mousa/compare/v0.3.0...v0.3.1) - 2026-11-06
+
+### Fixes and performance
+
+- *(catalog)* Improve artwork rendering (#18)
+- *(media-controls)* Encode transient track identifiers for MPRIS (#19)
+
 ## [0.3.0](https://github.com/jivanf/mousa/compare/v0.2.0...v0.3.0) - 2026-11-02
 
 ### Features
