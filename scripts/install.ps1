@@ -83,12 +83,12 @@ try {
         if ($WorkbenchOnly) {
             & $cargo.Source build --release --locked --example workbench
         } else {
-            & $cargo.Source build --release --locked
+            & $cargo.Source build --workspace --release --locked
         }
         if ($LASTEXITCODE -ne 0) { throw 'Mousa build failed.' }
         if ($RunTests) {
             $env:PATH = "$deps;$env:PATH"
-            & $cargo.Source test --release --locked
+            & $cargo.Source test --workspace --locked
             if ($LASTEXITCODE -ne 0) { throw 'Mousa tests failed.' }
             if (!$SkipInteractiveTests) {
                 & $cargo.Source test --release --locked --test windows -- --ignored
