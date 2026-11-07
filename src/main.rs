@@ -1237,6 +1237,7 @@ impl Mousa {
                             .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .justify_center()
                             .font_family(font::MONO)
                             .text_size(text::secondary())
                             .child(

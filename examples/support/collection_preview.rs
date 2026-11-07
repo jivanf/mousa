@@ -80,6 +80,7 @@ impl Render for Preview {
                             .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .justify_center()
                             .child(
                                 div()
                                     .when(playing, |d| d.invisible())
