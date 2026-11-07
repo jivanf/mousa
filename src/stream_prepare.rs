@@ -777,18 +777,18 @@ mod tests {
                     start.elapsed() < TRANSITION_TIMEOUT,
                     "transition {attempt} hung"
                 );
-                match events.wait_event(0.1) {
-                    Some(Ok(Event::FileLoaded)) => assert!(
+                if matches!(events.wait_event(0.1), Some(Ok(Event::FileLoaded))) {
+                    assert!(
                         mpv.get_property::<bool>("ytdl").unwrap(),
                         "resolver must stay enabled across transitions"
-                    ),
-                    Some(Ok(Event::EndFile(0))) => break,
-                    _ => {}
+                    );
+                    break;
                 }
             }
             let request = rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(request.contains("X-Mousa-Test: a,b=quoted%value"), prepared);
         }
+        mpv.command("stop", &[]).unwrap();
         server.join().unwrap();
     }
     #[test]
