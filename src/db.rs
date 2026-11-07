@@ -378,9 +378,22 @@ impl Library {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut keep = std::collections::HashSet::new();
         for (position, (remote, t)) in tracks.iter().enumerate() {
-            let existing: Option<i64> = tx.query_row("SELECT entry_id FROM google_entries g JOIN entries e ON e.id=g.entry_id WHERE remote_id=? AND playlist_id=?",params![remote,playlist],|r|r.get(0)).optional()?;
-            let id = if let Some(id) = existing {
-                tx.execute("UPDATE entries SET url=?,title=CASE WHEN ? IS NULL THEN ? ELSE title END,artist=CASE WHEN ? IS NULL THEN ? ELSE artist END,unavailable=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![t.url,t.unavailable,t.title,t.unavailable,t.artist,t.unavailable,t.duration,t.duration,position,id])?;
+            let existing: Option<(i64, String, Option<String>)> = tx.query_row("SELECT entry_id,e.url,e.unavailable FROM google_entries g JOIN entries e ON e.id=g.entry_id WHERE remote_id=? AND playlist_id=?",params![remote,playlist],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+            let id = if let Some((id, current_url, current_unavailable)) = existing {
+                let keep_replacement = t.unavailable.is_some()
+                    && current_unavailable.is_none()
+                    && current_url != t.url;
+                let url = if keep_replacement {
+                    &current_url
+                } else {
+                    &t.url
+                };
+                let unavailable = if keep_replacement {
+                    None
+                } else {
+                    t.unavailable.as_deref()
+                };
+                tx.execute("UPDATE entries SET url=?,title=CASE WHEN ? IS NULL THEN ? ELSE title END,artist=CASE WHEN ? IS NULL THEN ? ELSE artist END,unavailable=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![url,t.unavailable,t.title,t.unavailable,t.artist,unavailable,t.duration,t.duration,position,id])?;
                 id
             } else {
                 tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) VALUES(?,?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position,t.unavailable])?;

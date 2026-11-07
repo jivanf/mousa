@@ -655,6 +655,31 @@ fn unavailable_tracks_preserve_metadata_and_recover() {
 }
 
 #[test]
+fn unavailable_refresh_preserves_a_working_replacement_url() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("replacement.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Replacement").unwrap();
+    let original = track("Original song");
+    db.reconcile_entries(playlist, &[("remote".into(), original.clone())])
+        .unwrap();
+    let id = db.tracks(playlist, "", Sort::Position).unwrap()[0].id;
+    db.conn
+        .execute(
+            "UPDATE entries SET url='https://youtube.test/replacement', unavailable=NULL WHERE id=?",
+            [id],
+        )
+        .unwrap();
+    let mut unavailable = original;
+    unavailable.unavailable = Some("UNAVAILABLE".into());
+    db.reconcile_entries(playlist, &[("remote".into(), unavailable)])
+        .unwrap();
+    let saved = &db.tracks(playlist, "", Sort::Position).unwrap()[0];
+    assert_eq!(saved.url, "https://youtube.test/replacement");
+    assert!(saved.unavailable.is_none());
+}
+
+#[test]
 fn old_library_migrates_explicit_unavailable_titles_only() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("old.db");
