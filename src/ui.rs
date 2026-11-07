@@ -53,6 +53,43 @@ pub fn collection_header(artwork: AnyElement, info: Div) -> Div {
         .child(info.flex_1().min_w_0())
 }
 
+/// Compact album and playlist header with controls sharing the artwork height.
+pub fn collection_detail_header(
+    artwork: AnyElement,
+    info: Div,
+    actions: Div,
+    search: impl IntoElement,
+) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .gap(space::xxl())
+        .child(div().flex_shrink_0().shadow(shadow::md()).child(artwork))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(space::md())
+                        .child(info.flex_1().min_w_0())
+                        .child(
+                            div()
+                                .w(crate::theme::catalog::search_width())
+                                .min_w_0()
+                                .flex_shrink_0()
+                                .child(search),
+                        ),
+                )
+                .child(actions.flex().flex_wrap().gap(space::md())),
+        )
+}
+
 pub fn collection_info(kind: &str, title: String, metadata: String) -> Div {
     div()
         .flex()
@@ -71,22 +108,6 @@ pub fn collection_info(kind: &str, title: String, metadata: String) -> Div {
                 .text_size(text::secondary())
                 .text_color(color::muted())
                 .child(metadata),
-        )
-}
-
-pub fn collection_toolbar(actions: Div, search: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .flex_wrap()
-        .gap(space::md())
-        .child(actions.flex().flex_wrap().gap(space::md()).flex_1())
-        .child(
-            div()
-                .w(crate::theme::catalog::search_width())
-                .min_w_0()
-                .child(search),
         )
 }
 

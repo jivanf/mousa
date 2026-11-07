@@ -144,7 +144,7 @@ impl Render for Preview {
             .flex()
             .flex_col()
             .gap(space::xxl())
-            .child(ui::collection_header(
+            .child(ui::collection_detail_header(
                 ui::collection_artwork(
                     if self.state.ends_with("no-artwork") {
                         None
@@ -168,8 +168,6 @@ impl Render for Preview {
                         if self.state.ends_with("empty") { 0 } else { 4 }
                     ),
                 ),
-            ))
-            .child(ui::collection_toolbar(
                 actions,
                 ui::search_input(&self.input, false, cx),
             ));
