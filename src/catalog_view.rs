@@ -2812,6 +2812,7 @@ mod presentation_tests {
             title: "Track".into(),
             artist: "Artist".into(),
             duration: 120.,
+            thumbnail: None,
             unavailable: None,
         };
         assert!(item_matches_track(&item, &track));

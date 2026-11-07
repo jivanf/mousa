@@ -23,7 +23,21 @@ fn track(title: &str) -> Track {
         title: title.into(),
         artist: "Test artist".into(),
         duration: 180.,
+        thumbnail: None,
     }
+}
+#[test]
+fn track_thumbnail_round_trips_through_the_library() {
+    let mut db = Library::open(":memory:").unwrap();
+    let playlist = db.create("Artwork").unwrap();
+    let mut track = track("Song");
+    track.thumbnail = Some("https://i.ytimg.com/vi/test/hqdefault.jpg".into());
+    db.add(playlist, &[track.clone()]).unwrap();
+
+    assert_eq!(
+        db.tracks(playlist, "", Sort::Position).unwrap()[0].thumbnail,
+        track.thumbnail
+    );
 }
 #[test]
 fn bulk_removal_preserves_survivor_order_and_rolls_back_on_failure() {
@@ -462,7 +476,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.add(id, &[track("Preserved")]).unwrap();
         db.save("session", "saved queue").unwrap();
         db.conn
-            .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=0;")
+            .execute_batch("ALTER TABLE entries DROP COLUMN thumbnail; ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=0;")
             .unwrap();
     }
     let db = Library::open(&path).unwrap();
@@ -470,7 +484,7 @@ fn legacy_library_is_versioned_without_losing_entries_or_session() {
         db.conn
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(db.tracks(id, "preserved", Sort::Position).unwrap().len(), 1);
     assert_eq!(db.load("session").as_deref(), Some("saved queue"));
@@ -693,7 +707,7 @@ fn old_library_migrates_explicit_unavailable_titles_only() {
     )
     .unwrap();
     db.conn
-        .execute_batch("ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=1;")
+        .execute_batch("ALTER TABLE entries DROP COLUMN thumbnail; ALTER TABLE entries DROP COLUMN unavailable; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=1;")
         .unwrap();
     drop(db);
     let db = Library::open(path).unwrap();

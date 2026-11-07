@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
             title: format!("Synthetic track {:04}", i + 1),
             artist: format!("Test artist {:02}", i % 50),
             duration: 19.,
+            thumbnail: None,
         })
         .collect();
     db.add(id, &tracks)?;

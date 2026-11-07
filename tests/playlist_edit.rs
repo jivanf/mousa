@@ -41,7 +41,7 @@ fn version_two_migration_preserves_playlist_names() {
         let db = Library::open(&path).unwrap();
         db.create("Existing").unwrap();
         db.conn
-            .execute_batch("ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=2;")
+            .execute_batch("ALTER TABLE entries DROP COLUMN thumbnail; ALTER TABLE playlists DROP COLUMN description; PRAGMA user_version=2;")
             .unwrap();
     }
     let db = Library::open(&path).unwrap();
