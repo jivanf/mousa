@@ -1249,13 +1249,15 @@ impl Mousa {
                             )
                             .when(!unavailable && source.is_none(), |d| {
                                 d.child(
-                                    ui::track_play_button(("play-track", i))
+                                    ui::track_play_button(("play-track", i), is_active)
                                         .absolute()
                                         .left_0()
                                         .top_0()
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             cx.stop_propagation();
-                                            if queue {
+                                            if is_active {
+                                                this.player.send(Command::Toggle);
+                                            } else if queue {
                                                 this.player.send(Command::Jump(i));
                                             } else {
                                                 this.play(id, cx);
