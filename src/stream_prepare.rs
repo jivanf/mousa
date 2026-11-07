@@ -83,13 +83,13 @@ pub(crate) struct Preparation {
 impl Preparation {
     pub fn start(index: usize, track: &Track, purpose: &'static str, metrics: &Metrics) -> Self {
         let url = track.url.clone();
+        let worker_track = track.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, result) = mpsc::channel();
-        let worker_url = url.clone();
         let worker_cancel = cancel.clone();
         std::thread::spawn(move || {
             let start = Instant::now();
-            let stream = resolve(&worker_url, &worker_cancel);
+            let stream = resolve(&worker_track, &worker_cancel);
             let _ = tx.send(Outcome {
                 stream,
                 elapsed_ms: start.elapsed().as_millis(),
@@ -218,7 +218,185 @@ fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
     })
 }
 
-fn resolve(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
+fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
+    let result = resolve_url(&track.url, cancel);
+    let reason = match result.as_ref().err().copied() {
+        Some("private") => Some("PRIVATE"),
+        Some("removed") => Some("REMOVED"),
+        Some("region_blocked") => Some("REGION BLOCKED"),
+        Some("unavailable") => Some("UNAVAILABLE"),
+        _ => None,
+    };
+    let Some(reason) = reason else {
+        return result;
+    };
+    if let Some((replacement, stream)) = replacement(track, cancel) {
+        if track.id > 0
+            && let Ok(db) = crate::db::library()
+        {
+            let _ = db.conn.execute(
+                "UPDATE entries SET url=?,unavailable=NULL WHERE id=? AND url=?",
+                rusqlite::params![replacement, track.id, track.url],
+            );
+        }
+        return Ok(stream);
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled");
+    }
+    if let Ok(db) = crate::db::library() {
+        let _ = db.conn.execute(
+            "UPDATE entries SET unavailable=? WHERE url=?",
+            rusqlite::params![reason, track.url],
+        );
+    }
+    Err("unavailable")
+}
+
+fn replacement(track: &Track, cancel: &AtomicBool) -> Option<(String, Stream)> {
+    if track.duration <= 0. || track.title.trim().is_empty() || track.artist.trim().is_empty() {
+        return None;
+    }
+    let artist = track
+        .artist
+        .split('·')
+        .next()
+        .unwrap_or(&track.artist)
+        .trim();
+    // Long classical titles often repeat the work and movement around a colon;
+    // YouTube search is substantially more accurate with the movement plus one credit.
+    let movement = track
+        .title
+        .rsplit(':')
+        .next()
+        .unwrap_or(&track.title)
+        .trim();
+    let query = format!("{movement} {artist}");
+    let mut command = Command::new(crate::integrations::ytdlp_path());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.args([
+        "--ignore-config",
+        "--flat-playlist",
+        "--dump-single-json",
+        "--no-warnings",
+        "--socket-timeout",
+        "10",
+        "--retries",
+        "1",
+        "--playlist-end",
+        "20",
+        "--",
+        &format!("ytsearch20:{query}"),
+    ]);
+    let bytes = command_output(command, cancel, Duration::from_secs(25)).ok()?;
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    value["entries"]
+        .as_array()?
+        .iter()
+        .filter(|item| replacement_matches(track, item))
+        .find_map(|item| {
+            let url = format!("https://www.youtube.com/watch?v={}", item["id"].as_str()?);
+            (url != track.url)
+                .then(|| resolve_url(&url, cancel).ok().map(|stream| (url, stream)))?
+        })
+}
+
+fn replacement_matches(track: &Track, item: &Value) -> bool {
+    let Some(title) = item["title"].as_str() else {
+        return false;
+    };
+    let Some(duration) = item["duration"].as_f64() else {
+        return false;
+    };
+    let channel = item["channel"]
+        .as_str()
+        .or_else(|| item["uploader"].as_str())
+        .unwrap_or("")
+        .trim_end_matches(" - Topic");
+    item["id"].as_str().is_some()
+        && title_similarity(title, &track.title) >= 0.8
+        && (duration - track.duration).abs() <= 3.
+        && artist_parts(channel)
+            .iter()
+            .any(|artist| artist_parts(&track.artist).contains(artist))
+}
+
+fn title_similarity(left: &str, right: &str) -> f64 {
+    let left = words(left);
+    let right = words(right);
+    let shorter = left.len().min(right.len());
+    if shorter == 0 {
+        return 0.;
+    }
+    left.iter().filter(|word| right.contains(*word)).count() as f64 / shorter as f64
+}
+
+fn words(value: &str) -> std::collections::HashSet<String> {
+    value
+        .split(|character: char| !character.is_alphanumeric())
+        .map(str::to_ascii_lowercase)
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn artist_parts(value: &str) -> Vec<String> {
+    value
+        .split(['·', ',', '&'])
+        .map(normalize)
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn normalize(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn command_output(
+    mut command: Command,
+    cancel: &AtomicBool,
+    timeout: Duration,
+) -> Result<Vec<u8>, &'static str> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "resolver_unavailable")?;
+    let mut stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout
+            .read_to_end(&mut bytes)
+            .map_err(|_| "resolver_read_failed")?;
+        (bytes.len() <= 8 * 1024 * 1024)
+            .then_some(bytes)
+            .ok_or("resolver_output_limit")
+    });
+    let start = Instant::now();
+    let success = loop {
+        if cancel.load(Ordering::Relaxed) || start.elapsed() > timeout {
+            let _ = child.kill();
+            break false;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => break false,
+        }
+    };
+    let _ = child.wait();
+    let bytes = reader.join().map_err(|_| "resolver_read_failed")??;
+    success.then_some(bytes).ok_or("resolver_failed")
+}
+
+fn resolve_url(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled");
     }
@@ -243,24 +421,7 @@ fn resolve(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
         "--",
         url,
     ]);
-    let result = resolve_command(command, cancel, Duration::from_secs(25));
-    let reason = match result.as_ref().err().copied() {
-        Some("private") => Some("PRIVATE"),
-        Some("removed") => Some("REMOVED"),
-        Some("region_blocked") => Some("REGION BLOCKED"),
-        Some("unavailable") => Some("UNAVAILABLE"),
-        _ => None,
-    };
-    if let Some(reason) = reason {
-        if let Ok(db) = crate::db::library() {
-            let _ = db.conn.execute(
-                "UPDATE entries SET unavailable=? WHERE url=?",
-                rusqlite::params![reason, url],
-            );
-        }
-        return Err("unavailable");
-    }
-    result
+    resolve_command(command, cancel, Duration::from_secs(25))
 }
 fn resolve_command(
     mut command: Command,
@@ -416,6 +577,48 @@ mod tests {
             preparation.take(1, "original", &Metrics::silent()).1,
             "unavailable"
         );
+    }
+    #[test]
+    fn replacements_require_matching_title_artist_and_duration() {
+        let track = Track {
+            id: 1,
+            playlist_index: 1,
+            url: "https://www.youtube.com/watch?v=old".into(),
+            title: "Liebster Immanuel (Chorus)".into(),
+            artist: "Montréal Baroque · Matthew White".into(),
+            duration: 283.,
+            unavailable: Some("UNAVAILABLE".into()),
+        };
+        let candidate = json!({
+            "id": "replacement",
+            "title": "Liebster Immanuel - Chorus",
+            "channel": "Matthew White - Topic",
+            "duration": 284.
+        });
+        assert!(replacement_matches(&track, &candidate));
+        assert!(!replacement_matches(
+            &track,
+            &json!({"id":"replacement","title":"Liebster Immanuel - Chorus","channel":"Matthew White - Topic","duration":300.})
+        ));
+        assert!(!replacement_matches(
+            &track,
+            &json!({"id":"replacement","title":"Liebster Immanuel - Chorus","channel":"Different orchestra","duration":284.})
+        ));
+    }
+    #[test]
+    #[ignore = "read-only live YouTube replacement compatibility probe"]
+    fn live_unavailable_track_finds_a_playable_replacement() {
+        let track = Track {
+            id: 0,
+            playlist_index: 1,
+            url: "https://www.youtube.com/watch?v=QgXAFUtasVE".into(),
+            title: "J.S. Bach: Cantata Liebster Immanuel, herzog der frommen, BWV 123: Liebster Immanuel, Herzog der Frommen (Chorus)".into(),
+            artist: "Montréal Baroque · Matthew White · Monika Mauch · Charles Daniels · Eric Milnes · Harry van der Kamp".into(),
+            duration: 283.,
+            unavailable: Some("UNAVAILABLE".into()),
+        };
+        let (url, _) = replacement(&track, &AtomicBool::new(false)).unwrap();
+        assert_eq!(url, "https://www.youtube.com/watch?v=5FPa8stLD8k");
     }
     #[test]
     fn selection_and_trigger_respect_playback_modes() {
@@ -617,7 +820,7 @@ mod tests {
     #[ignore = "live YouTube URL preparation and muted playback; requires network and yt-dlp"]
     fn youtube_prepared_stream_plays() {
         use libmpv2::Mpv;
-        let stream = resolve(
+        let stream = resolve_url(
             &std::env::var("MOUSA_TEST_YOUTUBE_URL")
                 .unwrap_or_else(|_| "https://www.youtube.com/watch?v=jNQXAC9IVRw".into()),
             &AtomicBool::new(false),
