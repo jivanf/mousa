@@ -35,6 +35,7 @@ fn main() {
         title: "Playback regression probe".into(),
         artist: "".into(),
         duration: 258.,
+        thumbnail: None,
     };
     let saved = Snapshot {
         queue: Arc::new(vec![track.clone()]),

@@ -834,6 +834,7 @@ mod tests {
             title: format!("Track {id}"),
             artist: "Artist".into(),
             duration: 1.0,
+            thumbnail: None,
             unavailable: None,
         }
     }

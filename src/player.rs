@@ -899,6 +899,7 @@ mod tests {
                 title: "Test".into(),
                 artist: "Test".into(),
                 duration: 120.,
+                thumbnail: None,
             }]),
             paused: true,
             duration: 120.,

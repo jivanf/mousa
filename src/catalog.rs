@@ -80,6 +80,7 @@ impl Item {
             title: self.title.clone(),
             artist: self.artist.clone(),
             duration: self.duration,
+            thumbnail: self.thumbnail.clone(),
             unavailable: None,
         })
     }

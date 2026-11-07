@@ -15,6 +15,8 @@ pub struct Track {
     pub artist: String,
     pub duration: f64,
     #[serde(default)]
+    pub thumbnail: Option<String>,
+    #[serde(default)]
     pub unavailable: Option<String>,
 }
 #[derive(Clone, Debug)]
@@ -68,7 +70,7 @@ impl Library {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 3 {
+        if version > 4 {
             return Err(NewerLibrary.into());
         }
         if version == 0 {
@@ -87,6 +89,15 @@ impl Library {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             if tx.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? < 3 {
                 tx.execute_batch("ALTER TABLE playlists ADD COLUMN description TEXT NOT NULL DEFAULT ''; PRAGMA user_version=3;")?;
+            }
+            tx.commit()?;
+        }
+        if version < 4 {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if tx.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? < 4 {
+                tx.execute_batch(
+                    "ALTER TABLE entries ADD COLUMN thumbnail TEXT; PRAGMA user_version=4;",
+                )?;
             }
             tx.commit()?;
         }
@@ -201,7 +212,7 @@ impl Library {
             |r| r.get(0),
         )?;
         {
-            let mut stmt=tx.prepare("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) VALUES(?,?,?,?,?,?,?)")?;
+            let mut stmt=tx.prepare("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable,thumbnail) VALUES(?,?,?,?,?,?,?,?)")?;
             for (i, t) in tracks.iter().enumerate() {
                 stmt.execute(params![
                     playlist,
@@ -210,7 +221,8 @@ impl Library {
                     t.artist,
                     t.duration,
                     start + i as i64,
-                    t.unavailable
+                    t.unavailable,
+                    t.thumbnail
                 ])?;
             }
         }
@@ -305,7 +317,7 @@ impl Library {
                 SELECT id,row_number() OVER (ORDER BY position,id) AS ordinal
                 FROM entries WHERE playlist_id=?1
              )
-             SELECT e.id,e.url,e.title,e.artist,e.duration,p.ordinal,e.unavailable
+             SELECT e.id,e.url,e.title,e.artist,e.duration,p.ordinal,e.unavailable,e.thumbnail
              FROM {source} JOIN playlist_indexes p ON p.id=e.id
              WHERE e.playlist_id=?1{filter} ORDER BY {order}"
         );
@@ -319,6 +331,7 @@ impl Library {
                 artist: r.get(3)?,
                 duration: r.get(4)?,
                 unavailable: r.get(6)?,
+                thumbnail: r.get(7)?,
             })
         };
         let rows = if query.is_empty() {
@@ -403,10 +416,10 @@ impl Library {
                 } else {
                     t.unavailable.as_deref()
                 };
-                tx.execute("UPDATE entries SET url=?,title=CASE WHEN ? IS NULL THEN ? ELSE title END,artist=CASE WHEN ? IS NULL THEN ? ELSE artist END,unavailable=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=? WHERE id=?",params![url,t.unavailable,t.title,t.unavailable,t.artist,unavailable,t.duration,t.duration,position,id])?;
+                tx.execute("UPDATE entries SET url=?,title=CASE WHEN ? IS NULL THEN ? ELSE title END,artist=CASE WHEN ? IS NULL THEN ? ELSE artist END,unavailable=?,duration=CASE WHEN ?>0 THEN ? ELSE duration END,position=?,thumbnail=coalesce(?,thumbnail) WHERE id=?",params![url,t.unavailable,t.title,t.unavailable,t.artist,unavailable,t.duration,t.duration,position,t.thumbnail,id])?;
                 id
             } else {
-                tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable) VALUES(?,?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position,t.unavailable])?;
+                tx.execute("INSERT INTO entries(playlist_id,url,title,artist,duration,position,unavailable,thumbnail) VALUES(?,?,?,?,?,?,?,?)",params![playlist,t.url,t.title,t.artist,t.duration,position,t.unavailable,t.thumbnail])?;
                 let id = tx.last_insert_rowid();
                 tx.execute(
                     "INSERT INTO google_entries VALUES(?,?)",

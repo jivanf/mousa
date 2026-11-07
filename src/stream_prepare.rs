@@ -580,6 +580,7 @@ mod tests {
             title: "Liebster Immanuel (Chorus)".into(),
             artist: "Montréal Baroque · Matthew White".into(),
             duration: 283.,
+            thumbnail: None,
             unavailable: Some("UNAVAILABLE".into()),
         };
         let candidate = json!({
@@ -608,6 +609,7 @@ mod tests {
             title: "J.S. Bach: Cantata Liebster Immanuel, herzog der frommen, BWV 123: Liebster Immanuel, Herzog der Frommen (Chorus)".into(),
             artist: "Montréal Baroque · Matthew White · Monika Mauch · Charles Daniels · Eric Milnes · Harry van der Kamp".into(),
             duration: 283.,
+            thumbnail: None,
             unavailable: Some("UNAVAILABLE".into()),
         };
         let (url, _) = replacement(&track, &AtomicBool::new(false)).unwrap();

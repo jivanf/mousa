@@ -509,6 +509,10 @@ the left of the duration, retaining their space so neither metadata nor duration
 shifts on hover; each action is also revealed on keyboard focus.
 Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
 row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
+Library playlist rows replace the index with the track's centered 36px square
+thumbnail. Songs use their album artwork when supplied by the catalog, videos use
+their own thumbnail, and missing or unavailable cached artwork uses the disc fallback.
+Queue rows retain their position number.
 Playing row is tertiary. Multi-selected rows use canvas with a 6px ink left rule.
 
 **Track scrollbar.** Overflowing playlist and queue lists reserve a 20px white rail with a

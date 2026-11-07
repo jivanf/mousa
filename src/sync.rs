@@ -272,6 +272,10 @@ impl Google {
                     title: crate::titles::from_snippet(s),
                     artist: crate::artists::resolve(s),
                     duration: durations.get(video).copied().unwrap_or(0.),
+                    thumbnail: ["maxres", "standard", "high", "medium", "default"]
+                        .into_iter()
+                        .find_map(|size| s["thumbnails"][size]["url"].as_str())
+                        .map(str::to_owned),
                 },
             ));
         }

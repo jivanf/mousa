@@ -247,6 +247,7 @@ mod tests {
             title: title.clone(),
             artist: "Test artist".into(),
             duration: 120.,
+            thumbnail: None,
             unavailable: None,
         }]);
         let player = Player {

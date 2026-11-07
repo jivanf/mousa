@@ -52,6 +52,7 @@ fn main() {
             title: "Silent playback probe".into(),
             artist: "Mousa QA".into(),
             duration: 10.,
+            thumbnail: None,
         }],
         0,
     ));
@@ -100,6 +101,7 @@ fn main() {
             title: "Missing file probe".into(),
             artist: "".into(),
             duration: 10.,
+            thumbnail: None,
         }],
         0,
     ));

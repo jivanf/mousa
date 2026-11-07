@@ -462,12 +462,24 @@ impl Mousa {
         let generation = self.generation;
         let query = self.search.read(cx).value().to_string();
         if let Some(id) = self.selected {
+            let tx = self.tx.clone();
             self.job(move || {
-                Ok(Reply::Tracks(
+                let tracks = db::library()?.tracks(id, &query, Sort::Position)?;
+                let artwork = tracks
+                    .iter()
+                    .filter_map(|track| track.thumbnail.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                let _ = tx.send(Reply::Tracks(
                     generation,
-                    db::library()?.tracks(id, &query, Sort::Position)?,
+                    tracks,
                     mousa::sync_policy::freshness(&db::library()?, id, integrations::now())?,
-                ))
+                ));
+                for url in artwork {
+                    if mousa::catalog::load_thumbnail(&url).is_ok() {
+                        let _ = tx.send(Reply::ArtworkReady);
+                    }
+                }
+                Ok(Reply::ArtworkReady)
             });
         } else {
             self.track_list.reset(0);
@@ -1033,6 +1045,7 @@ impl Mousa {
                     "–:–".into()
                 };
                 let track = t.clone();
+                let thumbnail = t.thumbnail.clone();
                 let is_active = if queue {
                     i == active_queue_index
                 } else {
@@ -1238,19 +1251,27 @@ impl Mousa {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .font_family(font::MONO)
-                            .text_size(text::secondary())
-                            .child(
-                                div()
-                                    .when(!unavailable && source.is_none(), |d| {
-                                        d.when(is_active, |d| d.invisible())
-                                            .group_hover("track-row", |s| s.invisible())
-                                    })
-                                    .child(format!(
-                                        "{:02}",
-                                        if queue { i + 1 } else { t.playlist_index }
-                                    )),
-                            )
+                            .when(queue, |d| {
+                                d.font_family(font::MONO)
+                                    .text_size(text::secondary())
+                                    .child(
+                                        div()
+                                            .when(!unavailable && source.is_none(), |d| {
+                                                d.when(is_active, |d| d.invisible())
+                                                    .group_hover("track-row", |s| s.invisible())
+                                            })
+                                            .child(format!("{:02}", i + 1)),
+                                    )
+                            })
+                            .when(!queue, |d| {
+                                let source = thumbnail.map(|url| {
+                                    mousa::artwork::source(
+                                        mousa::catalog::thumbnail_path(&url),
+                                        f32::from(layout::row_index()),
+                                    )
+                                });
+                                d.child(ui::collection_artwork(source, layout::row_index()))
+                            })
                             .when(!unavailable && source.is_none(), |d| {
                                 d.child(
                                     ui::track_play_button(("play-track", i), is_active)
@@ -1506,12 +1527,18 @@ impl Mousa {
                                                             .child(
                                                                 div()
                                                                     .w(layout::row_index())
-                                                                    .font_family(font::MONO)
-                                                                    .child(
-                                                                        track
-                                                                            .playlist_index
-                                                                            .to_string(),
-                                                                    ),
+                                                                    .flex()
+                                                                    .items_center()
+                                                                    .justify_center()
+                                                                    .child(ui::collection_artwork(
+                                                                        track.thumbnail.as_ref().map(|url| {
+                                                                            mousa::artwork::source(
+                                                                                mousa::catalog::thumbnail_path(url),
+                                                                                f32::from(layout::row_index()),
+                                                                            )
+                                                                        }),
+                                                                        layout::row_index(),
+                                                                    )),
                                                             )
                                                             .child(
                                                                 div()

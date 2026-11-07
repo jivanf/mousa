@@ -22,6 +22,7 @@ fn main() -> anyhow::Result<()> {
                 title: "Me at the zoo".into(),
                 artist: "jawed".into(),
                 duration: 19.,
+                thumbnail: None,
             };
             sync::add(id, &[t.clone(), t])?;
             let tracks = db::library()?.tracks(id, "", Sort::Position)?;

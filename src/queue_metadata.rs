@@ -12,7 +12,7 @@ pub fn read(queue: &[Track]) -> anyhow::Result<Vec<(Track, Track)>> {
 
 fn read_from(db: &db::Library, queue: &[Track]) -> anyhow::Result<Vec<(Track, Track)>> {
     let mut stmt = db.conn.prepare_cached(
-        "SELECT title,artist,duration,unavailable FROM entries WHERE id=?1 AND url=?2",
+        "SELECT title,artist,duration,unavailable,thumbnail FROM entries WHERE id=?1 AND url=?2",
     )?;
     let mut updates = Vec::new();
     for old in queue {
@@ -25,6 +25,7 @@ fn read_from(db: &db::Library, queue: &[Track]) -> anyhow::Result<Vec<(Track, Tr
                     artist: row.get(1)?,
                     duration: row.get(2)?,
                     unavailable: row.get(3)?,
+                    thumbnail: row.get(4)?,
                     ..old.clone()
                 })
             })
@@ -79,6 +80,7 @@ mod tests {
             artist: "Artist".into(),
             duration,
             playlist_index: 1,
+            thumbnail: None,
             unavailable: None,
         }
     }

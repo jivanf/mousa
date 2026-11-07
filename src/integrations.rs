@@ -184,6 +184,7 @@ pub fn import_url(input: &str) -> Result<Vec<Track>> {
                 .to_owned(),
                 artist: crate::artists::resolve(&v),
                 duration: v["duration"].as_f64().unwrap_or(0.),
+                thumbnail: v["thumbnail"].as_str().map(str::to_owned),
             })
         })
         .collect())
@@ -536,6 +537,7 @@ pub fn flush_scrobbles() -> Result<()> {
                 title,
                 artist,
                 duration: 0.,
+                thumbnail: None,
             },
             Some(started),
         )?;
