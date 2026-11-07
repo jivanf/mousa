@@ -42,14 +42,12 @@ pub(crate) struct Stream {
     pub url: String,
     headers: Vec<String>,
     resolved: Instant,
-    expires: Option<i64>,
 }
 impl Stream {
     fn fresh(&self) -> bool {
+        // A successful resolver result is fresh in this process regardless of
+        // wall-clock skew between the device and YouTube's signing service.
         self.resolved.elapsed() < MAX_AGE
-            && self
-                .expires
-                .is_none_or(|expiry| expiry > crate::integrations::now() + 30)
     }
     // Two nested mpv lists: header fields and loadfile's per-file options.
     pub fn options(&self) -> String {
@@ -196,10 +194,6 @@ fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("unsupported_protocol");
     }
-    let expires = parsed
-        .query_pairs()
-        .find(|(k, _)| k == "expire")
-        .and_then(|(_, v)| v.parse().ok());
     let mut headers = Vec::new();
     if let Some(fields) = value["http_headers"].as_object() {
         for (name, value) in fields {
@@ -214,7 +208,6 @@ fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
         url: url.into(),
         headers,
         resolved: Instant::now(),
-        expires,
     })
 }
 
@@ -638,9 +631,9 @@ mod tests {
         assert!(!due(f64::NAN, 100., false));
     }
     #[test]
-    fn parses_headers_and_rejects_expired_or_unsupported_streams() {
+    fn parses_headers_without_trusting_wall_clock_expiration() {
         let s = parse(br#"{"url":"https://example.org/audio?expire=1","http_headers":{"User-Agent":"a,b","Referer":"https://example.org"}}"#).unwrap();
-        assert!(!s.fresh());
+        assert!(s.fresh());
         assert!(s.options().contains("User-Agent: a\\,b"));
         assert!(parse(br#"{"url":"file:///tmp/file"}"#).is_err());
         assert!(
@@ -651,7 +644,7 @@ mod tests {
         assert!(parse(br#"{"url":"https://example.org","is_live":true}"#).is_err());
     }
     #[test]
-    fn consuming_pending_mismatched_and_stale_results_never_uses_the_url() {
+    fn consuming_pending_mismatched_and_monotonically_stale_results_never_uses_the_url() {
         let m = Metrics::silent();
         let pending = Preparation::pending(1, "original");
         let cancel = pending.cancel.clone();
@@ -664,11 +657,13 @@ mod tests {
         });
         assert_eq!(ready.take(2, "different", &m).1, "mismatch");
         let mut stale = Preparation::pending(1, "original");
+        let mut stream = parse(br#"{"url":"https://example.org/audio?expire=1"}"#).unwrap();
+        stream.resolved = Instant::now() - MAX_AGE;
         stale.outcome = Some(Outcome {
-            stream: parse(br#"{"url":"https://example.org/audio?expire=1"}"#),
+            stream: Ok(stream),
             elapsed_ms: 1,
         });
-        assert!(!stale.needs_refresh());
+        assert!(stale.needs_refresh());
         assert_eq!(stale.take(1, "original", &m).1, "expired");
         let mut ready = Preparation::pending(1, "original");
         ready.outcome = Some(Outcome {
