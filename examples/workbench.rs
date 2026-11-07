@@ -88,6 +88,10 @@ const STORIES: &[(&str, &str)] = &[
     ("Library", "library-playlist-empty"),
     ("Library", "library-playlist-error"),
     ("Library", "library-playlist-no-artwork"),
+    ("Update required", "ready"),
+    ("Update required", "updating"),
+    ("Update required", "error"),
+    ("Update required", "success"),
 ];
 
 #[derive(Default, Serialize, Deserialize)]
@@ -126,6 +130,9 @@ impl Workbench {
         match group {
             "Library" => cx
                 .new(|cx| collection_preview::Preview::new(state, window, cx))
+                .into(),
+            "Update required" => cx
+                .new(|_| mousa::update_required::UpdateRequired::preview(state))
                 .into(),
             "Catalog" => {
                 let (page, item) = catalog::sample(state);

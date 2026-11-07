@@ -418,6 +418,10 @@ fn main() {
                 ..Default::default()
             },
             move |window, cx| {
+                if let Some(state) = state.strip_prefix("update-") {
+                    let view = cx.new(|_| mousa::update_required::UpdateRequired::preview(state));
+                    return cx.new(|cx| Root::new(view, window, cx));
+                }
                 let view = cx.new(|cx| Gallery::new(&state, window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },

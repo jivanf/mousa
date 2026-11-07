@@ -2301,7 +2301,14 @@ fn main() {
             }
         })
         .detach();
-        let saved = mousa::view_state::ViewState::load();
+        let incompatible = db::library()
+            .err()
+            .is_some_and(|error| error.is::<db::NewerLibrary>());
+        let saved = if incompatible {
+            Default::default()
+        } else {
+            mousa::view_state::ViewState::load()
+        };
         let saved_size = saved.window_size.filter(|s| {
             s.iter()
                 .all(|v| v.is_finite() && *v >= 100. && *v <= 10000.)
@@ -2346,6 +2353,10 @@ fn main() {
             },
             move |window, cx| {
                 window.set_window_title("Mousa");
+                if incompatible {
+                    let view = cx.new(|_| mousa::update_required::UpdateRequired::new());
+                    return cx.new(|cx| Root::new(view, window, cx));
+                }
                 let view = cx.new(|cx| Mousa::new(saved, window, cx));
                 view.read(cx).focus.focus(window);
                 let player = view.read(cx).player.clone();

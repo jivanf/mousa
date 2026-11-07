@@ -96,3 +96,17 @@ Run `python -m unittest discover -s tests/release -v` and `actionlint` when chan
 the automation. Local agent commits still require the post-commit installation
 skill; GitHub's ephemeral bot checkout is validated by the platform installer
 and build jobs, not by accessing a developer's workstation.
+
+## Required compatibility recovery
+
+When the library schema is newer than the running build supports, Mousa opens
+the required-update screen before initializing accounts, playback or library
+views. The Update action asks the supervising launcher to verify and install a
+newer stable release, then closes the blocked window so the launcher can restart
+the app. No available release and download/verification failures remain retryable.
+Ordinary compatible updates retain their background staging and next-launch activation.
+
+This recovery channel requires both the application and launcher from this
+change or later. Older launchers and unmanaged developer runs display an explicit
+manual-install explanation. This change cannot retrofit the new screen into
+already published binaries. No database migration or schema downgrade is added.

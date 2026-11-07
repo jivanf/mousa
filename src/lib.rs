@@ -20,6 +20,7 @@ pub mod sync_policy;
 pub mod theme;
 pub mod titles;
 pub mod ui;
+pub mod update_required;
 pub mod view_state;
 #[cfg(target_os = "windows")]
 pub mod windows_media;
