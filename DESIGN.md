@@ -682,6 +682,9 @@ playback; its 32px Play button does. The button uses the standard small button
 depth and changes to a Pause action for the currently playing track. Row actions do not change selection or start
 a drag. Playlist reordering retains its existing restrictions and deferred
 selection collapse during dragging; catalog and queue rows cannot reorder.
+The index and Play/Pause button are mutually exclusive: hover, keyboard focus,
+and the playing state must never render both at once. Center the button using its
+complete box-and-shadow footprint rather than only its 32px face.
 Catalog selection resets on page replacement and survives append-only loading.
 Queue selection resets when queue contents/order change, so duplicate entries
 never transfer selection to a different occurrence.

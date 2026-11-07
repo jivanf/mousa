@@ -76,11 +76,16 @@ impl Render for Preview {
                         div()
                             .relative()
                             .w(mousa::theme::layout::row_index())
-                            .h(mousa::theme::size::row_action())
+                            .h(mousa::theme::size::row_action() + mousa::theme::press::sm())
                             .flex_shrink_0()
                             .flex()
                             .items_center()
-                            .child(format!("{:02}", i + 1))
+                            .child(
+                                div()
+                                    .when(playing, |d| d.invisible())
+                                    .group_hover("track-row", |d| d.invisible())
+                                    .child(format!("{:02}", i + 1)),
+                            )
                             .child(
                                 ui::track_play_button(("preview-play", i), playing)
                                     .absolute()

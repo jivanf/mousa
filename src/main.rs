@@ -13,7 +13,9 @@ use mousa::{
     sync,
 };
 use mousa::{
-    theme::{border, color, font, layout, reorder, shadow, size as control_size, space, text},
+    theme::{
+        border, color, font, layout, press, reorder, shadow, size as control_size, space, text,
+    },
     ui::{self, Bar, BarChange, button, icon_button, step_button},
 };
 use std::{
@@ -1231,7 +1233,7 @@ impl Mousa {
                         div()
                             .relative()
                             .w(layout::row_index())
-                            .h(control_size::row_action())
+                            .h(control_size::row_action() + press::sm())
                             .flex_shrink_0()
                             .flex()
                             .items_center()
@@ -1240,7 +1242,8 @@ impl Mousa {
                             .child(
                                 div()
                                     .when(!unavailable && source.is_none(), |d| {
-                                        d.group_hover("track-row", |s| s.invisible())
+                                        d.when(is_active, |d| d.invisible())
+                                            .group_hover("track-row", |s| s.invisible())
                                     })
                                     .child(format!(
                                         "{:02}",

@@ -1424,7 +1424,7 @@ pub fn track_play_button(id: impl Into<ElementId>, playing: bool) -> Button {
         .px(layout::zero())
         .mr(layout::zero())
         .mb(layout::zero())
-        .opacity(0.)
+        .opacity(if playing { 1. } else { 0. })
         .group_hover("track-row", |s| s.opacity(1.))
         .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
         .child(icon(
