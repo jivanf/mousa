@@ -43,7 +43,7 @@ impl Preview {
             input,
             state: state.into(),
             selected: None,
-            playing: None,
+            playing: state.ends_with("playing").then_some(0),
             confirm_delete: false,
             editor: None,
             subscriptions: vec![subscription],
@@ -70,15 +70,38 @@ impl Render for Preview {
                 name.to_lowercase().contains(&query) || "karl richter".contains(&query)
             }) {
                 matches += 1;
-                let row = ui::track_row(i, self.playing == Some(i))
+                let playing = self.playing == Some(i);
+                let row = ui::track_row(i, playing)
                     .child(
-                        ui::button(("preview-play", i), "PLAY", color::surface()).on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.playing = Some(i);
-                                cx.stop_propagation();
-                                cx.notify();
-                            }),
-                        ),
+                        div()
+                            .relative()
+                            .w(mousa::theme::layout::row_index())
+                            .h(mousa::theme::size::row_action() + mousa::theme::press::sm())
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .when(playing, |d| d.invisible())
+                                    .group_hover("track-row", |d| d.invisible())
+                                    .child(format!("{:02}", i + 1)),
+                            )
+                            .child(
+                                ui::track_play_button(("preview-play", i), playing)
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.playing = if this.playing == Some(i) {
+                                            None
+                                        } else {
+                                            Some(i)
+                                        };
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -90,7 +113,7 @@ impl Render for Preview {
                 rows = rows.child(ui::selectable_track_row(
                     row,
                     self.selected == Some(i),
-                    self.playing == Some(i),
+                    playing,
                     cx.listener(move |this, _, _, cx| {
                         this.selected = Some(i);
                         cx.notify();

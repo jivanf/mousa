@@ -1417,24 +1417,24 @@ impl Render for TrackScrollbar {
     }
 }
 
-/// A stationary play button covering the row number on hover or keyboard focus.
-pub fn track_play_button(id: impl Into<ElementId>) -> Stateful<Div> {
-    track_action(div().id(id))
-        .tab_index(0)
+/// A stationary play/pause button covering the row number on hover or keyboard focus.
+pub fn track_play_button(id: impl Into<ElementId>, playing: bool) -> Button {
+    track_action(button(id, "", color::surface()))
         .size(size::row_action())
-        .flex()
-        .items_center()
-        .justify_center()
-        .border(border::strong())
-        .border_color(color::ink())
-        .bg(color::surface())
-        .cursor_pointer()
-        .opacity(0.)
+        .px(layout::zero())
+        .mr(layout::zero())
+        .mb(layout::zero())
+        .opacity(if playing { 1. } else { 0. })
         .group_hover("track-row", |s| s.opacity(1.))
-        .hover(|s| s.bg(color::white()))
-        .active(|s| s.bg(color::canvas()))
         .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
-        .child(icon("player-play", false).text_color(color::ink()))
+        .child(icon(
+            if playing {
+                "player-pause"
+            } else {
+                "player-play"
+            },
+            false,
+        ))
 }
 
 /// Persistent ruled scrollbar for the catalog's non-virtualized sections.

@@ -207,6 +207,7 @@ components:
     textColor: "{colors.primary}"
     height: 32px
     width: 32px
+    x-shadow: "3px 3px 0 0 {colors.primary}"
   button-transport:
     backgroundColor: "{colors.neutral}"
     textColor: "{colors.primary}"
@@ -677,9 +678,13 @@ metadata in the description or invent missing values.
 Track tables in library, queue, and catalog details use plain click to select one occurrence, Ctrl-click to toggle
 an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
 range. Selection is independent per table. Clicking a track row never starts
-playback; its Play button does. Row actions do not change selection or start
+playback; its 32px Play button does. The button uses the standard small button
+depth and changes to a Pause action for the currently playing track. Row actions do not change selection or start
 a drag. Playlist reordering retains its existing restrictions and deferred
 selection collapse during dragging; catalog and queue rows cannot reorder.
+The index and Play/Pause button are mutually exclusive: hover, keyboard focus,
+and the playing state must never render both at once. Center the button using its
+complete box-and-shadow footprint rather than only its 32px face.
 Catalog selection resets on page replacement and survives append-only loading.
 Queue selection resets when queue contents/order change, so duplicate entries
 never transfer selection to a different occurrence.
@@ -889,6 +894,8 @@ playlist-only and mixed search matches, no matches, single/multiple/unavailable
 selection, playing-row highlighting, queue feedback, and the playlist destination
 picker. Channel search and clear use the production filter locally, with no
 service requests. Keep saved story identities stable as the story list grows.
+Library stories include a deterministic currently-playing row so its Pause icon,
+button depth, and local Play interactions can be reviewed without playback.
 
 ### Checks
 
