@@ -720,15 +720,18 @@ mod tests {
         assert_eq!(fs::read_to_string(path.join("response")).unwrap(), "ready");
     }
 
+    fn installed_test_binary() -> (tempfile::TempDir, PathBuf) {
+        let source = std::env::current_exe().unwrap();
+        let root = tempfile::tempdir_in(source.parent().unwrap()).unwrap();
+        let installed = root.path().join(executable("mousa"));
+        fs::hard_link(source, &installed).unwrap();
+        (root, installed)
+    }
+
     #[test]
     fn explicit_update_restarts_without_confirming_old_process_health() {
-        let root = tempfile::tempdir().unwrap();
+        let (root, _) = installed_test_binary();
         let cache = tempfile::tempdir().unwrap();
-        fs::copy(
-            std::env::current_exe().unwrap(),
-            root.path().join(executable("mousa")),
-        )
-        .unwrap();
         let mut state = State::default();
         let args = ["--exact", "tests::child_requests_update", "--ignored"].map(Into::into);
         let finished = launch_with_update(root.path(), cache.path(), &mut state, &args, |state| {
@@ -745,14 +748,10 @@ mod tests {
 
     #[test]
     fn actual_child_startup_confirms_or_rolls_back() {
-        let root = tempfile::tempdir().unwrap();
+        let (root, installed) = installed_test_binary();
         let cache = root.path().join("cache");
         fs::create_dir_all(cache.join("0.2.0")).unwrap();
-        fs::copy(
-            std::env::current_exe().unwrap(),
-            cache.join("0.2.0").join(executable("mousa")),
-        )
-        .unwrap();
+        fs::hard_link(installed, cache.join("0.2.0").join(executable("mousa"))).unwrap();
         let mut state = State {
             installation_id: 0,
             active: Some("0.2.0".into()),
