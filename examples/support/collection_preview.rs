@@ -123,20 +123,20 @@ impl Render for Preview {
                 )),
             )
             .child(
-                action_button("preview-delete", "DELETE", None, false)
-                    .bg(color::pink())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.confirm_delete = true;
-                        cx.notify();
-                    })),
-            )
-            .child(
                 action_button("preview-refresh", "REFRESH", None, false).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.state = "library-playlist".into();
                         cx.notify();
                     },
                 )),
+            )
+            .child(
+                action_button("preview-delete", "DELETE", None, false)
+                    .bg(color::pink())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.confirm_delete = true;
+                        cx.notify();
+                    })),
             );
         let mut content = div()
             .size_full()
@@ -144,7 +144,7 @@ impl Render for Preview {
             .flex()
             .flex_col()
             .gap(space::xxl())
-            .child(ui::collection_header(
+            .child(ui::collection_detail_header(
                 ui::collection_artwork(
                     if self.state.ends_with("no-artwork") {
                         None
@@ -168,8 +168,6 @@ impl Render for Preview {
                         if self.state.ends_with("empty") { 0 } else { 4 }
                     ),
                 ),
-            ))
-            .child(ui::collection_toolbar(
                 actions,
                 ui::search_input(&self.input, false, cx),
             ));

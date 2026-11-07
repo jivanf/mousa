@@ -1835,29 +1835,29 @@ impl Render for Mousa {
             let playlist = self.playlists.iter().find(|p| Some(p.id) == self.selected);
             let thumbnail = playlist.and_then(|p| p.thumbnail.as_deref());
             let info = ui::collection_info("PLAYLIST", title, metadata);
-            content = content.child(ui::collection_header(
-                mousa::catalog_view::cover(thumbnail, f32::from(mousa::theme::catalog::cover())),
-                info,
-            ));
             let actions = div()
                 .when(self.selected.is_some(), |d| {
                     d.child(
                         mousa::catalog_view::action_button("rename", "EDIT", None, false)
                             .on_click(cx.listener(|this, _, w, cx| this.edit_playlist(w, cx))),
                     )
-                    .child(
+                })
+                .child(
+                    mousa::catalog_view::action_button("refresh-current", "REFRESH", None, false)
+                        .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
+                )
+                .when(self.selected.is_some(), |d| {
+                    d.child(
                         mousa::catalog_view::action_button("delete", "DELETE", None, false)
                             .bg(color::pink())
                             .on_click(
                                 cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
                             ),
                     )
-                })
-                .child(
-                    mousa::catalog_view::action_button("refresh-current", "REFRESH", None, false)
-                        .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
-                );
-            content = content.child(ui::collection_toolbar(
+                });
+            content = content.child(ui::collection_detail_header(
+                mousa::catalog_view::cover(thumbnail, f32::from(mousa::theme::catalog::cover())),
+                info,
                 actions,
                 ui::search_input(&self.search, false, cx),
             ));

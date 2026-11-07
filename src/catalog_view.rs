@@ -1914,8 +1914,19 @@ impl CatalogView {
                         .mb(space::xl())
                         .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
                 ),
-            )
-            .child(ui::collection_header(
+            );
+        if let Some(actions) = collection_actions {
+            content = content.child(ui::collection_detail_header(
+                cover(
+                    page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
+                    f32::from(metrics::cover()),
+                ),
+                info,
+                actions,
+                ui::search_input(&self.collection_filter, false, cx),
+            ));
+        } else {
+            content = content.child(ui::collection_header(
                 cover(
                     page.thumbnail.as_deref().or(item.thumbnail.as_deref()),
                     f32::from(if artist || channel {
@@ -1926,14 +1937,6 @@ impl CatalogView {
                 ),
                 info,
             ));
-        if let Some(actions) = collection_actions {
-            content = content.child(
-                ui::collection_toolbar(
-                    actions,
-                    ui::search_input(&self.collection_filter, false, cx),
-                )
-                .mt(space::xxl()),
-            );
         }
         if channel {
             content = content.child(div().mt(space::xl()).child(ui::search_input(
