@@ -72,12 +72,14 @@ pub fn collection_detail_header(
                 .flex()
                 .flex_col()
                 .justify_between()
+                .child(info.flex_1().min_w_0())
                 .child(
                     div()
                         .flex()
-                        .items_start()
+                        .items_end()
+                        .justify_between()
                         .gap(space::md())
-                        .child(info.flex_1().min_w_0())
+                        .child(actions.flex().flex_wrap().gap(space::md()).flex_1())
                         .child(
                             div()
                                 .w(crate::theme::catalog::search_width())
@@ -85,8 +87,7 @@ pub fn collection_detail_header(
                                 .flex_shrink_0()
                                 .child(search),
                         ),
-                )
-                .child(actions.flex().flex_wrap().gap(space::md())),
+                ),
         )
 }
 

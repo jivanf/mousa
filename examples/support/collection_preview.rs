@@ -123,20 +123,20 @@ impl Render for Preview {
                 )),
             )
             .child(
-                action_button("preview-delete", "DELETE", None, false)
-                    .bg(color::pink())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.confirm_delete = true;
-                        cx.notify();
-                    })),
-            )
-            .child(
                 action_button("preview-refresh", "REFRESH", None, false).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.state = "library-playlist".into();
                         cx.notify();
                     },
                 )),
+            )
+            .child(
+                action_button("preview-delete", "DELETE", None, false)
+                    .bg(color::pink())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.confirm_delete = true;
+                        cx.notify();
+                    })),
             );
         let mut content = div()
             .size_full()

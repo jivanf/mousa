@@ -1841,18 +1841,20 @@ impl Render for Mousa {
                         mousa::catalog_view::action_button("rename", "EDIT", None, false)
                             .on_click(cx.listener(|this, _, w, cx| this.edit_playlist(w, cx))),
                     )
-                    .child(
+                })
+                .child(
+                    mousa::catalog_view::action_button("refresh-current", "REFRESH", None, false)
+                        .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
+                )
+                .when(self.selected.is_some(), |d| {
+                    d.child(
                         mousa::catalog_view::action_button("delete", "DELETE", None, false)
                             .bg(color::pink())
                             .on_click(
                                 cx.listener(|this, _, w, cx| this.show_form(Form::Delete, w, cx)),
                             ),
                     )
-                })
-                .child(
-                    mousa::catalog_view::action_button("refresh-current", "REFRESH", None, false)
-                        .on_click(cx.listener(|this, _, _, _| this.sync_selected(true, true))),
-                );
+                });
             content = content.child(ui::collection_detail_header(
                 mousa::catalog_view::cover(thumbnail, f32::from(mousa::theme::catalog::cover())),
                 info,

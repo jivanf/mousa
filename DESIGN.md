@@ -98,7 +98,7 @@ x-motion:
   player-panel-trigger: press-and-release
 x-alignment:
   playlist-editor-character-counters: right
-x-collection-layout: shared-artwork-header-with-top-right-search-and-inline-actions
+x-collection-layout: shared-artwork-header-with-bottom-right-search-and-inline-actions
 x-scrolling:
   scrollbar-gutter: overflow-only
   catalog-collection-detail: table-with-fixed-header-and-selection
@@ -749,8 +749,8 @@ Artist pages also retain whole-page scrolling. Use
 Album and playlist covers are 192px squares; artist portraits are 160px. Covers
 have 3px borders and 5px hard shadows. Align artist header information to the
 cover's bottom edge. In album and playlist headers, align information to the top
-of the cover, keep search in the top-right, and place actions below the title and
-metadata within the cover height. Titles use page-title with 1.1 line height;
+of the cover, keep search in the bottom-right directly above the table, and place
+actions below the title and metadata within the cover height. Titles use page-title with 1.1 line height;
 category labels use label-caps, and byline/metadata use body-md/body-sm. Navigable creator credits
 are underlined. Metadata reflects the service; missing values are omitted.
 Artwork is center-cropped and Lanczos-prefiltered to the current display's physical
@@ -761,7 +761,8 @@ to minify full-resolution sources; it aliases fine cover details and embedded te
 192px artwork, top-aligned metadata, 32px page padding and cover/text gap
 as catalog albums. Reuse the production compact detail header. Put collection
 actions below the title and metadata inside the header, with a 224px, 36px search
-field at the top right and 12px gaps. Keep 32px between the compact header and
+field at the bottom right and 12px gaps. Library playlist actions are ordered
+Edit, Refresh, Delete. Keep 32px between the compact header and
 the fixed selection strip/scrolling table. At narrow widths actions wrap while
 search remains right-aligned. Library playlists retain Edit, Delete,
 Refresh, track reordering and their existing track-row interactions; they do
