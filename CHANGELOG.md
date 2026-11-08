@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/jivanf/mousa/compare/v0.4.0...v0.5.0) - 2026-11-08
+
+### Features
+
+- *(playlists)* Show track thumbnails in playlist rows (#32)
+
+### Fixes and performance
+
+- *(library)* Refine track playback controls (#30)
+
 ## [0.4.0](https://github.com/jivanf/mousa/compare/v0.3.1...v0.4.0) - 2026-11-07
 
 ### Features
