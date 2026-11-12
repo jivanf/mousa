@@ -1553,10 +1553,14 @@ impl CatalogView {
                     .child(n.to_string()),
             );
         } else {
-            lead = lead.child(cover(
-                item.thumbnail.as_deref(),
-                f32::from(metrics::thumbnail()),
-            ));
+            lead = lead.child(
+                div()
+                    .when(playable, |d| d.group_hover("track-row", |s| s.invisible()))
+                    .child(cover(
+                        item.thumbnail.as_deref(),
+                        f32::from(metrics::thumbnail()),
+                    )),
+            );
         }
         if playable {
             lead = lead.child(
@@ -1567,12 +1571,12 @@ impl CatalogView {
                     .items_center()
                     .justify_center()
                     .child(
-                        row_icon(("catalog-play", index), "player-play", "Play").on_click(
-                            cx.listener(move |this, _, _, cx| {
+                        row_icon(("catalog-play", index), "player-play", "Play")
+                            .size(metrics::thumbnail())
+                            .on_click(cx.listener(move |this, _, _, cx| {
                                 this.activate_item(play.clone(), index, cx);
                                 cx.stop_propagation();
-                            }),
-                        ),
+                            })),
                     ),
             );
         }
