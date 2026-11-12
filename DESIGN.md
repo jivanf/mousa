@@ -109,6 +109,7 @@ x-session:
 x-search-navigation:
   video: uploader-channel-detail
   channel-search: case-insensitive-video-and-playlist-titles
+x-catalog-play-action: replaces-thumbnail-on-hover-or-focus
 components:
   update-required:
     width: 520px
@@ -419,6 +420,10 @@ Icons are monochrome SVGs embedded as assets on a 24px grid with a 2.5
 stroke and round joins, tinted with the element's text color. No unicode
 glyphs as icons (the current arrow and cross buttons depend on font
 coverage) and no emoji.
+
+Playable catalog result thumbnails are replaced by a full-size play control
+on row hover or control focus. The thumbnail and play control never appear
+simultaneously.
 
 ## Layout
 
