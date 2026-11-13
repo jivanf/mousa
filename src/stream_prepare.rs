@@ -12,7 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) const LEAD_SECONDS: f64 = 30.;
+// Leave another full preparation window after our bounded resolver times out so
+// mpv can still prefetch the YouTube fallback before the current track ends.
+pub(crate) const LEAD_SECONDS: f64 = 60.;
 const MAX_AGE: Duration = Duration::from_secs(120);
 
 pub(crate) fn next_index(index: usize, len: usize, shuffle: bool, repeat: bool) -> Option<usize> {
@@ -625,8 +627,8 @@ mod tests {
         for _ in 0..100 {
             assert_ne!(next_index(1, 3, true, false), Some(1));
         }
-        assert!(!due(69.9, 100., false));
-        assert!(due(70., 100., false));
+        assert!(!due(39.9, 100., false));
+        assert!(due(40., 100., false));
         assert!(due(0., 15., false));
         assert!(!due(90., 100., true));
         assert!(!due(0., 0., false));
