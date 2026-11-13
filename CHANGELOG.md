@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2](https://github.com/jivanf/mousa/compare/v0.5.1...v0.5.2) - 2026-11-13
+
+### Fixes and performance
+
+- *(playback)* Prefetch fallback before track transitions (#35)
+
 ## [0.5.1](https://github.com/jivanf/mousa/compare/v0.5.0...v0.5.1) - 2026-11-12
 
 ### Fixes and performance
