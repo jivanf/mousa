@@ -302,6 +302,8 @@ fn stage(cache: &Path, current: &str, rejected: &[String], repair: bool) -> Resu
         files.extend([
             "libmpv-2.dll".into(),
             "yt-dlp.exe".into(),
+            "ffmpeg.exe".into(),
+            "FFmpeg-License.txt".into(),
             "vulkan-1.dll".into(),
             "VulkanRT-License.txt".into(),
         ]);

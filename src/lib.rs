@@ -5,6 +5,7 @@ pub mod catalog_view;
 mod channel_catalog;
 pub mod control;
 pub mod db;
+pub mod downloads;
 pub mod integrations;
 #[cfg(target_os = "linux")]
 pub mod mpris;

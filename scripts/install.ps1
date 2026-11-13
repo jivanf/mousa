@@ -74,6 +74,13 @@ try {
     $vulkan = Join-Path $deps 'vulkan\VulkanRT-X64-1.4.363.0-Components'
     Copy-Item "$vulkan\x64\vulkan-1.dll", "$vulkan\VulkanRT-License.txt" -Destination $deps -Force
     Get-VerifiedFile 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe' "$deps\yt-dlp.exe" '33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555'
+    Get-VerifiedFile 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip' "$deps\ffmpeg.zip" 'ae2b8d3f88cf9a1dd22d4e29a27d933dc51abff28a39172b8282488a3030b3e3'
+    Expand-Archive -LiteralPath "$deps\ffmpeg.zip" -DestinationPath "$deps\ffmpeg" -Force
+    $ffmpeg = Get-ChildItem "$deps\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+    $ffmpegLicense = Get-ChildItem "$deps\ffmpeg" -Recurse -Filter LICENSE.txt | Select-Object -First 1
+    if (!$ffmpeg -or !$ffmpegLicense) { throw 'Could not extract FFmpeg.' }
+    Copy-Item $ffmpeg.FullName "$deps\ffmpeg.exe" -Force
+    Copy-Item $ffmpegLicense.FullName "$deps\FFmpeg-License.txt" -Force
     $previousLib = $env:LIB
     $previousFxc = $env:GPUI_FXC_PATH
     $previousPath = $env:PATH
@@ -122,7 +129,7 @@ try {
         if ($Launch) { Start-Process -FilePath $installed -WorkingDirectory $InstallDir -WindowStyle Hidden }
         return
     }
-    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-mcp.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
+    Copy-Item 'target\release\mousa.exe', 'target\release\mousa-mcp.exe', 'target\release\mousa-launcher.exe', "$deps\libmpv-2.dll", "$deps\yt-dlp.exe", "$deps\ffmpeg.exe", "$deps\FFmpeg-License.txt", "$deps\vulkan-1.dll", "$deps\VulkanRT-License.txt" -Destination $InstallDir -Force
     $installed = Join-Path $InstallDir 'mousa.exe'
     if ((Get-FileHash $installed).Hash -ne (Get-FileHash 'target\release\mousa.exe').Hash) { throw 'Installed executable does not match the build.' }
     $shell = New-Object -ComObject WScript.Shell
