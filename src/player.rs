@@ -169,6 +169,18 @@ fn clear_successor(mpv: &Mpv, queued: &mut Option<QueuedTrack>) {
     let _ = mpv.command("playlist-clear", &[]);
 }
 
+fn unavailable_error(track: &Track, status: &'static str, prepared: bool) -> Option<String> {
+    if prepared {
+        None
+    } else if let Some(reason) = &track.unavailable {
+        Some(format!("Track unavailable: {reason}"))
+    } else if status == "unavailable" {
+        Some("This track is unavailable on YouTube. Choose another track.".into())
+    } else {
+        None
+    }
+}
+
 fn stage_successor(
     mpv: &Mpv,
     track: &Track,
@@ -176,16 +188,13 @@ fn stage_successor(
     preparation: Option<Preparation>,
     metrics: &Metrics,
 ) -> Option<QueuedTrack> {
-    if track.unavailable.is_some() {
-        return None;
-    }
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
-    if status == "unavailable" {
+    let prepared = stream.is_some();
+    if unavailable_error(track, status, prepared).is_some() {
         return None;
     }
-    let prepared = stream.is_some();
     let result = if let Some(stream) = stream {
         mpv.command(
             "loadfile",
@@ -208,26 +217,15 @@ fn load_track(
     preparation: Option<Preparation>,
     metrics: &Metrics,
 ) -> (Result<(), String>, bool, &'static str) {
-    if let Some(reason) = &track.unavailable {
-        let _ = mpv.command("stop", &[]);
-        return (
-            Err(format!("Track unavailable: {reason}")),
-            false,
-            "unavailable",
-        );
-    }
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
     metrics
         .emit(serde_json::json!({"event":"prepare_consumed","queue_index":index,"outcome":status}));
-    if status == "unavailable" {
+    let prepared = stream.is_some();
+    if let Some(error) = unavailable_error(track, status, prepared) {
         let _ = mpv.command("stop", &[]);
-        return (
-            Err("This track is unavailable on YouTube. Choose another track.".into()),
-            false,
-            status,
-        );
+        return (Err(error), false, status);
     }
     if let Some(stream) = stream {
         let options = stream.options();
@@ -905,6 +903,18 @@ mod tests {
             duration: 120.,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn prepared_replacement_allows_an_already_unavailable_track() {
+        let mut track = snapshot().queue[0].clone();
+        track.unavailable = Some("UNAVAILABLE".into());
+
+        assert!(unavailable_error(&track, "ready", true).is_none());
+        assert_eq!(
+            unavailable_error(&track, "not_requested", false).as_deref(),
+            Some("Track unavailable: UNAVAILABLE")
+        );
     }
 
     #[test]

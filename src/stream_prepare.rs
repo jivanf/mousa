@@ -313,11 +313,23 @@ fn replacement_matches(track: &Track, item: &Value) -> bool {
         .unwrap_or("")
         .trim_end_matches(" - Topic");
     item["id"].as_str().is_some()
-        && title_similarity(title, &track.title) >= 0.8
+        && replacement_title_similarity(title, &track.title) >= 0.8
         && (duration - track.duration).abs() <= 3.
         && artist_parts(channel)
             .iter()
             .any(|artist| artist_parts(&track.artist).contains(artist))
+}
+
+fn replacement_title_similarity(candidate: &str, stored: &str) -> f64 {
+    let movement = stored
+        .rsplit(" - ")
+        .next()
+        .unwrap_or(stored)
+        .rsplit(':')
+        .next()
+        .unwrap_or(stored)
+        .trim();
+    title_similarity(candidate, stored).max(title_similarity(candidate, movement))
 }
 
 fn title_similarity(left: &str, right: &str) -> f64 {
@@ -600,6 +612,27 @@ mod tests {
             &track,
             &json!({"id":"replacement","title":"Liebster Immanuel - Chorus","channel":"Different orchestra","duration":284.})
         ));
+    }
+    #[test]
+    fn known_bwv_157_replacement_matches_saved_metadata() {
+        let track = Track {
+            id: 1,
+            playlist_index: 1,
+            url: "https://www.youtube.com/watch?v=7v49Kaz31Cs".into(),
+            title: "BWV 157 - Ich lasse dich nicht, du segnest mich denn: 1. Duett (Tenor, Bass) - Ich lasse dich nicht, du segnest mich denn".into(),
+            artist: "Orchester der J.S. Bach-Stiftung · Rudolf Lutz · Georg Poplutz · Stephan MacLeod".into(),
+            duration: 278.,
+            thumbnail: None,
+            unavailable: Some("UNAVAILABLE".into()),
+        };
+        let candidate = json!({
+            "id": "yWiJEH8qqDk",
+            "title": "Ich lasse dich nicht, du segnest mich denn!, BWV 157: No. 1, Duet, Aria. Ich lasse dich nicht,...",
+            "channel": "Georg Poplutz - Topic",
+            "duration": 278.
+        });
+
+        assert!(replacement_matches(&track, &candidate));
     }
     #[test]
     #[ignore = "read-only live YouTube replacement compatibility probe"]
