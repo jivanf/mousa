@@ -480,6 +480,33 @@ impl Library {
                 r.get(0)
             })?)
     }
+    pub fn replace_entry_url(
+        &mut self,
+        id: i64,
+        expected: &str,
+        replacement: &str,
+        remote: Option<&str>,
+    ) -> Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "UPDATE entries SET url=?,unavailable=NULL WHERE id=? AND url=?",
+            params![replacement, id, expected],
+        )?;
+        anyhow::ensure!(
+            changed == 1,
+            "Track changed before its replacement was saved"
+        );
+        if let Some(remote) = remote {
+            tx.execute(
+                "UPDATE google_entries SET remote_id=? WHERE entry_id=?",
+                params![remote, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn google_entry(&self, id: i64) -> Result<String> {
         Ok(self.conn.query_row(
             "SELECT remote_id FROM google_entries WHERE entry_id=?",

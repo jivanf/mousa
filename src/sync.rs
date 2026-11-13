@@ -777,6 +777,63 @@ pub fn move_entry(id: i64, delta: i32) -> Result<()> {
     Ok(())
 }
 
+/// Replace an unavailable upload remotely before committing the verified URL locally.
+pub fn replace_unavailable_entry(id: i64, expected: &str, replacement: &str) -> Result<()> {
+    let _guard = OPERATIONS.lock().unwrap();
+    let mut db = db::library()?;
+    let (playlist, position, current): (i64, i64, String) = db.conn.query_row(
+        "SELECT playlist_id,position,url FROM entries WHERE id=?",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    ensure!(current == expected, "Track changed before replacement");
+    let new_remote = if let Some((remote, account)) = db.google_playlist(playlist)? {
+        let video = url::Url::parse(replacement)?
+            .query_pairs()
+            .find(|(key, _)| key == "v")
+            .context("Replacement has no YouTube video ID")?
+            .1
+            .into_owned();
+        let google = Google::connect()?;
+        google.check(&account)?;
+        let old_item = db.google_entry(id)?;
+        let inserted = google.request(
+            Method::POST,
+            "playlistItems",
+            &[("part", "snippet")],
+            Some(replacement_insert_body(&remote, position, &video)),
+        )?;
+        let new_item = inserted["id"]
+            .as_str()
+            .context("YouTube accepted the replacement without an item ID")?;
+        if let Err(error) =
+            google.request(Method::DELETE, "playlistItems", &[("id", &old_item)], None)
+        {
+            if let Err(rollback) =
+                google.request(Method::DELETE, "playlistItems", &[("id", new_item)], None)
+            {
+                bail!(
+                    "Could not remove the unavailable item ({error}); could not roll back the inserted replacement ({rollback}). Refresh the playlist before retrying"
+                );
+            }
+            return Err(error).context("Could not remove the unavailable playlist item");
+        }
+        Some(new_item.to_owned())
+    } else {
+        None
+    };
+    db.replace_entry_url(id, expected, replacement, new_remote.as_deref())?;
+    if new_remote.is_some() {
+        db.mark_written(playlist)?;
+    }
+    Ok(())
+}
+
+fn replacement_insert_body(playlist: &str, position: i64, video: &str) -> Value {
+    json!({"snippet":{"playlistId":playlist,"position":position,
+        "resourceId":{"kind":"youtube#video","videoId":video}}})
+}
+
 /// Use entry identity as the drop anchor so remote refreshes cannot shift the target.
 pub fn move_entry_before(id: i64, before: Option<i64>) -> Result<()> {
     move_entries_before(&[id], before)
@@ -1086,6 +1143,15 @@ mod duration_tests {
     }
 
     use super::*;
+
+    #[test]
+    fn replacement_insert_keeps_playlist_position() {
+        assert_eq!(
+            replacement_insert_body("playlist", 7, "replacement"),
+            json!({"snippet":{"playlistId":"playlist","position":7,
+                "resourceId":{"kind":"youtube#video","videoId":"replacement"}}})
+        );
+    }
 
     #[test]
     fn parses_video_lengths_and_rejects_unknown_formats() {
