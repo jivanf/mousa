@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1](https://github.com/jivanf/mousa/compare/v0.6.0...v0.6.1) - 2026-11-13
+
+### Fixes and performance
+
+- *(playback)* Persist replacements to YouTube (#41)
+
 ## [0.6.0](https://github.com/jivanf/mousa/compare/v0.5.2...v0.6.0) - 2026-11-13
 
 ### Features
