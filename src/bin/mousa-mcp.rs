@@ -2,6 +2,7 @@ use mousa::{
     catalog::Destination,
     control::{self, PageRequest, PlayerAction, QueueAction, Request},
     db::Track,
+    downloads,
 };
 use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
@@ -17,9 +18,12 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 
-#[derive(Clone, Debug)]
-struct MousaMcp;
+#[derive(Clone, Default)]
+struct MousaMcp {
+    downloads: downloads::Manager,
+}
 
 fn page(offset: Option<usize>, limit: Option<usize>) -> PageRequest {
     PageRequest {
@@ -31,6 +35,21 @@ fn call(request: Request) -> Result<Json<Value>, ErrorData> {
     control::call(request)
         .map(Json)
         .map_err(|e| ErrorData::invalid_params(e.message, Some(json!({"code":e.code}))))
+}
+
+fn invalid(error: impl std::fmt::Display) -> ErrorData {
+    ErrorData::invalid_params(error.to_string(), None)
+}
+
+fn output_directory(value: Option<String>) -> Result<PathBuf, ErrorData> {
+    if let Some(value) = value {
+        return Ok(PathBuf::from(value));
+    }
+    directories::UserDirs::new()
+        .and_then(|dirs| dirs.download_dir().map(|path| path.join("Mousa")))
+        .ok_or_else(|| {
+            invalid("output_directory is required when no Downloads folder is available")
+        })
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -150,9 +169,182 @@ struct RefreshArgs {
     id: i64,
     force: Option<bool>,
 }
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DownloadOptions {
+    /// Absolute destination folder. Defaults to the user's Downloads/Mousa folder.
+    output_directory: Option<String>,
+    /// Output extension accepted by FFmpeg. Defaults to `best`, which preserves source audio.
+    format: Option<String>,
+    /// Replace an existing file with the same name. Defaults to false.
+    overwrite: Option<bool>,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DownloadTrackArgs {
+    track: Track,
+    #[serde(flatten)]
+    options: DownloadOptions,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DownloadAlbumArgs {
+    destination: Destination,
+    #[serde(flatten)]
+    options: DownloadOptions,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DownloadPlaylistArgs {
+    /// Stable local playlist ID. Provide this or `destination`, but not both.
+    id: Option<i64>,
+    /// Catalog playlist destination. Provide this or `id`, but not both.
+    destination: Option<Destination>,
+    #[serde(flatten)]
+    options: DownloadOptions,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DownloadIdArgs {
+    id: String,
+}
+
+fn download_request(
+    collection: String,
+    tracks: Vec<Track>,
+    options: DownloadOptions,
+    numbered: bool,
+) -> Result<downloads::Request, ErrorData> {
+    Ok(downloads::Request {
+        collection,
+        tracks,
+        output_directory: output_directory(options.output_directory)?,
+        format: options
+            .format
+            .unwrap_or_else(|| "best".into())
+            .to_ascii_lowercase(),
+        overwrite: options.overwrite.unwrap_or(false),
+        numbered,
+    })
+}
+
+fn catalog_collection(destination: Destination) -> Result<(String, Vec<Track>), ErrorData> {
+    // `reqwest::blocking` owns a small runtime whose destructor cannot run on a
+    // Tokio worker. MCP tool handlers execute on that worker, so isolate the
+    // complete blocking request and its client teardown on a plain thread.
+    let page = std::thread::spawn(move || mousa::catalog::fetch(&destination))
+        .join()
+        .map_err(|_| invalid("catalog request worker panicked"))?
+        .map_err(invalid)?;
+    let tracks = page.items.iter().filter_map(|item| item.track()).collect();
+    Ok((page.title, tracks))
+}
+
+fn local_playlist(id: i64) -> Result<(String, Vec<Track>), ErrorData> {
+    let mut offset = 0;
+    let mut name = None;
+    let mut tracks = Vec::new();
+    loop {
+        let value = control::call(Request::GetPlaylist {
+            id,
+            query: None,
+            page: PageRequest { offset, limit: 500 },
+        })
+        .map_err(|error| invalid(error.message))?;
+        let details: control::PlaylistDetails = serde_json::from_value(value).map_err(invalid)?;
+        name.get_or_insert(details.playlist.name);
+        let count = details.tracks.len();
+        tracks.extend(details.tracks);
+        offset += count;
+        if count == 0 || offset >= details.total {
+            break;
+        }
+    }
+    Ok((name.unwrap_or_else(|| format!("Playlist {id}")), tracks))
+}
 
 #[tool_router]
 impl MousaMcp {
+    #[tool(
+        description = "Start downloading one track in the background. The format defaults to 'best'; any other safe filename extension is exported through FFmpeg."
+    )]
+    fn download_track(
+        &self,
+        Parameters(a): Parameters<DownloadTrackArgs>,
+    ) -> Result<Json<Value>, ErrorData> {
+        let collection = a.track.title.clone();
+        let request = download_request(collection, vec![a.track], a.options, false)?;
+        self.downloads
+            .start(request)
+            .map(|job| Json(json!(job)))
+            .map_err(invalid)
+    }
+
+    #[tool(
+        description = "Start downloading every available track from a catalog album destination in album order."
+    )]
+    fn download_album(
+        &self,
+        Parameters(a): Parameters<DownloadAlbumArgs>,
+    ) -> Result<Json<Value>, ErrorData> {
+        let (collection, tracks) = catalog_collection(a.destination)?;
+        let request = download_request(collection, tracks, a.options, true)?;
+        self.downloads
+            .start(request)
+            .map(|job| Json(json!(job)))
+            .map_err(invalid)
+    }
+
+    #[tool(
+        description = "Start downloading a local playlist ID or catalog playlist destination in playlist order."
+    )]
+    fn download_playlist(
+        &self,
+        Parameters(a): Parameters<DownloadPlaylistArgs>,
+    ) -> Result<Json<Value>, ErrorData> {
+        let (collection, tracks) = match (a.id, a.destination) {
+            (Some(id), None) => local_playlist(id)?,
+            (None, Some(destination)) => catalog_collection(destination)?,
+            _ => return Err(invalid("provide exactly one of id or destination")),
+        };
+        let request = download_request(collection, tracks, a.options, true)?;
+        self.downloads
+            .start(request)
+            .map(|job| Json(json!(job)))
+            .map_err(invalid)
+    }
+
+    #[tool(
+        description = "Get the current state and per-track results for a download job.",
+        annotations(read_only_hint = true)
+    )]
+    fn get_download(
+        &self,
+        Parameters(a): Parameters<DownloadIdArgs>,
+    ) -> Result<Json<Value>, ErrorData> {
+        self.downloads
+            .get(&a.id)
+            .map(|job| Json(json!(job)))
+            .ok_or_else(|| invalid(format!("download job '{}' was not found", a.id)))
+    }
+
+    #[tool(
+        description = "List active and completed download jobs for this MCP server session.",
+        annotations(read_only_hint = true)
+    )]
+    fn list_downloads(&self) -> Result<Json<Value>, ErrorData> {
+        Ok(Json(json!(self.downloads.list())))
+    }
+
+    #[tool(
+        description = "Cancel a download job and remove its incomplete temporary file.",
+        annotations(destructive_hint = true)
+    )]
+    fn cancel_download(
+        &self,
+        Parameters(a): Parameters<DownloadIdArgs>,
+    ) -> Result<Json<Value>, ErrorData> {
+        self.downloads
+            .cancel(&a.id)
+            .map(|job| Json(json!(job)))
+            .ok_or_else(|| invalid(format!("download job '{}' was not found", a.id)))
+    }
+
     #[tool(
         description = "Report whether Mousa is running and its account and player state.",
         annotations(read_only_hint = true)
@@ -547,7 +739,7 @@ impl ServerHandler for MousaMcp {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let service = MousaMcp.serve(stdio()).await?;
+    let service = MousaMcp::default().serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }
@@ -564,6 +756,12 @@ mod tests {
             .map(|tool| tool.name.as_ref())
             .collect::<Vec<_>>();
         for expected in [
+            "download_track",
+            "download_album",
+            "download_playlist",
+            "get_download",
+            "list_downloads",
+            "cancel_download",
             "mousa_status",
             "list_accounts",
             "list_playlists",
@@ -601,12 +799,13 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");
         }
-        assert_eq!(names.len(), 34);
+        assert_eq!(names.len(), 40);
         for destructive in [
             "delete_playlist",
             "remove_playlist_entries",
             "remove_from_queue",
             "clear_queue",
+            "cancel_download",
         ] {
             let tool = tools.iter().find(|tool| tool.name == destructive).unwrap();
             assert_eq!(

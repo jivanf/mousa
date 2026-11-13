@@ -24,6 +24,19 @@ pub fn ytdlp_path() -> std::path::PathBuf {
     "yt-dlp".into()
 }
 
+pub fn ffmpeg_path() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let bundled = dir.join("ffmpeg.exe");
+        if bundled.is_file() {
+            return bundled;
+        }
+    }
+    "ffmpeg".into()
+}
+
 fn client() -> Result<Client> {
     Ok(Client::builder()
         .user_agent(concat!("Mousa/", env!("CARGO_PKG_VERSION")))
