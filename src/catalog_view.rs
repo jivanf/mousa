@@ -1573,6 +1573,7 @@ impl CatalogView {
                     .child(
                         row_icon(("catalog-play", index), "player-play", "Play")
                             .size(metrics::thumbnail())
+                            .focus(|s| s.opacity(1.).bg(color::lime()).shadow(vec![]))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.activate_item(play.clone(), index, cx);
                                 cx.stop_propagation();
