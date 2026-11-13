@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0](https://github.com/jivanf/mousa/compare/v0.5.2...v0.6.0) - 2026-11-13
+
+### Features
+
+- *(mcp)* Add audio download tools (#37)
+
+### Fixes and performance
+
+- *(playback)* Repair known unavailable tracks (#38)
+
 ## [0.5.2](https://github.com/jivanf/mousa/compare/v0.5.1...v0.5.2) - 2026-11-13
 
 ### Fixes and performance
