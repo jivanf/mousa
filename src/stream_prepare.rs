@@ -227,12 +227,10 @@ fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
     };
     if let Some((replacement, stream)) = replacement(track, cancel) {
         if track.id > 0
-            && let Ok(db) = crate::db::library()
+            && let Err(error) =
+                crate::sync::replace_unavailable_entry(track.id, &track.url, &replacement)
         {
-            let _ = db.conn.execute(
-                "UPDATE entries SET url=?,unavailable=NULL WHERE id=? AND url=?",
-                rusqlite::params![replacement, track.id, track.url],
-            );
+            eprintln!("Could not save replacement to its playlist: {error:#}");
         }
         return Ok(stream);
     }

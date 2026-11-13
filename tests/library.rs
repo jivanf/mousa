@@ -669,6 +669,35 @@ fn unavailable_tracks_preserve_metadata_and_recover() {
 }
 
 #[test]
+fn replacing_an_unavailable_url_requires_the_expected_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("replacement-url.db");
+    let mut db = Library::open(&path).unwrap();
+    let playlist = db.create("Replacement").unwrap();
+    let mut unavailable = track("Unavailable song");
+    unavailable.unavailable = Some("UNAVAILABLE".into());
+    db.reconcile_entries(playlist, &[("old-item".into(), unavailable)])
+        .unwrap();
+    let saved = db.tracks(playlist, "", Sort::Position).unwrap().remove(0);
+
+    assert!(
+        db.replace_entry_url(saved.id, "https://youtube.test/wrong", "replacement", None,)
+            .is_err()
+    );
+    db.replace_entry_url(
+        saved.id,
+        &saved.url,
+        "https://youtube.test/replacement",
+        Some("new-item"),
+    )
+    .unwrap();
+    let replaced = db.tracks(playlist, "", Sort::Position).unwrap().remove(0);
+    assert_eq!(replaced.url, "https://youtube.test/replacement");
+    assert!(replaced.unavailable.is_none());
+    assert_eq!(db.google_entry(replaced.id).unwrap(), "new-item");
+}
+
+#[test]
 fn unavailable_refresh_preserves_a_working_replacement_url() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("replacement.db");
