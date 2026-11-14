@@ -422,10 +422,10 @@ glyphs as icons (the current arrow and cross buttons depend on font
 coverage) and no emoji.
 
 Playable catalog result thumbnails are replaced by a full-size play control
-on row hover or control focus. The thumbnail and play control never appear
-simultaneously. Keyboard focus uses the lime primary fill within the control's
-single outline instead of adding an outer focus ring, so focus remains visible
-without recreating the appearance of overlapping frames.
+on row hover. Catalog, library, and queue rows use the same exclusive leading
+slot: hover selects the play control; otherwise it selects the thumbnail or
+track index. Only the selected element enters the render tree.
+Keyboard activation remains available from the focused result row.
 
 ## Layout
 
@@ -689,13 +689,14 @@ metadata in the description or invent missing values.
 Track tables in library, queue, and catalog details use plain click to select one occurrence, Ctrl-click to toggle
 an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
 range. Selection is independent per table. Clicking a track row never starts
-playback; its 32px Play button does. The button uses the standard small button
-depth and changes to a Pause action for the currently playing track. Row actions do not change selection or start
+playback; its Play button does. The 32px button face plus its 4px offset shadow
+exactly matches the 36px artwork or index slot and changes to a Pause action only
+while the current track is playing.
+Row actions do not change selection or start
 a drag. Playlist reordering retains its existing restrictions and deferred
 selection collapse during dragging; catalog and queue rows cannot reorder.
-The index and Play/Pause button are mutually exclusive: hover, keyboard focus,
-and the playing state must never render both at once. Center the button using its
-complete box-and-shadow footprint rather than only its 32px face.
+The index or artwork and Play/Pause button are mutually exclusive: only hover
+renders the button, and they must never render together.
 Catalog selection resets on page replacement and survives append-only loading.
 Queue selection resets when queue contents/order change, so duplicate entries
 never transfer selection to a different occurrence.

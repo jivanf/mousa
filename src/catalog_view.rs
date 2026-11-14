@@ -187,6 +187,7 @@ pub struct CatalogView {
     offline_preview: bool,
     focus_handle: FocusHandle,
     restore_focus: bool,
+    hovered_track: Option<(TrackTable, usize)>,
 }
 impl EventEmitter<Event> for CatalogView {}
 impl CatalogView {
@@ -438,6 +439,7 @@ impl CatalogView {
             offline_preview: false,
             focus_handle: cx.focus_handle(),
             restore_focus: false,
+            hovered_track: None,
             scrollbar: cx.new(|_| ui::CatalogScrollbar::new()),
             input,
             name,
@@ -1513,6 +1515,13 @@ impl CatalogView {
         let selected = selection.is_some_and(|s| s.ids.contains(&(index as i64)));
         let selecting = selection.is_some_and(|s| !s.ids.is_empty());
         let playable = item.video.is_some() && !item.unavailable;
+        let show_play = playable
+            && self
+                .hovered_track
+                .as_ref()
+                .is_some_and(|(hovered_table, hovered_index)| {
+                    hovered_table == &table && *hovered_index == index
+                });
         let playing = self
             .player
             .state
@@ -1545,42 +1554,25 @@ impl CatalogView {
             } else {
                 metrics::thumbnail()
             });
-        if let Some(n) = number {
-            lead = lead.child(
-                div()
-                    .font_family(font::MONO)
-                    .font_weight(FontWeight::NORMAL)
-                    .child(n.to_string()),
-            );
+        let resting = if let Some(n) = number {
+            div()
+                .font_family(font::MONO)
+                .font_weight(FontWeight::NORMAL)
+                .child(n.to_string())
+                .into_any_element()
         } else {
-            lead = lead.child(
-                div()
-                    .when(playable, |d| d.group_hover("track-row", |s| s.invisible()))
-                    .child(cover(
-                        item.thumbnail.as_deref(),
-                        f32::from(metrics::thumbnail()),
-                    )),
-            );
-        }
-        if playable {
-            lead = lead.child(
-                div()
-                    .absolute()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        row_icon(("catalog-play", index), "player-play", "Play")
-                            .size(metrics::thumbnail())
-                            .focus(|s| s.opacity(1.).bg(color::lime()).shadow(vec![]))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.activate_item(play.clone(), index, cx);
-                                cx.stop_propagation();
-                            })),
-                    ),
-            );
-        }
+            cover(item.thumbnail.as_deref(), f32::from(metrics::thumbnail())).into_any_element()
+        };
+        let play_control = row_icon(("catalog-play", index), "player-play", "Play")
+            .size(metrics::thumbnail())
+            .focus(|s| s.opacity(1.).bg(color::lime()).shadow(vec![]))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.activate_item(play.clone(), index, cx);
+                cx.stop_propagation();
+            }))
+            .into_any_element();
+        lead = lead.child(ui::exclusive_track_lead(resting, play_control, show_play));
+        let hover_table = table.clone();
         let mut row = div()
             .id(("catalog-row", index))
             .group("track-row")
@@ -1630,6 +1622,20 @@ impl CatalogView {
             .items_center()
             .gap(space::md())
             .cursor_pointer()
+            .on_hover(cx.listener(move |this, hovered, _, cx| {
+                if *hovered {
+                    this.hovered_track = Some((hover_table.clone(), index));
+                } else if this
+                    .hovered_track
+                    .as_ref()
+                    .is_some_and(|(table, hovered_index)| {
+                        table == &hover_table && *hovered_index == index
+                    })
+                {
+                    this.hovered_track = None;
+                }
+                cx.notify();
+            }))
             .child(lead)
             .child(
                 div()
