@@ -93,6 +93,10 @@ const STORIES: &[(&str, &str)] = &[
     ("Update required", "error"),
     ("Update required", "success"),
     ("Library", "library-playlist-playing"),
+    ("Library", "library-playlist-unavailable"),
+    ("Library", "library-playlist-repairing"),
+    ("Library", "library-playlist-repair-error"),
+    ("Library", "library-playlist-repaired"),
 ];
 
 #[derive(Default, Serialize, Deserialize)]
