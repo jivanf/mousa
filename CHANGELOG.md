@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.4](https://github.com/jivanf/mousa/compare/v0.6.3...v0.6.4) - 2026-11-14
+
+### Fixes and performance
+
+- *(ui)* Consolidate exclusive track play controls (#46)
+
 ## [0.6.3](https://github.com/jivanf/mousa/compare/v0.6.2...v0.6.3) - 2026-11-14
 
 ### Fixes and performance
