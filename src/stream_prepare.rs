@@ -42,6 +42,7 @@ pub(crate) fn due(position: f64, duration: f64, paused: bool) -> bool {
 
 pub(crate) struct Stream {
     pub url: String,
+    pub replacement: Option<String>,
     headers: Vec<String>,
     resolved: Instant,
 }
@@ -208,6 +209,7 @@ fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
     }
     Ok(Stream {
         url: url.into(),
+        replacement: None,
         headers,
         resolved: Instant::now(),
     })
@@ -225,12 +227,15 @@ fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
     let Some(reason) = reason else {
         return result;
     };
-    if let Some((replacement, stream)) = replacement(track, cancel) {
-        if track.id > 0
-            && let Err(error) =
-                crate::sync::replace_unavailable_entry(track.id, &track.url, &replacement)
-        {
-            eprintln!("Could not save replacement to its playlist: {error:#}");
+    if let Some((replacement, mut stream)) = replacement(track, cancel) {
+        if track.id > 0 {
+            match crate::sync::replace_unavailable_entry(track.id, &track.url, &replacement) {
+                Ok(()) => stream.replacement = Some(replacement),
+                Err(error) => {
+                    eprintln!("Could not save replacement to its playlist: {error:#}");
+                    return Err("replacement_save_failed");
+                }
+            }
         }
         return Ok(stream);
     }

@@ -14,25 +14,50 @@ pub struct Preview {
     state: String,
     selected: Option<usize>,
     playing: Option<usize>,
+    repair_frame: usize,
     confirm_delete: bool,
     editor: Option<Entity<PlaylistEditor>>,
     subscriptions: Vec<Subscription>,
 }
 impl Preview {
+    fn animate_repair(&mut self, complete: bool, cx: &mut Context<Self>) {
+        self.repair_frame = 0;
+        cx.spawn(async move |this, cx| {
+            let mut steps = 0;
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(600))
+                    .await;
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        if !this.state.ends_with("repairing") {
+                            return false;
+                        }
+                        steps += 1;
+                        if complete && steps == 4 {
+                            this.state = "library-playlist-repaired".into();
+                            this.playing = Some(0);
+                            this.repair_frame = 0;
+                            cx.notify();
+                            return false;
+                        }
+                        this.repair_frame = (this.repair_frame + 1) % 3;
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     fn start_repair(&mut self, cx: &mut Context<Self>) {
         self.state = "library-playlist-repairing".into();
         self.playing = Some(0);
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(900))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.state = "library-playlist-repaired".into();
-                this.playing = Some(0);
-                cx.notify();
-            });
-        })
-        .detach();
+        self.animate_repair(true, cx);
     }
 
     pub fn new(state: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -56,7 +81,7 @@ impl Preview {
                 cx.notify();
             }
         });
-        Self {
+        let mut preview = Self {
             input,
             state: state.into(),
             selected: None,
@@ -64,10 +89,15 @@ impl Preview {
                 || state.ends_with("repairing")
                 || state.ends_with("repaired"))
             .then_some(0),
+            repair_frame: 0,
             confirm_delete: false,
             editor: None,
             subscriptions: vec![subscription],
+        };
+        if state.ends_with("repairing") {
+            preview.animate_repair(false, cx);
         }
+        preview
     }
 }
 impl Render for Preview {
@@ -159,9 +189,9 @@ impl Render for Preview {
                                 .text_size(text::label())
                                 .font_weight(FontWeight::BOLD)
                                 .child(if repairing {
-                                    "REPAIRING…"
+                                    mousa::ui::loading_label("REPAIRING", self.repair_frame)
                                 } else {
-                                    "UNAVAILABLE"
+                                    "UNAVAILABLE".into()
                                 }),
                         )
                     })
@@ -305,12 +335,6 @@ impl Render for Preview {
         if self.state.ends_with("repair-error") {
             content = content.child(ui::error_alert(
                 "Could not update the YouTube playlist. Press Play to retry.",
-                div(),
-            ));
-        } else if self.state.ends_with("repaired") {
-            content = content.child(ui::feedback_alert(
-                "Replacement saved to YouTube. Playback started.",
-                false,
                 div(),
             ));
         }
