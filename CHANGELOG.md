@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.3](https://github.com/jivanf/mousa/compare/v0.6.2...v0.6.3) - 2026-11-14
+
+### Fixes and performance
+
+- *(playback)* Allow repairing unavailable library tracks (#44)
+
 ## [0.6.2](https://github.com/jivanf/mousa/compare/v0.6.1...v0.6.2) - 2026-11-14
 
 ### Fixes and performance
