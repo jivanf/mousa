@@ -1063,6 +1063,11 @@ pub fn caps(label: &str) -> Div {
             })
         }))
 }
+
+/// Uppercase progress copy with a cycling one-to-three-dot ellipsis.
+pub fn loading_label(label: &str, frame: usize) -> String {
+    format!("{label}{}", ".".repeat(frame % 3 + 1))
+}
 pub fn disabled_button(label: &str) -> Div {
     div()
         .h(size::control())
@@ -1159,6 +1164,17 @@ mod account_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod loading_label_tests {
+    #[test]
+    fn cycles_one_to_three_dots() {
+        assert_eq!(super::loading_label("REPAIRING", 0), "REPAIRING.");
+        assert_eq!(super::loading_label("REPAIRING", 1), "REPAIRING..");
+        assert_eq!(super::loading_label("REPAIRING", 2), "REPAIRING...");
+        assert_eq!(super::loading_label("REPAIRING", 3), "REPAIRING.");
     }
 }
 pub fn google_sign_in(busy: bool) -> Button {

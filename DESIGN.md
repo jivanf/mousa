@@ -521,6 +521,14 @@ thumbnail. Songs use their album artwork when supplied by the catalog, videos us
 their own thumbnail, and missing or unavailable cached artwork uses the disc fallback.
 Queue rows retain their position number.
 Playing row is tertiary. Multi-selected rows use canvas with a 6px ink left rule.
+An unavailable library row remains explicitly playable. Starting it cycles the
+availability badge through `REPAIRING.`, `REPAIRING..`, and `REPAIRING...` while
+replacement resolution and remote playlist persistence are in progress, holding
+each ellipsis step for 600ms; no
+separate finding-replacement message or state is shown. After the replacement is
+saved, the row immediately adopts its new URL, clears unavailable styling, and
+remains the active playing row. A failed repair returns to the unavailable state
+and uses the existing playback error feedback.
 
 **Track scrollbar.** Overflowing playlist and queue lists reserve a 20px white rail with a
 3px ink divider on the left. The square ink thumb has 3px side insets and a

@@ -161,6 +161,17 @@ struct QueuedTrack {
     index: usize,
     prepared: bool,
     status: &'static str,
+    replacement: Option<String>,
+}
+
+fn apply_replacement(s: &mut Snapshot, index: usize, replacement: Option<String>) {
+    let Some(replacement) = replacement else {
+        return;
+    };
+    if let Some(track) = Arc::make_mut(&mut s.queue).get_mut(index) {
+        track.url = replacement;
+        track.unavailable = None;
+    }
 }
 
 fn clear_successor(mpv: &Mpv, queued: &mut Option<QueuedTrack>) {
@@ -195,18 +206,23 @@ fn stage_successor(
     if unavailable_error(track, status, prepared).is_some() {
         return None;
     }
-    let result = if let Some(stream) = stream {
-        mpv.command(
-            "loadfile",
-            &[&stream.url, "append", "-1", &stream.options()],
+    let (result, replacement) = if let Some(stream) = stream {
+        let replacement = stream.replacement.clone();
+        (
+            mpv.command(
+                "loadfile",
+                &[&stream.url, "append", "-1", &stream.options()],
+            ),
+            replacement,
         )
     } else {
-        mpv.command("loadfile", &[&track.url, "append"])
+        (mpv.command("loadfile", &[&track.url, "append"]), None)
     };
     result.ok().map(|_| QueuedTrack {
         index,
         prepared,
         status,
+        replacement,
     })
 }
 
@@ -216,7 +232,7 @@ fn load_track(
     index: usize,
     preparation: Option<Preparation>,
     metrics: &Metrics,
-) -> (Result<(), String>, bool, &'static str) {
+) -> (Result<(), String>, bool, &'static str, Option<String>) {
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
@@ -225,21 +241,23 @@ fn load_track(
     let prepared = stream.is_some();
     if let Some(error) = unavailable_error(track, status, prepared) {
         let _ = mpv.command("stop", &[]);
-        return (Err(error), false, status);
+        return (Err(error), false, status, None);
     }
     if let Some(stream) = stream {
+        let replacement = stream.replacement.clone();
         let options = stream.options();
         if mpv
             .command("loadfile", &[&stream.url, "replace", "-1", &options])
             .is_ok()
         {
-            return (Ok(()), true, status);
+            return (Ok(()), true, status, replacement);
         }
         return (
             mpv.command("loadfile", &[&track.url, "replace"])
                 .map_err(|e| e.to_string()),
             false,
             "fallback",
+            None,
         );
     }
     (
@@ -247,6 +265,7 @@ fn load_track(
             .map_err(|e| e.to_string()),
         false,
         status,
+        None,
     )
 }
 
@@ -374,6 +393,7 @@ impl Player {
                             if let Some(next) = queued.take() {
                                 history.push(s.index);
                                 s.index = next.index;
+                                apply_replacement(&mut s, next.index, next.replacement);
                                 s.position = 0.;
                                 s.duration = s.current().map_or(0., |t| t.duration);
                                 s.revision += 1;
@@ -683,7 +703,7 @@ impl Player {
                 if (resolved || load && active_preparation.is_none())
                     && let Some(t) = s.current().cloned()
                 {
-                    let (result, prepared, status) =
+                    let (result, prepared, status, replacement) =
                         load_track(&mpv, &t, s.index, active_preparation.take(), &metrics);
                     if let Some(timing) = measurement.as_mut() {
                         timing.preparation_status(status);
@@ -693,6 +713,8 @@ impl Player {
                     now_playing_sent = false;
                     match result {
                         Ok(_) => {
+                            let index = s.index;
+                            apply_replacement(&mut s, index, replacement);
                             loaded = true;
                             ready = false;
                             startup_deadline.arm(Instant::now(), prepared);
@@ -915,6 +937,24 @@ mod tests {
             unavailable_error(&track, "not_requested", false).as_deref(),
             Some("Track unavailable: UNAVAILABLE")
         );
+    }
+
+    #[test]
+    fn successful_repair_updates_the_queue_entry_immediately() {
+        let mut state = snapshot();
+        Arc::make_mut(&mut state.queue)[0].unavailable = Some("UNAVAILABLE".into());
+
+        apply_replacement(
+            &mut state,
+            0,
+            Some("https://www.youtube.com/watch?v=replacement".into()),
+        );
+
+        assert_eq!(
+            state.queue[0].url,
+            "https://www.youtube.com/watch?v=replacement"
+        );
+        assert_eq!(state.queue[0].unavailable, None);
     }
 
     #[test]

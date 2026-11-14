@@ -139,6 +139,7 @@ struct Mousa {
     revision: u64,
     queue: Arc<Vec<Track>>,
     queue_index: usize,
+    repair_frame: usize,
 }
 fn time(n: f64) -> String {
     let s = n.max(0.) as u64;
@@ -273,6 +274,7 @@ impl Mousa {
             revision: u64::MAX,
             queue: Arc::new(vec![]),
             queue_index: 0,
+            repair_frame: 0,
         };
         app.subscriptions
             .push(cx.subscribe(&volume_slider, |this, _, event, _| {
@@ -689,6 +691,17 @@ impl Mousa {
             .unwrap_or_else(|| "Nothing playing yet".into());
         if self.revision != s.revision {
             self.revision = s.revision;
+            if let Some(current) = s.current()
+                && current.unavailable.is_none()
+                && let Some(track) = Arc::make_mut(&mut self.tracks)
+                    .iter_mut()
+                    .find(|track| track.id == current.id && track.unavailable.is_some())
+            {
+                track.clone_from(current);
+                if self.unavailable_selection == Some((false, current.id)) {
+                    self.unavailable_selection = None;
+                }
+            }
             if !Arc::ptr_eq(&self.queue, &s.queue) {
                 // Occurrence indices remain valid until queue contents/order change.
                 if !self
@@ -727,6 +740,13 @@ impl Mousa {
         self.duration = s.duration;
         self.volume = s.volume;
         self.paused = s.paused;
+        let repairing = s.current().is_some_and(|track| track.unavailable.is_some()) && !s.paused;
+        if repairing {
+            self.repair_frame = (self.repair_frame + 1) % 9;
+            changed = true;
+        } else {
+            self.repair_frame = 0;
+        }
         self.shuffle = s.shuffle;
         self.repeat = s.repeat;
         self.queue_index = s.index;
@@ -1018,6 +1038,7 @@ impl Mousa {
         let unavailable_selection = self.unavailable_selection;
         let active = self.playing_id;
         let paused = self.paused;
+        let repair_frame = self.repair_frame / 3;
         let active_queue_index = self.queue_index;
         let rows = list(
             if queue {
@@ -1050,6 +1071,7 @@ impl Mousa {
                 } else {
                     Some(id) == active
                 };
+                let repairing = unavailable && is_active && !paused;
                 let row_key = (queue, if queue { i as i64 } else { id });
                 let show_play = source.is_none() && _this.hovered_track == Some(row_key);
                 let is_playing = is_active && !paused;
@@ -1433,7 +1455,11 @@ impl Mousa {
                                 .font_family(font::MONO)
                                 .text_size(text::label())
                                 .font_weight(FontWeight::BOLD)
-                                .child(label),
+                                .child(if repairing {
+                                    ui::loading_label("REPAIRING", repair_frame).into()
+                                } else {
+                                    label
+                                }),
                         )
                     })
                     .when(!unavailable, |d| {
