@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.5](https://github.com/jivanf/mousa/compare/v0.6.4...v0.6.5) - 2026-11-14
+
+### Fixes and performance
+
+- *(playback)* Refresh repaired track state (#48)
+
 ## [0.6.4](https://github.com/jivanf/mousa/compare/v0.6.3...v0.6.4) - 2026-11-14
 
 ### Fixes and performance
