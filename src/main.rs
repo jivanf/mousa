@@ -810,11 +810,7 @@ impl Mousa {
         if let Some(playlist) = self.selected {
             let player = self.player.clone();
             self.job(move || {
-                let tracks: Vec<_> = db::library()?
-                    .tracks(playlist, "", Sort::Position)?
-                    .into_iter()
-                    .filter(|t| t.unavailable.is_none())
-                    .collect();
+                let tracks = db::library()?.tracks(playlist, "", Sort::Position)?;
                 let index = tracks
                     .iter()
                     .position(|t| t.id == id)
@@ -1256,7 +1252,7 @@ impl Mousa {
                                     .text_size(text::secondary())
                                     .child(
                                         div()
-                                            .when(!unavailable && source.is_none(), |d| {
+                                            .when(source.is_none(), |d| {
                                                 d.when(is_active, |d| d.invisible())
                                                     .group_hover("track-row", |s| s.invisible())
                                             })
@@ -1272,7 +1268,7 @@ impl Mousa {
                                 });
                                 d.child(ui::collection_artwork(source, layout::row_index()))
                             })
-                            .when(!unavailable && source.is_none(), |d| {
+                            .when(source.is_none(), |d| {
                                 d.child(
                                     ui::track_play_button(("play-track", i), is_active)
                                         .absolute()

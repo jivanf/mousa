@@ -7,6 +7,7 @@ use mousa::{
     theme::{border, catalog, color, space, text},
     ui,
 };
+use std::time::Duration;
 
 pub struct Preview {
     input: Entity<InputState>,
@@ -18,6 +19,22 @@ pub struct Preview {
     subscriptions: Vec<Subscription>,
 }
 impl Preview {
+    fn start_repair(&mut self, cx: &mut Context<Self>) {
+        self.state = "library-playlist-repairing".into();
+        self.playing = Some(0);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(900))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.state = "library-playlist-repaired".into();
+                this.playing = Some(0);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub fn new(state: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search tracks…"));
         input.update(cx, |s, cx| {
@@ -43,7 +60,10 @@ impl Preview {
             input,
             state: state.into(),
             selected: None,
-            playing: state.ends_with("playing").then_some(0),
+            playing: (state.ends_with("playing")
+                || state.ends_with("repairing")
+                || state.ends_with("repaired"))
+            .then_some(0),
             confirm_delete: false,
             editor: None,
             subscriptions: vec![subscription],
@@ -71,6 +91,11 @@ impl Render for Preview {
             }) {
                 matches += 1;
                 let playing = self.playing == Some(i);
+                let repairing = i == 0 && self.state.ends_with("repairing");
+                let unavailable = i == 0
+                    && (self.state.ends_with("unavailable")
+                        || self.state.ends_with("repairing")
+                        || self.state.ends_with("repair-error"));
                 let row = ui::track_row(i, playing)
                     .child(
                         div()
@@ -93,11 +118,17 @@ impl Render for Preview {
                                     .left_0()
                                     .top_0()
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.playing = if this.playing == Some(i) {
-                                            None
+                                        if repairing {
+                                            return;
+                                        } else if unavailable {
+                                            this.start_repair(cx);
                                         } else {
-                                            Some(i)
-                                        };
+                                            this.playing = if this.playing == Some(i) {
+                                                None
+                                            } else {
+                                                Some(i)
+                                            };
+                                        }
                                         cx.stop_propagation();
                                         cx.notify();
                                     })),
@@ -106,10 +137,35 @@ impl Render for Preview {
                     .child(
                         div()
                             .flex_1()
-                            .child((*name).to_owned())
+                            .child(
+                                div()
+                                    .when(unavailable, |d| d.line_through())
+                                    .child((*name).to_owned()),
+                            )
                             .child(div().text_size(text::secondary()).child("Karl Richter")),
                     )
-                    .child("4:20");
+                    .when(unavailable, |d| {
+                        d.child(
+                            div()
+                                .min_w(mousa::theme::size::availability_width())
+                                .h(mousa::theme::size::availability_height())
+                                .px(space::sm())
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .border(border::strong())
+                                .border_color(color::ink())
+                                .font_family(mousa::theme::font::MONO)
+                                .text_size(text::label())
+                                .font_weight(FontWeight::BOLD)
+                                .child(if repairing {
+                                    "REPAIRING…"
+                                } else {
+                                    "UNAVAILABLE"
+                                }),
+                        )
+                    })
+                    .when(!unavailable, |d| d.child("4:20"));
                 rows = rows.child(ui::selectable_track_row(
                     row,
                     self.selected == Some(i),
@@ -245,6 +301,18 @@ impl Render for Preview {
                         ),
                     ),
             );
+        }
+        if self.state.ends_with("repair-error") {
+            content = content.child(ui::error_alert(
+                "Could not update the YouTube playlist. Press Play to retry.",
+                div(),
+            ));
+        } else if self.state.ends_with("repaired") {
+            content = content.child(ui::feedback_alert(
+                "Replacement saved to YouTube. Playback started.",
+                false,
+                div(),
+            ));
         }
         content = content.child(
             div()
