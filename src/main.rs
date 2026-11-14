@@ -82,6 +82,7 @@ struct Mousa {
     catalog: Entity<mousa::catalog_view::CatalogView>,
     catalog_open: bool,
     track_drag: Option<TrackDrag>,
+    hovered_track: Option<(bool, i64)>,
     track_selection: mousa::track_selection::TrackSelection,
     queue_selection: mousa::track_selection::TrackSelection,
     selection_playlist: Option<i64>,
@@ -214,6 +215,7 @@ impl Mousa {
             sidebar_scroll,
             view_state: saved.clone(),
             track_drag: None,
+            hovered_track: None,
             remove_selection: None,
             removing_selection: false,
             track_selection: Default::default(),
@@ -1015,6 +1017,7 @@ impl Mousa {
         let reorder_focus = self.reorder_focus.clone();
         let unavailable_selection = self.unavailable_selection;
         let active = self.playing_id;
+        let paused = self.paused;
         let active_queue_index = self.queue_index;
         let rows = list(
             if queue {
@@ -1047,6 +1050,41 @@ impl Mousa {
                 } else {
                     Some(id) == active
                 };
+                let row_key = (queue, if queue { i as i64 } else { id });
+                let show_play = source.is_none() && _this.hovered_track == Some(row_key);
+                let is_playing = is_active && !paused;
+                let resting_lead = if queue {
+                    div()
+                        .font_family(font::MONO)
+                        .text_size(text::secondary())
+                        .child(format!("{:02}", i + 1))
+                        .into_any_element()
+                } else {
+                    let source = thumbnail.map(|url| {
+                        mousa::artwork::source(
+                            mousa::catalog::thumbnail_path(&url),
+                            f32::from(layout::row_index()),
+                        )
+                    });
+                    ui::collection_artwork(source, layout::row_index())
+                };
+                let play_control = div()
+                    .size(layout::row_index())
+                    .child(
+                        ui::track_play_button(("play-track", i), is_playing).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                if is_active {
+                                    this.player.send(Command::Toggle);
+                                } else if queue {
+                                    this.player.send(Command::Jump(i));
+                                } else {
+                                    this.play(id, cx);
+                                }
+                            },
+                        )),
+                    )
+                    .into_any_element();
                 let inverted = unavailable
                     && (is_active
                         || unavailable_selection
@@ -1075,6 +1113,14 @@ impl Mousa {
                         } else {
                             None
                         };
+                        cx.notify();
+                    }))
+                    .on_hover(cx.listener(move |this, hovered, _, cx| {
+                        if *hovered {
+                            this.hovered_track = Some(row_key);
+                        } else if this.hovered_track == Some(row_key) {
+                            this.hovered_track = None;
+                        }
                         cx.notify();
                     }))
                     .when_some(
@@ -1240,52 +1286,17 @@ impl Mousa {
                     })
                     .child(
                         div()
-                            .relative()
                             .w(layout::row_index())
                             .h(control_size::row_action() + press::sm())
                             .flex_shrink_0()
                             .flex()
                             .items_center()
                             .justify_center()
-                            .when(queue, |d| {
-                                d.font_family(font::MONO)
-                                    .text_size(text::secondary())
-                                    .child(
-                                        div()
-                                            .when(source.is_none(), |d| {
-                                                d.when(is_active, |d| d.invisible())
-                                                    .group_hover("track-row", |s| s.invisible())
-                                            })
-                                            .child(format!("{:02}", i + 1)),
-                                    )
-                            })
-                            .when(!queue, |d| {
-                                let source = thumbnail.map(|url| {
-                                    mousa::artwork::source(
-                                        mousa::catalog::thumbnail_path(&url),
-                                        f32::from(layout::row_index()),
-                                    )
-                                });
-                                d.child(ui::collection_artwork(source, layout::row_index()))
-                            })
-                            .when(source.is_none(), |d| {
-                                d.child(
-                                    ui::track_play_button(("play-track", i), is_active)
-                                        .absolute()
-                                        .left_0()
-                                        .top_0()
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            if is_active {
-                                                this.player.send(Command::Toggle);
-                                            } else if queue {
-                                                this.player.send(Command::Jump(i));
-                                            } else {
-                                                this.play(id, cx);
-                                            }
-                                        })),
-                                )
-                            }),
+                            .child(ui::exclusive_track_lead(
+                                resting_lead,
+                                play_control,
+                                show_play,
+                            )),
                     )
                     .child(
                         div()

@@ -1437,6 +1437,20 @@ pub fn track_play_button(id: impl Into<ElementId>, playing: bool) -> Button {
         ))
 }
 
+/// Render exactly one leading track-row element so artwork or an index can
+/// never remain underneath the play control.
+pub fn exclusive_track_lead(
+    resting: AnyElement,
+    play_control: AnyElement,
+    show_play_control: bool,
+) -> AnyElement {
+    if show_play_control {
+        play_control
+    } else {
+        resting
+    }
+}
+
 /// Persistent ruled scrollbar for the catalog's non-virtualized sections.
 pub struct CatalogScrollbar {
     pub scroll: ScrollHandle,
