@@ -109,7 +109,7 @@ x-session:
 x-search-navigation:
   video: uploader-channel-detail
   channel-search: case-insensitive-video-and-playlist-titles
-x-catalog-play-action: replaces-thumbnail-on-hover-or-focus
+x-catalog-play-action: replaces-thumbnail-on-hover-and-uses-lime-focus-without-an-outer-ring
 components:
   update-required:
     width: 520px
@@ -423,7 +423,9 @@ coverage) and no emoji.
 
 Playable catalog result thumbnails are replaced by a full-size play control
 on row hover or control focus. The thumbnail and play control never appear
-simultaneously.
+simultaneously. Keyboard focus uses the lime primary fill within the control's
+single outline instead of adding an outer focus ring, so focus remains visible
+without recreating the appearance of overlapping frames.
 
 ## Layout
 
