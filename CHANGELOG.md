@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.2](https://github.com/jivanf/mousa/compare/v0.6.1...v0.6.2) - 2026-11-14
+
+### Fixes and performance
+
+- *(catalog)* Remove duplicate play focus outline (#39)
+
 ## [0.6.1](https://github.com/jivanf/mousa/compare/v0.6.0...v0.6.1) - 2026-11-13
 
 ### Fixes and performance
