@@ -21,15 +21,14 @@ documentation, tooling, and maintenance work:
    rebuild/reinstall the Workbench only when the revision changes UI. Do not create
    a new worktree for each revision or treat the first implementation as approval
    to publish.
-5. Once the user approves the completed changes, create the pull request. If the
-   user explicitly preapproved PR creation at the start of the task, create it
-   when the requested work and required verification are complete without asking
-   again. Until then, keep changes local, including changes intended for an
-   existing PR. Approval is task-specific, not blanket approval for future tasks.
-6. Use a Conventional Commit PR title and enable squash auto-merge. Address CI
-   failures and requested revisions in the same worktree and PR. Required Windows,
-   Linux, and Release policy checks must pass; never bypass them or push directly
-   to `main`. Verify the actual merge result before reporting the PR as merged.
+5. Once the user approves the completed changes, submit them by following
+   [submit-pull-request](.agents/skills/submit-pull-request/SKILL.md). If the user
+   explicitly preapproved PR creation at the start of the task, submit when the
+   requested work and required verification are complete without asking again.
+   Until then, keep changes local. Approval is task-specific.
+6. Address CI failures and requested revisions in the same worktree and PR. The
+   submission skill's required script enables squash auto-merge. Verify the actual
+   merge result before reporting the PR as merged.
 7. After the PR is merged and no task work remains, delete its task worktree and
    prune stale worktree metadata using standard Git commands. Preserve any needed
    ignored artifacts first. Keep the worktree available while review, revisions,

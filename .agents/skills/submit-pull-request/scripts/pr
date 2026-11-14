@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 --title <conventional-title> --body-file <path> [--base <branch>]" >&2
+  exit 2
+}
+
+title=
+body_file=
+base=main
+while (($#)); do
+  case "$1" in
+    --title)
+      (($# >= 2)) || usage
+      title=$2
+      shift 2
+      ;;
+    --body-file)
+      (($# >= 2)) || usage
+      body_file=$2
+      shift 2
+      ;;
+    --base)
+      (($# >= 2)) || usage
+      base=$2
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+
+[[ -n "$title" && -n "$body_file" ]] || usage
+[[ -f "$body_file" ]] || { echo "PR body file not found: $body_file" >&2; exit 1; }
+[[ "$title" =~ ^(fix|feat|perf|refactor|quality|test|build|ci|docs|chore|ui)(\([a-z0-9-]+\))?!?:\ [A-Z] ]] || {
+  echo "PR title is not an allowed Conventional Commit title: $title" >&2
+  exit 1
+}
+command -v gh >/dev/null || { echo "gh is required" >&2; exit 1; }
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+branch=$(git symbolic-ref --quiet --short HEAD) || {
+  echo "A named task branch is required" >&2
+  exit 1
+}
+[[ "$branch" != "$base" ]] || { echo "Refusing to submit the base branch" >&2; exit 1; }
+[[ -z "$(git status --porcelain)" ]] || {
+  echo "Commit or remove working-tree changes before submission" >&2
+  exit 1
+}
+
+git push --set-upstream --force-with-lease origin HEAD
+url=$(gh pr list --head "$branch" --state open --json url --jq '.[0].url')
+if [[ -z "$url" ]]; then
+  url=$(gh pr create --base "$base" --head "$branch" --title "$title" --body-file "$body_file")
+else
+  gh pr edit "$url" --title "$title" --body-file "$body_file"
+fi
+
+gh pr merge "$url" --auto --squash
+method=$(gh pr view "$url" --json autoMergeRequest --jq '.autoMergeRequest.mergeMethod // ""')
+[[ "$method" == "SQUASH" ]] || {
+  echo "Squash auto-merge was not enabled for $url" >&2
+  exit 1
+}
+
+echo "$url"

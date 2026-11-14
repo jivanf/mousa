@@ -1,0 +1,4 @@
+interface:
+  display_name: "Submit pull request"
+  short_description: "Create Mousa PRs with squash auto-merge"
+  default_prompt: "Create or update the approved pull request and enable squash auto-merge."
