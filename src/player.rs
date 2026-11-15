@@ -432,20 +432,22 @@ impl Player {
                         Ok(Event::EndFile(4)) | Err(_) if loaded => {
                             clear_successor(&mpv, &mut queued);
                             if using_prepared {
-                                // Resolve again through mpv once if a prepared URL is rejected/expired.
+                                // A prepared stream URL can expire or fail after playback has
+                                // already started. Re-resolve it through the normal preparation
+                                // worker, just as selecting the track again would, and retain the
+                                // current position for the replacement load.
                                 using_prepared = false;
+                                loaded = false;
                                 ready = false;
                                 resume_at = Some(s.position);
-                                if let Some(m) = measurement.as_mut() {
-                                    m.fallback("playback_error", &metrics);
-                                }
-                                if let Some(t) = s.current()
-                                    && mpv.command("loadfile", &[&t.url, "replace"]).is_ok()
-                                {
-                                    loaded = true;
-                                    startup_deadline.arm(Instant::now(), false);
-                                    continue;
-                                }
+                                resuming = true;
+                                load = true;
+                                startup_deadline.cancel();
+                                metrics.emit(serde_json::json!({
+                                    "event":"stream_recovery_started",
+                                    "reason":"playback_error"
+                                }));
+                                continue;
                             }
                             s.error =
                                 "This track could not be played from YouTube. It may be unavailable; try another track."
