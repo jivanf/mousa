@@ -511,9 +511,7 @@ fn resolve_command(
     let bytes = reader.join().map_err(|_| "resolver_read_failed")?;
     let diagnostic = error_reader.join().unwrap_or_default();
     if status == Err("resolver_failed") {
-        if let Some(reason) = unavailable_reason(&diagnostic) {
-            return Err(reason);
-        }
+        return Err(resolver_failure_reason(&diagnostic));
     }
     status?;
     parse(&bytes?)
@@ -535,6 +533,39 @@ fn unavailable_reason(diagnostic: &[u8]) -> Option<&'static str> {
         Some("unavailable")
     } else {
         None
+    }
+}
+
+fn resolver_failure_reason(diagnostic: &[u8]) -> &'static str {
+    if let Some(reason) = unavailable_reason(diagnostic) {
+        return reason;
+    }
+    let text = String::from_utf8_lossy(diagnostic).to_ascii_lowercase();
+    if text.contains("http error 403") || text.contains("forbidden") {
+        "http_forbidden"
+    } else if text.contains("http error 429") || text.contains("too many requests") {
+        "rate_limited"
+    } else if text.contains("http error 5") {
+        "remote_server_error"
+    } else if text.contains("timed out") || text.contains("timeout") {
+        "network_timeout"
+    } else if text.contains("name or service not known")
+        || text.contains("temporary failure in name resolution")
+        || text.contains("getaddrinfo failed")
+    {
+        "dns_failed"
+    } else if text.contains("unable to download")
+        || text.contains("network is unreachable")
+        || text.contains("connection reset")
+        || text.contains("connection refused")
+    {
+        "network_failed"
+    } else if text.contains("sign in") || text.contains("login") || text.contains("cookies") {
+        "authentication_required"
+    } else if text.contains("unsupported url") || text.contains("no suitable extractor") {
+        "extractor_unsupported"
+    } else {
+        "resolver_failed"
     }
 }
 
@@ -586,6 +617,31 @@ mod tests {
         assert_eq!(
             preparation.take(1, "original", &Metrics::silent()).1,
             "unavailable"
+        );
+    }
+    #[test]
+    fn resolver_errors_are_classified_without_retaining_raw_diagnostics() {
+        assert_eq!(
+            resolver_failure_reason(
+                b"ERROR: HTTP Error 403: Forbidden https://signed.example/?token=secret"
+            ),
+            "http_forbidden"
+        );
+        assert_eq!(
+            resolver_failure_reason(b"ERROR: HTTP Error 429: Too Many Requests"),
+            "rate_limited"
+        );
+        assert_eq!(
+            resolver_failure_reason(b"getaddrinfo failed for youtube.example"),
+            "dns_failed"
+        );
+        assert_eq!(
+            resolver_failure_reason(b"Sign in to confirm you are not a bot"),
+            "authentication_required"
+        );
+        assert_eq!(
+            resolver_failure_reason(b"unexpected raw output with /private/local/path"),
+            "resolver_failed"
         );
     }
     #[test]

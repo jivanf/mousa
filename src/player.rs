@@ -156,6 +156,50 @@ fn is_youtube_track(url: &str) -> bool {
         })
 }
 
+fn mpv_error_category(code: libmpv2::MpvError) -> &'static str {
+    use libmpv2::mpv_error;
+    match code {
+        mpv_error::LoadingFailed => "loading_failed",
+        mpv_error::NothingToPlay => "nothing_to_play",
+        mpv_error::UnknownFormat => "unknown_format",
+        mpv_error::Unsupported => "unsupported",
+        mpv_error::AoInitFailed => "audio_output_failed",
+        mpv_error::VoInitFailed => "video_output_failed",
+        mpv_error::EventQueueFull => "event_queue_full",
+        mpv_error::NoMem => "out_of_memory",
+        mpv_error::Uninitialized => "uninitialized",
+        mpv_error::InvalidParameter => "invalid_parameter",
+        mpv_error::OptionNotFound | mpv_error::OptionFormat | mpv_error::OptionError => {
+            "option_error"
+        }
+        mpv_error::PropertyNotFound
+        | mpv_error::PropertyFormat
+        | mpv_error::PropertyUnavailable
+        | mpv_error::PropertyError => "property_error",
+        mpv_error::Command => "command_failed",
+        mpv_error::NotImplemented => "not_implemented",
+        mpv_error::Generic => "generic",
+        _ => "unknown",
+    }
+}
+
+fn engine_failure(
+    event: &Result<Event<'_>, libmpv2::Error>,
+) -> (&'static str, &'static str, Option<i64>) {
+    match event {
+        Ok(Event::EndFile(reason)) => ("end_file", "end_file_error", Some(*reason as i64)),
+        Err(libmpv2::Error::Raw(code)) => (
+            "mpv_event",
+            mpv_error_category(*code),
+            Some(i64::from(*code)),
+        ),
+        Err(libmpv2::Error::VersionMismatch { .. }) => ("mpv_event", "version_mismatch", None),
+        Err(libmpv2::Error::InvalidUtf8) => ("mpv_event", "invalid_utf8", None),
+        Err(libmpv2::Error::Null) => ("mpv_event", "null_value", None),
+        _ => ("mpv_event", "unknown", None),
+    }
+}
+
 // Only one successor is staged; Mousa remains responsible for shuffle/repeat order.
 struct QueuedTrack {
     index: usize,
@@ -429,7 +473,19 @@ impl Player {
                         // libmpv2 returns failed EndFile events as Err, not EndFile(4).
                         // Handle both so a rejected stream retries promptly instead of
                         // leaving the UI playing until the startup watchdog expires.
-                        Ok(Event::EndFile(4)) | Err(_) if loaded => {
+                        failure @ (Ok(Event::EndFile(4)) | Err(_)) if loaded => {
+                            let (source, category, code) = engine_failure(&failure);
+                            metrics.emit(serde_json::json!({
+                                "event":"playback_engine_error",
+                                "playback_id":playback_id,
+                                "source":source,
+                                "category":category,
+                                "code":code,
+                                "phase":if ready { "playback" } else { "startup" },
+                                "prepared_stream":using_prepared,
+                                "queue_index":s.index,
+                                "position_seconds":s.position.floor() as u64
+                            }));
                             clear_successor(&mpv, &mut queued);
                             if using_prepared {
                                 // A prepared stream URL can expire or fail after playback has
@@ -1076,6 +1132,25 @@ mod tests {
         assert!(!can_sample_position(1, 1, true));
         assert!(can_sample_position(1, 1, false));
         assert!(!can_sample_position(1, 2, true));
+    }
+
+    #[test]
+    fn engine_failures_are_reduced_to_safe_structured_diagnostics() {
+        assert_eq!(
+            engine_failure(&Err(libmpv2::Error::Raw(libmpv2::mpv_error::LoadingFailed))),
+            ("mpv_event", "loading_failed", Some(-13))
+        );
+        assert_eq!(
+            engine_failure(&Ok(Event::EndFile(4))),
+            ("end_file", "end_file_error", Some(4))
+        );
+        assert_eq!(
+            engine_failure(&Err(libmpv2::Error::VersionMismatch {
+                linked: 1,
+                loaded: 2,
+            })),
+            ("mpv_event", "version_mismatch", None)
+        );
     }
 
     #[test]
