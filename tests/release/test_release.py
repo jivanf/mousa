@@ -173,12 +173,24 @@ class GitHubTests(unittest.TestCase):
 
 
 class PublicationTests(unittest.TestCase):
+    def test_release_assets_keep_updater_archives_and_add_platform_packages(self):
+        archives, names = publish.release_assets('1.2.3')
+        self.assertEqual(archives, [
+            'mousa-1.2.3-x86_64-unknown-linux-gnu.tar.gz',
+            'mousa-1.2.3-x86_64-pc-windows-msvc.tar.gz',
+        ])
+        self.assertEqual(names, archives + [
+            'mousa-1.2.3-windows-x64.zip',
+            'mousa_1.2.3_amd64.deb',
+        ])
+
     def test_resume_draft_checks_every_asset_before_publishing(self):
         sha, version = 'a' * 40, '0.1.1'
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)
-            for target in publish.TARGETS:
-                (dist / f'mousa-{version}-{target}.tar.gz').write_bytes(b'archive')
+            _, names = publish.release_assets(version)
+            for name in names:
+                (dist / name).write_bytes(b'archive')
             draft = {'id': 3, 'draft': True, 'body': f'<!-- mousa-release-commit:{sha} -->'}
             assets = {}
             mutations = []
@@ -193,13 +205,13 @@ class PublicationTests(unittest.TestCase):
                     assets[path.name] = {'name': path.name, 'digest': 'sha256:' + publish.digest(path), 'size': path.stat().st_size}
             with patch.dict(os.environ, {'MOUSA_RELEASE_SIGNING_KEY': 'dGVzdC1rZXk='}), patch.object(publish, 'admission', return_value=version), patch.object(publish, 'run', return_value=sha), patch.object(publish, 'optional', side_effect=[{'object': {'sha': sha}}, draft]), patch.object(publish, 'api', side_effect=api), patch.object(publish, 'pages', side_effect=lambda _: list(assets.values())), patch.object(publish.subprocess, 'run', side_effect=execute):
                 publish.publish(sha, version, dist)
-            self.assertEqual(len(assets), 3)
+            self.assertEqual(len(assets), 5)
             self.assertEqual(mutations[-1][0], 'PATCH')
             self.assertFalse(mutations[-1][2]['draft'])
 
     def test_missing_platform_never_creates_a_tag(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(publish, 'admission', return_value='0.1.1'), patch.object(publish, 'run', return_value='a' * 40), patch.object(publish, 'api') as api:
-            with self.assertRaisesRegex(ValueError, 'both platform'):
+            with self.assertRaisesRegex(ValueError, 'friendly platform'):
                 publish.publish('a' * 40, '0.1.1', Path(directory))
             api.assert_not_called()
 

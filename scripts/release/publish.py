@@ -11,6 +11,12 @@ from policy import BRANCH, api, endpoint, history, pages, proposal, release_gate
 TARGETS = ("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc")
 
 
+def release_assets(version):
+    archives = [f"mousa-{version}-{target}.tar.gz" for target in TARGETS]
+    downloads = [f"mousa-{version}-windows-x64.zip", f"mousa_{version}_amd64.deb"]
+    return archives, archives + downloads
+
+
 def optional(path):
     try:
         return api(path)
@@ -60,8 +66,8 @@ def asset_matches(asset, path):
 def publish(commit, version, directory):
     require(admission(commit) == version, "Publication is not eligible")
     require(run("git", "rev-parse", "HEAD") == commit, "Checkout is not the admitted release commit")
-    names = [f"mousa-{version}-{target}.tar.gz" for target in TARGETS]
-    require(sorted(p.name for p in directory.iterdir()) == sorted(names), "Expected exactly both platform archives")
+    archives, names = release_assets(version)
+    require(sorted(p.name for p in directory.iterdir()) == sorted(names), "Expected updater archives and friendly platform packages")
     # The private signing key exists only in an ephemeral file inside this job.
     import base64
     private = base64.b64decode(os.environ.pop("MOUSA_RELEASE_SIGNING_KEY"), validate=True)
@@ -73,7 +79,7 @@ def publish(commit, version, directory):
         del private
         public.write_bytes(bytes.fromhex(Path("updater/release-public-key.hex").read_text().strip()))
         try:
-            for name in names:
+            for name in archives:
                 subprocess.run(["zipsign", "sign", "tar", str(directory / name), str(key)], check=True)
                 subprocess.run(["zipsign", "verify", "tar", str(directory / name), str(public)], check=True)
         finally:
