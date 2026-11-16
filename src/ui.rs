@@ -721,6 +721,7 @@ pub struct Bar {
     bounds: Bounds<Pixels>,
     focus: FocusHandle,
     step: f32,
+    scrollable: bool,
 }
 impl EventEmitter<BarChange> for Bar {}
 impl Bar {
@@ -732,7 +733,12 @@ impl Bar {
             bounds: Bounds::default(),
             focus: cx.focus_handle(),
             step,
+            scrollable: false,
         }
+    }
+    pub fn scrollable(mut self) -> Self {
+        self.scrollable = true;
+        self
     }
     pub fn sync(&mut self, value: f32, disabled: bool, cx: &mut Context<Self>) {
         if !self.dragging && (self.value != value || self.disabled != disabled) {
@@ -798,6 +804,20 @@ impl Render for Bar {
                     _ => return,
                 };
                 this.change(next, cx);
+                cx.stop_propagation();
+            }))
+            .on_scroll_wheel(cx.listener(|this, e: &ScrollWheelEvent, _, cx| {
+                if !this.scrollable || this.disabled {
+                    return;
+                }
+                let delta = match e.delta {
+                    ScrollDelta::Pixels(delta) => f32::from(delta.y),
+                    ScrollDelta::Lines(delta) => delta.y,
+                };
+                if delta == 0. {
+                    return;
+                }
+                this.change(this.value + this.step * delta.signum(), cx);
                 cx.stop_propagation();
             }))
             .child(
