@@ -46,8 +46,11 @@ not create a branch, commit, PR, tag, or release.
 ## Publication and recovery
 
 After a release PR merges, Release admits its exact squash commit, tests and
-builds both operating systems, then signs the archives from that run. It creates
-one tag, uploads both archives and SHA256SUMS to a draft, verifies asset hashes,
+builds both operating systems, then signs the updater archives from that run.
+It also packages a portable Windows ZIP and a Debian package for user-facing
+installation. The Debian package is a conventional system installation and does
+not use the per-user self-updater. Release creates one tag, uploads all packages,
+the updater archives, and SHA256SUMS to a draft, verifies asset hashes,
 rechecks approval/hold state, and publishes the immutable release. There is no
 tag-triggered second build. Ordinary merges do not run release builds.
 

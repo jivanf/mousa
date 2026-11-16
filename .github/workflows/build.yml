@@ -72,7 +72,7 @@ jobs:
           cargo build --workspace --release --locked
           test "$(target/release/mousa --version)" = "Mousa $VERSION"
           mkdir -p bundle
-          cp target/release/mousa target/release/mousa-launcher bundle/
+          cp target/release/mousa target/release/mousa-mcp target/release/mousa-launcher bundle/
           bundle/mousa-launcher --register
       - name: Build and test Windows
         if: runner.os == 'Windows'
@@ -84,9 +84,37 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf "dist/mousa-$VERSION-${{ matrix.target }}.tar.gz" -C bundle .
+      - name: Package Windows ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path bundle\* -DestinationPath "dist\mousa-$env:VERSION-windows-x64.zip"
+      - name: Package Debian application
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          package="$RUNNER_TEMP/mousa-deb"
+          install -Dm755 target/release/mousa "$package/usr/bin/mousa"
+          install -Dm755 target/release/mousa-mcp "$package/usr/bin/mousa-mcp"
+          install -Dm644 assets/mousa.svg "$package/usr/share/icons/hicolor/scalable/apps/mousa.svg"
+          install -Dm644 assets/mousa.desktop "$package/usr/share/applications/mousa.desktop"
+          sed -i 's/^Exec=mousa-launcher$/Exec=mousa/' "$package/usr/share/applications/mousa.desktop"
+          mkdir -p "$package/DEBIAN"
+          cat > "$package/DEBIAN/control" <<EOF
+          Package: mousa
+          Version: $VERSION
+          Architecture: amd64
+          Maintainer: Mousa contributors <noreply@github.com>
+          Depends: libmpv2, yt-dlp
+          Section: sound
+          Priority: optional
+          Homepage: https://github.com/jivanf/mousa
+          Description: Native YouTube music player
+           Mousa is a fast native music player for YouTube.
+          EOF
+          dpkg-deb --root-owner-group --build "$package" "dist/mousa_${VERSION}_amd64.deb"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: inputs.artifacts
         with:
           name: build-${{ matrix.target }}
           overwrite: true
-          path: dist/*.tar.gz
+          path: dist/*
