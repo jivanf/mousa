@@ -101,6 +101,7 @@ x-alignment:
 x-collection-layout: shared-artwork-header-with-bottom-right-search-and-inline-actions
 x-scrolling:
   scrollbar-gutter: overflow-only
+  volume-slider: 5%-per-wheel-step-on-hover
   catalog-collection-detail: table-with-fixed-header-and-selection
   catalog-artist-detail: page
   pagination: automatic-virtual-scroll
@@ -504,7 +505,10 @@ Arrow keys adjust, Home/End jump to bounds. Disabled progress controls do not
 receive keyboard focus. GPUI itself has no built-in slider; the existing
 component dependency has one, but Mousa uses a custom Bar for this geometry.
 The seek bar and volume slider show no tooltips, as requested by the user;
-mouse and keyboard interactions remain available.
+mouse and keyboard interactions remain available. Scrolling while the pointer is
+over the volume slider adjusts it by the same 5% step as its arrow keys; scrolling
+up increases volume and scrolling down decreases it. The seek bar does not respond
+to scrolling.
 
 **Transport row.** 44px buttons with md gaps. Play is the 72px hero in
 tertiary with the md shadow.

@@ -173,7 +173,7 @@ impl Mousa {
                 None
             }
         };
-        let volume_slider = cx.new(|cx| Bar::new(0.05, cx));
+        let volume_slider = cx.new(|cx| Bar::new(0.05, cx).scrollable());
         let seek = cx.new(|cx| Bar::new(0.01, cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search tracks…"));
         let playlist_search =
