@@ -28,7 +28,12 @@ documentation, tooling, and maintenance work:
    Until then, keep changes local. Approval is task-specific.
 6. Address CI failures and requested revisions in the same worktree and PR. The
    submission skill's required script enables squash auto-merge. Verify the actual
-   merge result before reporting the PR as merged.
+   merge result before reporting the PR as merged. Required checks must pass by
+   default. They may be bypassed only when the repository owner explicitly
+   approves bypassing identified checks for that specific PR after reviewing
+   their current state and the reason for bypass. Record that approval and reason
+   on the PR. Approval is PR-specific and does not authorize direct pushes to
+   `main`, force pushes, or bypasses on other PRs.
 7. After the PR is merged and no task work remains, delete its task worktree and
    prune stale worktree metadata using standard Git commands. Preserve any needed
    ignored artifacts first. Keep the worktree available while review, revisions,

@@ -13,6 +13,12 @@ platform builds and the trusted `Release policy` commit status. PR builds run
 without bot or signing credentials. The policy workflow reads PR files as data
 and always checks out main's policy implementation.
 
+Required checks pass before merging by default. Only the repository owner may
+explicitly approve bypassing identified checks for a specific PR after reviewing
+their current state and the reason for bypass. Record the approval and reason on
+that PR. Approval does not carry to another PR and never authorizes a direct push
+to `main`, a force push, or moving a release tag.
+
 At 17:00 UTC each day (10:00 PDT / 09:00 PST; GitHub schedules may be delayed),
 Prepare release checks for releasable commits since the latest published tag.
 It runs release-plz to generate the manifests and changelog, explicitly aligns

@@ -25,5 +25,9 @@ rebase requires it, creates or updates its open PR, enables squash auto-merge,
 and verifies that auto-merge is active.
 
 After submission, monitor the required Linux, Windows, and Release policy checks.
-Address failures and revisions on the same branch and PR. Do not bypass checks or
-push directly to `main`. Verify the actual merged state before reporting success.
+Address failures and revisions on the same branch and PR. Do not bypass checks
+unless the repository owner explicitly approves bypassing identified checks for
+that specific PR after reviewing their current state and the reason for bypass.
+Record the approval and reason on the PR before bypassing. Never infer approval
+from urgency or from approval granted to another PR. Do not push directly to
+`main`. Verify the actual merged state before reporting success.
