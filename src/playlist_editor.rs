@@ -679,7 +679,6 @@ impl Render for PlaylistEditor {
                                         ui::button("edit-close", "", color::surface())
                                             .size(size::row_action())
                                             .p(layout::zero())
-                                            .shadow(vec![])
                                             .track_focus(&self.controls[0])
                                             .child(ui::icon("x", false).size(token::close_icon()))
                                             .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
