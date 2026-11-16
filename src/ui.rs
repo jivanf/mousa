@@ -457,12 +457,9 @@ pub fn icon_button(
         })
         .when(row, track_action)
         .when(row, |d| {
-            d.shadow(vec![]).mr(layout::zero()).mb(layout::zero())
-        })
-        .when(row, |d| {
             d.opacity(0.)
                 .group_hover("track-row", |s| s.opacity(1.))
-                .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
+                .focus(|s| s.opacity(1.))
         })
         .when(row && icon_needs_tooltip(name), |d| {
             d.tooltip(move |w, cx| Tooltip::new(label).build(w, cx))
@@ -578,8 +575,6 @@ pub fn search_input(state: &Entity<InputState>, large: bool, cx: &App) -> Statef
                     })
                     .px(layout::zero())
                     .mr(space::sm())
-                    .mb(layout::zero())
-                    .shadow(vec![])
                     .child(icon("x", false).size(crate::theme::catalog::icon()))
                     .on_click(move |_, w, cx| {
                         field.update(cx, |s, cx| {
@@ -1458,11 +1453,9 @@ pub fn track_play_button(id: impl Into<ElementId>, playing: bool) -> Button {
     track_action(button(id, "", color::surface()))
         .size(size::row_action())
         .px(layout::zero())
-        .mr(layout::zero())
-        .mb(layout::zero())
         .opacity(if playing { 1. } else { 0. })
         .group_hover("track-row", |s| s.opacity(1.))
-        .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
+        .focus(|s| s.opacity(1.))
         .child(icon(
             if playing {
                 "player-pause"

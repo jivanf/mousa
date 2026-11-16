@@ -518,8 +518,10 @@ title (body-md) over artist (body-sm, secondary), duration in mono fixed at the
 right edge. Unknown lengths display `–:–`. Hover actions appear immediately to
 the left of the duration, retaining their space so neither metadata nor duration
 shifts on hover; each action is also revealed on keyboard focus.
-Actions (queue, move up, move down, remove) are 32px icon buttons revealed on
-row hover or individual keyboard focus (`.group("row")` and `.group_hover("row", ...)`).
+Actions (play, queue, move up, move down, remove) are shared 32px icon buttons
+with the standard sm hard shadow, revealed on row hover or individual keyboard
+focus (`.group("row")` and `.group_hover("row", ...)`). The play action uses one
+shared component in library, queue, and catalog track lists.
 Library playlist rows replace the index with the track's centered 36px square
 thumbnail. Songs use their album artwork when supplied by the catalog, videos use
 their own thumbnail, and missing or unavailable cached artwork uses the disc fallback.
@@ -643,7 +645,8 @@ application, 32px in standalone component previews. All search/filter fields,
 including the destination picker, have an inline × only while their input is
 nonempty. Clearing retains field focus and updates its results. The clear control
 is 32px in the catalog field, 24px in compact 36px fields, with an 18px icon,
-3px border, and no shadow or redundant tooltip. Name-entry fields are not searches.
+3px border, the standard sm hard shadow, and no redundant tooltip. Name-entry
+fields are not searches.
 
 Category chips are 36px controls with 13px bold Space Mono labels, 12px gaps,
 and the standard 3px hard shadow. Selection uses ink/lime inversion. Chips wrap

@@ -1232,9 +1232,6 @@ fn small_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str)
     button(id, "", color::white())
         .size(size::row_action())
         .px(crate::theme::layout::zero())
-        .mr(crate::theme::layout::zero())
-        .mb(crate::theme::layout::zero())
-        .shadow(vec![])
         .child(ui::icon(name, false).size(metrics::icon()))
         .when(ui::icon_needs_tooltip(name), |d| {
             d.tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(label).build(w, cx))
@@ -1244,7 +1241,7 @@ fn row_icon(id: impl Into<ElementId>, name: &'static str, label: &'static str) -
     ui::track_action(small_icon(id, name, label))
         .opacity(0.)
         .group_hover("track-row", |s| s.opacity(1.))
-        .focus(|s| s.opacity(1.).shadow(vec![shadow::focus_ring()]))
+        .focus(|s| s.opacity(1.))
 }
 fn time_label(seconds: f64) -> String {
     if seconds <= 0. {
@@ -1563,9 +1560,9 @@ impl CatalogView {
         } else {
             cover(item.thumbnail.as_deref(), f32::from(metrics::thumbnail())).into_any_element()
         };
-        let play_control = row_icon(("catalog-play", index), "player-play", "Play")
+        let play_control = ui::track_play_button(("catalog-play", index), false)
             .size(metrics::thumbnail())
-            .focus(|s| s.opacity(1.).bg(color::lime()).shadow(vec![]))
+            .focus(|s| s.opacity(1.).bg(color::lime()))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.activate_item(play.clone(), index, cx);
                 cx.stop_propagation();
