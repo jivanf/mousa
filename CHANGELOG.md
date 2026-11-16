@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6](https://github.com/jivanf/mousa/compare/v0.6.5...v0.6.6) - 2026-11-16
+
+### Fixes and performance
+
+- *(accounts)* Diagnose Google OAuth failures (#51)
+- *(playback)* Recover interrupted streams (#50)
+
 ## [0.6.5](https://github.com/jivanf/mousa/compare/v0.6.4...v0.6.5) - 2026-11-14
 
 ### Fixes and performance

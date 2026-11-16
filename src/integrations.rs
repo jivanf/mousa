@@ -288,7 +288,7 @@ pub fn google_login() -> Result<String> {
             Err(e) => return Err(e.into()),
         }
     };
-    let token: Value = client()?
+    let response = client()?
         .post("https://oauth2.googleapis.com/token")
         .form(&[
             ("client_id", id),
@@ -298,15 +298,12 @@ pub fn google_login() -> Result<String> {
             ("redirect_uri", &redirect),
             ("grant_type", "authorization_code"),
         ])
-        .send()?
-        .error_for_status()?
-        .json()?;
+        .send()?;
+    let status = response.status();
+    let body = response.text()?;
+    let token = google_token_payload(status, &body, &db::data_dir())?;
     anyhow::ensure!(
-        token["scope"]
-            .as_str()
-            .unwrap_or("")
-            .split_whitespace()
-            .any(|scope| scope == "https://www.googleapis.com/auth/youtube"),
+        google_token_grants_editing(&token),
         "Google playlist editing permission was not granted. Existing sign-in was preserved."
     );
     let profile: Value = client()?
@@ -332,6 +329,60 @@ pub fn google_login() -> Result<String> {
     )?;
     Ok(name.to_owned())
 }
+
+fn google_token_grants_editing(token: &Value) -> bool {
+    match token.get("scope") {
+        // OAuth 2.0 permits omitting `scope` when it matches the authorization request.
+        None => true,
+        Some(Value::String(scopes)) => scopes
+            .split_whitespace()
+            .any(|scope| scope == "https://www.googleapis.com/auth/youtube"),
+        Some(_) => false,
+    }
+}
+
+fn google_token_payload(
+    status: reqwest::StatusCode,
+    body: &str,
+    directory: &std::path::Path,
+) -> Result<Value> {
+    let payload: Value =
+        serde_json::from_str(body).context("Google returned an invalid OAuth token response")?;
+    if status.is_success() {
+        return Ok(payload);
+    }
+
+    let code = oauth_diagnostic_field(payload["error"].as_str().unwrap_or("unknown_error"));
+    let description = oauth_diagnostic_field(
+        payload["error_description"]
+            .as_str()
+            .unwrap_or("No error description was returned"),
+    );
+    let diagnostic = format!(
+        "time={} status={} error={} description={}\n",
+        now(),
+        status,
+        code,
+        description
+    );
+    let _ = std::fs::write(directory.join("google-oauth.log"), diagnostic);
+    bail!("Google authorization failed ({status}): {code}: {description}")
+}
+
+fn oauth_diagnostic_field(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(500)
+        .collect()
+}
+
 pub(crate) fn google_access() -> Result<String> {
     let v = google_client_at(&db::data_dir())?;
     let refresh = get_secret("google-refresh").context("Sign in to Google first")?;
@@ -561,6 +612,61 @@ pub fn flush_scrobbles() -> Result<()> {
 
 #[cfg(test)]
 mod auth_tests {
+    #[test]
+    fn google_token_errors_preserve_safe_diagnostics() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = super::google_token_payload(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"error":"invalid_grant","error_description":"Code expired\nretry"}"#,
+            directory.path(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "Google authorization failed (400 Bad Request): invalid_grant: Code expired retry"
+        );
+        let diagnostic =
+            std::fs::read_to_string(directory.path().join("google-oauth.log")).unwrap();
+        assert!(diagnostic.contains("status=400 Bad Request"));
+        assert!(diagnostic.contains("error=invalid_grant"));
+        assert!(diagnostic.contains("description=Code expired retry"));
+        assert!(!diagnostic.contains("access_token"));
+    }
+
+    #[test]
+    fn google_token_success_returns_the_payload_without_logging() {
+        let directory = tempfile::tempdir().unwrap();
+        let payload = super::google_token_payload(
+            reqwest::StatusCode::OK,
+            r#"{"access_token":"secret"}"#,
+            directory.path(),
+        )
+        .unwrap();
+        assert_eq!(payload["access_token"], "secret");
+        assert!(!directory.path().join("google-oauth.log").exists());
+    }
+
+    #[test]
+    fn google_editing_scope_accepts_an_unchanged_omitted_scope() {
+        assert!(super::google_token_grants_editing(&serde_json::json!({
+            "access_token": "token"
+        })));
+    }
+
+    #[test]
+    fn google_editing_scope_rejects_an_explicit_partial_grant() {
+        assert!(super::google_token_grants_editing(&serde_json::json!({
+            "scope": "openid profile https://www.googleapis.com/auth/youtube"
+        })));
+        assert!(!super::google_token_grants_editing(&serde_json::json!({
+            "scope": "openid profile"
+        })));
+        assert!(!super::google_token_grants_editing(&serde_json::json!({
+            "scope": null
+        })));
+    }
+
     #[test]
     fn google_configuration_errors_identify_the_file_and_recovery() {
         let dir = tempfile::tempdir().unwrap();
