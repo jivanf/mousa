@@ -30,11 +30,11 @@ impl Gallery {
         let field = cx.new(|cx| InputState::new(window, cx).placeholder("Search this playlist…"));
         let subscriptions = vec![
             cx.subscribe(&volume, |this, _, e: &BarChange, cx| {
-                this.volume_value = e.0;
+                this.volume_value = e.value;
                 cx.notify();
             }),
             cx.subscribe(&seek, |this, _, e: &BarChange, cx| {
-                this.elapsed = e.0 * 240.;
+                this.elapsed = e.value * 240.;
                 cx.notify();
             }),
         ];

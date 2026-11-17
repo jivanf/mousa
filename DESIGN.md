@@ -88,6 +88,10 @@ x-shadows:
 x-tooltips:
   seek-bar: false
   volume-slider: false
+x-bar-interaction:
+  seek-drag: preview-continuously-commit-on-release
+  seek-keyboard: commit-immediately
+  volume-drag: update-continuously
 x-motion:
   button-press-duration: 150ms
   button-release-duration: 150ms
@@ -500,8 +504,11 @@ so state never depends on color alone.
 **Bar** (progress and volume, one component). 22px track with 3px ink border
 and field fill; lime fill ending in a 3px ink edge; 28px square thumb with
 sm shadow centered on the value. One custom element taking a 0..1 value and
-emitting changes on mouse down and drag, including release outside its bounds. Clicking the track seeks.
-Arrow keys adjust, Home/End jump to bounds. Disabled progress controls do not
+emitting preview changes on mouse down and drag, including release outside its
+bounds. The seek bar previews its thumb and elapsed time continuously, then
+commits one playback seek on release; the volume slider applies every preview
+change. Clicking the track seeks on release. Arrow keys adjust and commit
+immediately, while Home/End jump to bounds. Disabled progress controls do not
 receive keyboard focus. GPUI itself has no built-in slider; the existing
 component dependency has one, but Mousa uses a custom Bar for this geometry.
 The seek bar and volume slider show no tooltips, as requested by the user;

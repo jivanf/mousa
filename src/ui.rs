@@ -708,7 +708,10 @@ pub fn player_panel(
     }
 }
 #[derive(Clone)]
-pub struct BarChange(pub f32);
+pub struct BarChange {
+    pub value: f32,
+    pub committed: bool,
+}
 pub struct Bar {
     pub value: f32,
     pub disabled: bool,
@@ -742,23 +745,29 @@ impl Bar {
             cx.notify();
         }
     }
-    fn change(&mut self, value: f32, cx: &mut Context<Self>) {
+    fn change(&mut self, value: f32, committed: bool, cx: &mut Context<Self>) {
         if self.disabled {
             return;
         }
         let value = value.clamp(0., 1.);
-        if self.value == value {
+        if self.value == value && !committed {
             return;
         }
-        self.value = value;
-        cx.emit(BarChange(self.value));
-        cx.notify();
+        if self.value != value {
+            self.value = value;
+            cx.notify();
+        }
+        cx.emit(BarChange {
+            value: self.value,
+            committed,
+        });
     }
-    fn pointer(&mut self, x: Pixels, cx: &mut Context<Self>) {
+    fn pointer(&mut self, x: Pixels, committed: bool, cx: &mut Context<Self>) {
         let usable = self.bounds.size.width - size::bar_thumb();
         if usable > layout::zero() {
             self.change(
                 (x - self.bounds.left() - size::bar_thumb() / 2.) / usable,
+                committed,
                 cx,
             );
         }
@@ -786,7 +795,7 @@ impl Render for Bar {
                     }
                     this.focus.focus(w);
                     this.dragging = true;
-                    this.pointer(e.position.x, cx);
+                    this.pointer(e.position.x, false, cx);
                     cx.stop_propagation();
                 }),
             )
@@ -798,7 +807,7 @@ impl Render for Bar {
                     "end" => 1.,
                     _ => return,
                 };
-                this.change(next, cx);
+                this.change(next, true, cx);
                 cx.stop_propagation();
             }))
             .on_scroll_wheel(cx.listener(|this, e: &ScrollWheelEvent, _, cx| {
@@ -812,7 +821,7 @@ impl Render for Bar {
                 if delta == 0. {
                     return;
                 }
-                this.change(this.value + this.step * delta.signum(), cx);
+                this.change(this.value + this.step * delta.signum(), true, cx);
                 cx.stop_propagation();
             }))
             .child(
@@ -873,7 +882,7 @@ impl Render for Bar {
                             if phase == DispatchPhase::Bubble {
                                 let _ = weak_move.update(cx, |bar, cx| {
                                     if bar.dragging {
-                                        bar.pointer(e.position.x, cx);
+                                        bar.pointer(e.position.x, false, cx);
                                     }
                                 });
                             }
@@ -883,7 +892,7 @@ impl Render for Bar {
                             if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
                                 let _ = weak_up.update(cx, |bar, cx| {
                                     if bar.dragging {
-                                        bar.pointer(e.position.x, cx);
+                                        bar.pointer(e.position.x, true, cx);
                                         bar.dragging = false;
                                         cx.notify();
                                     }
