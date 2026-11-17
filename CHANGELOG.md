@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0](https://github.com/jivanf/mousa/compare/v0.6.6...v0.7.0) - 2026-11-17
+
+### Features
+
+- *(playback)* Allow volume adjustment with the mouse wheel (#56)
+
 ## [0.6.6](https://github.com/jivanf/mousa/compare/v0.6.5...v0.6.6) - 2026-11-16
 
 ### Fixes and performance
