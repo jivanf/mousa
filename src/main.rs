@@ -16,7 +16,7 @@ use mousa::{
     theme::{
         border, color, font, layout, press, reorder, shadow, size as control_size, space, text,
     },
-    ui::{self, Bar, BarChange, button, icon_button, step_button},
+    ui::{self, Bar, button, icon_button, step_button},
 };
 use std::{
     sync::{
@@ -128,6 +128,7 @@ struct Mousa {
     current_title: String,
     current_artist: String,
     position: f64,
+    scrubbing: bool,
     pending_seek: Option<PendingSeek>,
     duration: f64,
     volume: f64,
@@ -263,6 +264,7 @@ impl Mousa {
             current_title: "Nothing playing yet".into(),
             current_artist: "Choose a playlist and press play".into(),
             position: 0.,
+            scrubbing: false,
             pending_seek: None,
             duration: 0.,
             volume: 70.,
@@ -278,14 +280,15 @@ impl Mousa {
         };
         app.subscriptions
             .push(cx.subscribe(&volume_slider, |this, _, event, _| {
-                let BarChange(value) = event;
-                this.player.send(Command::Volume(*value as f64 * 100.));
+                this.player.send(Command::Volume(event.value as f64 * 100.));
             }));
         app.subscriptions
             .push(cx.subscribe(&seek, |this, _, event, cx| {
-                let BarChange(value) = event;
-                this.position = *value as f64 * this.duration;
-                this.pending_seek = Some(this.player.seek_with_preview(this.position));
+                this.position = event.value as f64 * this.duration;
+                this.scrubbing = !event.committed;
+                if event.committed {
+                    this.pending_seek = Some(this.player.seek_with_preview(this.position));
+                }
                 cx.notify();
             }));
         app.subscriptions
@@ -684,7 +687,11 @@ impl Mousa {
         if preview.is_none() {
             self.pending_seek = None;
         }
-        let position = preview.unwrap_or(s.position);
+        let position = if self.scrubbing {
+            self.position
+        } else {
+            preview.unwrap_or(s.position)
+        };
         let title = s
             .current()
             .map(|t| t.title.clone())
