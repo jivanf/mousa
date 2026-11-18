@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/jivanf/mousa/compare/v0.7.0...v0.7.1) - 2026-11-18
+
+### Fixes and performance
+
+- *(playback)* Record safe resolver timeout stages (#60)
+- *(playback)* Prevent seek floods while scrubbing (#59)
+
 ## [0.7.0](https://github.com/jivanf/mousa/compare/v0.6.6...v0.7.0) - 2026-11-17
 
 ### Features
