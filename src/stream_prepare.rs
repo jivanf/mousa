@@ -417,6 +417,7 @@ fn resolve_url(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     command.args([
+        "--verbose",
         "--ignore-config",
         "--no-playlist",
         "--skip-download",
@@ -513,6 +514,9 @@ fn resolve_command(
     if status == Err("resolver_failed") {
         return Err(resolver_failure_reason(&diagnostic));
     }
+    if status == Err("timeout") {
+        return Err(resolver_timeout_reason(&diagnostic));
+    }
     status?;
     parse(&bytes?)
 }
@@ -566,6 +570,26 @@ fn resolver_failure_reason(diagnostic: &[u8]) -> &'static str {
         "extractor_unsupported"
     } else {
         "resolver_failed"
+    }
+}
+
+// yt-dlp's verbose output can contain URLs, titles, headers and command-line
+// arguments. Never persist it. Reduce the bounded in-memory diagnostic to one
+// fixed label describing the last extraction stage that began before timeout.
+fn resolver_timeout_reason(diagnostic: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(diagnostic).to_ascii_lowercase();
+    if text.contains("downloading m3u8 information") {
+        "timeout_manifest"
+    } else if text.contains("solving js challenges") || text.contains("running deno:") {
+        "timeout_js_challenge"
+    } else if text.contains("downloading player ") || text.contains("loading youtube-sigfuncs.") {
+        "timeout_player_js"
+    } else if text.contains(" player api json") {
+        "timeout_player_api"
+    } else if text.contains("downloading webpage") {
+        "timeout_webpage"
+    } else {
+        "timeout_unknown"
     }
 }
 
@@ -643,6 +667,41 @@ mod tests {
             resolver_failure_reason(b"unexpected raw output with /private/local/path"),
             "resolver_failed"
         );
+    }
+    #[test]
+    fn resolver_timeouts_only_return_fixed_stage_labels() {
+        let private = "https://example.invalid/private?token=secret Artist - Track";
+        let cases = [
+            (String::new(), "timeout_unknown"),
+            (
+                format!("[debug] command {private}\nDownloading webpage"),
+                "timeout_webpage",
+            ),
+            (
+                format!("Downloading webpage\nDownloading tv samsung player API JSON {private}"),
+                "timeout_player_api",
+            ),
+            (
+                format!("Downloading player abc-main {private}"),
+                "timeout_player_js",
+            ),
+            (
+                format!("Solving JS challenges using deno {private}"),
+                "timeout_js_challenge",
+            ),
+            (
+                format!("Downloading m3u8 information {private}"),
+                "timeout_manifest",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            let reason = resolver_timeout_reason(diagnostic.as_bytes());
+            assert_eq!(reason, expected);
+            assert!(!reason.contains("example"));
+            assert!(!reason.contains("secret"));
+            assert!(!reason.contains("artist"));
+        }
     }
     #[test]
     fn replacements_require_matching_title_artist_and_duration() {
@@ -895,11 +954,20 @@ mod tests {
             resolve_command(fail, &cancel, Duration::from_secs(30)).err(),
             Some("resolver_failed")
         );
-        let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
-        assert!(matches!(
-            resolve_command(sleep, &cancel, Duration::from_millis(100)),
-            Err("timeout")
-        ));
+        let sleep = shell_command(
+            "printf 'Downloading webpage with private URL' >&2; exec sleep 10",
+            "[Console]::Error.WriteLine('Downloading webpage with private URL'); [Console]::Error.Flush(); Start-Sleep -Seconds 20",
+        );
+        // PowerShell startup on a cold Windows runner can take several seconds.
+        let timeout = if cfg!(windows) {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_millis(100)
+        };
+        assert_eq!(
+            resolve_command(sleep, &cancel, timeout).err(),
+            Some("timeout_webpage")
+        );
         let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         cancel.store(true, Ordering::Relaxed);
         assert!(matches!(
