@@ -9,6 +9,7 @@ pub mod downloads;
 pub mod integrations;
 #[cfg(target_os = "linux")]
 pub mod mpris;
+mod playback_diagnostics;
 mod playback_metrics;
 mod playback_start;
 pub mod player;

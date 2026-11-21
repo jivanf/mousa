@@ -1,4 +1,5 @@
 //! Bounded, asynchronous diagnostics. Never accept track URLs, titles, or raw errors.
+use crate::playback_diagnostics::Cause;
 use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
@@ -108,11 +109,12 @@ impl Playback {
         file_loaded: bool,
         engine_paused: bool,
         cache_wait: bool,
+        causes: &[Cause],
         metrics: &Metrics,
     ) {
         metrics.emit(json!({"event":"startup_timeout","playback_id":self.id,
             "preparation":self.preparation,"file_loaded":file_loaded,"engine_paused":engine_paused,
-            "cache_wait":cache_wait,"elapsed_ms":self.start.elapsed().as_millis()}));
+            "cache_wait":cache_wait,"elapsed_ms":self.start.elapsed().as_millis(),"mpv_causes":causes}));
     }
     pub fn restarted(&mut self) {
         if self.restart_ms.is_none() {

@@ -6,7 +6,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver},
     },
     time::{Duration, Instant},
@@ -73,7 +73,10 @@ struct Outcome {
     stream: Result<Stream, &'static str>,
     elapsed_ms: u128,
 }
+static NEXT_PREPARATION_ID: AtomicU64 = AtomicU64::new(1);
+
 pub(crate) struct Preparation {
+    pub id: u64,
     pub index: usize,
     url: String,
     purpose: &'static str,
@@ -83,6 +86,7 @@ pub(crate) struct Preparation {
 }
 impl Preparation {
     pub fn start(index: usize, track: &Track, purpose: &'static str, metrics: &Metrics) -> Self {
+        let id = NEXT_PREPARATION_ID.fetch_add(1, Ordering::Relaxed);
         let url = track.url.clone();
         let worker_track = track.clone();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -96,8 +100,9 @@ impl Preparation {
                 elapsed_ms: start.elapsed().as_millis(),
             });
         });
-        metrics.emit(json!({"event":"prepare_started","queue_index":index,"purpose":purpose}));
+        metrics.emit(json!({"event":"prepare_started","preparation_id":id,"queue_index":index,"purpose":purpose}));
         Self {
+            id,
             index,
             url,
             purpose,
@@ -128,6 +133,7 @@ impl Preparation {
     pub fn pending(index: usize, url: &str) -> Self {
         let (_, result) = mpsc::channel();
         Self {
+            id: NEXT_PREPARATION_ID.fetch_add(1, Ordering::Relaxed),
             index,
             url: url.into(),
             purpose: "test",
@@ -142,7 +148,7 @@ impl Preparation {
         }
         if let Ok(outcome) = self.result.try_recv() {
             metrics.emit(
-                json!({"event":"prepare_finished","queue_index":self.index,"purpose":self.purpose,
+                json!({"event":"prepare_finished","preparation_id":self.id,"queue_index":self.index,"purpose":self.purpose,
                 "resolve_ms":outcome.elapsed_ms,
                 "outcome":outcome.stream.as_ref().map(|_| "ready").unwrap_or_else(|e| *e)}),
             );
@@ -182,7 +188,7 @@ pub(crate) fn invalidate(
     reason: &'static str,
 ) {
     if let Some(p) = preparation.take() {
-        metrics.emit(json!({"event":"prepare_discarded","queue_index":p.index,"purpose":p.purpose,"reason":reason}));
+        metrics.emit(json!({"event":"prepare_discarded","preparation_id":p.id,"queue_index":p.index,"purpose":p.purpose,"reason":reason}));
     }
 }
 
