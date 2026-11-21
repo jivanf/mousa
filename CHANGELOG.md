@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.2](https://github.com/jivanf/mousa/compare/v0.7.1...v0.7.2) - 2026-11-21
+
+### Fixes and performance
+
+- *(playback)* Trace stream failures across resolver and mpv (#62)
+
 ## [0.7.1](https://github.com/jivanf/mousa/compare/v0.7.0...v0.7.1) - 2026-11-18
 
 ### Fixes and performance
