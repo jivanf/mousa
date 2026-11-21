@@ -1,6 +1,7 @@
 use crate::{
     db::{self, Track},
     integrations,
+    playback_diagnostics::EngineDiagnostics,
     playback_metrics::{Metrics, Playback},
     playback_start::StartupDeadline,
     stream_prepare::{self, Preparation},
@@ -202,6 +203,7 @@ fn engine_failure(
 
 // Only one successor is staged; Mousa remains responsible for shuffle/repeat order.
 struct QueuedTrack {
+    preparation_id: Option<u64>,
     index: usize,
     prepared: bool,
     status: &'static str,
@@ -243,6 +245,7 @@ fn stage_successor(
     preparation: Option<Preparation>,
     metrics: &Metrics,
 ) -> Option<QueuedTrack> {
+    let preparation_id = preparation.as_ref().map(|p| p.id);
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
@@ -263,6 +266,7 @@ fn stage_successor(
         (mpv.command("loadfile", &[&track.url, "append"]), None)
     };
     result.ok().map(|_| QueuedTrack {
+        preparation_id,
         index,
         prepared,
         status,
@@ -276,41 +280,53 @@ fn load_track(
     index: usize,
     preparation: Option<Preparation>,
     metrics: &Metrics,
+    playback_id: u64,
 ) -> (Result<(), String>, bool, &'static str, Option<String>) {
+    let preparation_id = preparation.as_ref().map(|p| p.id);
     let (stream, status) = preparation
         .map(|p| p.take(index, &track.url, metrics))
         .unwrap_or((None, "not_requested"));
-    metrics
-        .emit(serde_json::json!({"event":"prepare_consumed","queue_index":index,"outcome":status}));
+    metrics.emit(serde_json::json!({
+        "event":"prepare_consumed","playback_id":playback_id,"preparation_id":preparation_id,
+        "queue_index":index,"track_id":track.id,"outcome":status
+    }));
     let prepared = stream.is_some();
     if let Some(error) = unavailable_error(track, status, prepared) {
         let _ = mpv.command("stop", &[]);
         return (Err(error), false, status, None);
     }
-    if let Some(stream) = stream {
+    let status = if let Some(stream) = stream {
         let replacement = stream.replacement.clone();
         let options = stream.options();
-        if mpv
-            .command("loadfile", &[&stream.url, "replace", "-1", &options])
-            .is_ok()
-        {
-            return (Ok(()), true, status, replacement);
+        match mpv.command("loadfile", &[&stream.url, "replace", "-1", &options]) {
+            Ok(()) => return (Ok(()), true, status, replacement),
+            Err(error) => emit_load_rejection(metrics, playback_id, "prepared_stream", &error),
         }
-        return (
-            mpv.command("loadfile", &[&track.url, "replace"])
-                .map_err(|e| e.to_string()),
-            false,
-            "fallback",
-            None,
-        );
-    }
+        "fallback"
+    } else {
+        status
+    };
     (
         mpv.command("loadfile", &[&track.url, "replace"])
-            .map_err(|e| e.to_string()),
+            .map_err(|error| {
+                emit_load_rejection(metrics, playback_id, "original_source", &error);
+                error.to_string()
+            }),
         false,
         status,
         None,
     )
+}
+
+fn emit_load_rejection(metrics: &Metrics, playback_id: u64, input: &str, error: &libmpv2::Error) {
+    let (category, code) = match error {
+        libmpv2::Error::Raw(code) => (mpv_error_category(*code), Some(i64::from(*code))),
+        _ => ("unknown", None),
+    };
+    metrics.emit(serde_json::json!({
+        "event":"playback_load_rejected","playback_id":playback_id,
+        "input":input,"category":category,"code":code
+    }));
 }
 
 #[derive(Clone)]
@@ -374,6 +390,10 @@ impl Player {
             let events = mpv.create_client(None).expect("mpv event client");
             let _ = mpv.set_property("volume", output.lock().unwrap().volume);
             let metrics = Metrics::start();
+            let mut diagnostics = EngineDiagnostics::new(&mpv);
+            if !diagnostics.available() {
+                metrics.emit(serde_json::json!({"event":"mpv_diagnostics_unavailable"}));
+            }
             let mut preparation: Option<Preparation> = None;
             let mut queued: Option<QueuedTrack> = None;
             let saved = output.lock().unwrap().clone();
@@ -424,9 +444,11 @@ impl Player {
                 let mut load_origin = "manual";
                 let mut load = false;
                 let mut resuming = false;
+                let mut recovery_from = None;
                 while let Some(event) = events.wait_event(0.) {
                     match event {
                         Ok(Event::EndFile(0)) if loaded => {
+                            diagnostics.clear();
                             resume_at = None;
                             loaded = false;
                             ready = false;
@@ -454,6 +476,11 @@ impl Player {
                                     next.status,
                                     &metrics,
                                 ));
+                                metrics.emit(serde_json::json!({
+                                    "event":"prepare_consumed","playback_id":playback_id,
+                                    "preparation_id":next.preparation_id,"queue_index":next.index,
+                                    "track_id":s.current().map(|track| track.id),"outcome":next.status
+                                }));
                                 startup_deadline.arm(Instant::now(), next.prepared);
                                 // mpv advances itself without stop/loadfile or a device drain.
                             } else if let Some(index) = planned_next(&s, preparation.as_ref()) {
@@ -481,6 +508,7 @@ impl Player {
                                 "source":source,
                                 "category":category,
                                 "code":code,
+                                "mpv_causes":diagnostics.take(),
                                 "phase":if ready { "playback" } else { "startup" },
                                 "prepared_stream":using_prepared,
                                 "queue_index":s.index,
@@ -499,10 +527,7 @@ impl Player {
                                 resuming = true;
                                 load = true;
                                 startup_deadline.cancel();
-                                metrics.emit(serde_json::json!({
-                                    "event":"stream_recovery_started",
-                                    "reason":"playback_error"
-                                }));
+                                recovery_from = s.current().map(|track| (playback_id, track.id));
                                 continue;
                             }
                             s.error =
@@ -541,6 +566,9 @@ impl Player {
                         }
                         _ => {}
                     }
+                }
+                if loaded {
+                    diagnostics.poll();
                 }
                 if let Ok(cmd) = cmd {
                     // Keep the acknowledgement alive through validation and execution.
@@ -737,6 +765,16 @@ impl Player {
                         m.finish("replaced", &metrics);
                     }
                     playback_id += 1;
+                    if let Some((previous, track_id)) = recovery_from
+                        && track_id == t.id
+                        && resuming
+                        && resume_at.is_some()
+                    {
+                        metrics.emit(serde_json::json!({
+                            "event":"stream_recovery_started","reason":"playback_error",
+                            "previous_playback_id":previous,"playback_id":playback_id
+                        }));
+                    }
                     measurement = Some(Playback::new(
                         playback_id,
                         if resuming { "resume" } else { load_origin },
@@ -761,8 +799,15 @@ impl Player {
                 if (resolved || load && active_preparation.is_none())
                     && let Some(t) = s.current().cloned()
                 {
-                    let (result, prepared, status, replacement) =
-                        load_track(&mpv, &t, s.index, active_preparation.take(), &metrics);
+                    diagnostics.take();
+                    let (result, prepared, status, replacement) = load_track(
+                        &mpv,
+                        &t,
+                        s.index,
+                        active_preparation.take(),
+                        &metrics,
+                        playback_id,
+                    );
                     if let Some(timing) = measurement.as_mut() {
                         timing.preparation_status(status);
                     }
@@ -842,6 +887,7 @@ impl Player {
                                 mpv.get_property::<bool>("pause").unwrap_or(false),
                                 mpv.get_property::<bool>("paused-for-cache")
                                     .unwrap_or(false),
+                                &diagnostics.take(),
                                 &metrics,
                             );
                         }
@@ -853,14 +899,24 @@ impl Player {
                             if let Some(m) = measurement.as_mut() {
                                 m.fallback("startup_timeout", &metrics);
                             }
-                            if let Some(t) = s.current()
-                                && mpv.command("loadfile", &[&t.url, "replace"]).is_ok()
-                            {
-                                let _ = mpv.set_property("pause", s.paused);
-                                startup_deadline.arm(Instant::now(), false);
-                            } else {
-                                loaded = false;
-                            }
+                            loaded = s.current().is_some_and(|track| {
+                                match mpv.command("loadfile", &[&track.url, "replace"]) {
+                                    Ok(()) => {
+                                        let _ = mpv.set_property("pause", s.paused);
+                                        startup_deadline.arm(Instant::now(), false);
+                                        true
+                                    }
+                                    Err(error) => {
+                                        emit_load_rejection(
+                                            &metrics,
+                                            playback_id,
+                                            "original_source",
+                                            &error,
+                                        );
+                                        false
+                                    }
+                                }
+                            });
                         } else {
                             loaded = false;
                         }

@@ -3928,6 +3928,7 @@ dependencies = [
  "interprocess",
  "keyring",
  "libmpv2",
+ "libmpv2-sys",
  "md5",
  "rand 0.9.5",
  "raw-window-handle",
