@@ -13,9 +13,7 @@ use mousa::{
     sync,
 };
 use mousa::{
-    theme::{
-        border, color, font, layout, press, reorder, shadow, size as control_size, space, text,
-    },
+    theme::{border, color, font, layout, reorder, shadow, size as control_size, space, text},
     ui::{self, Bar, button, icon_button, step_button},
 };
 use std::{
@@ -732,8 +730,11 @@ impl Mousa {
             self.queue = s.queue.clone();
             changed = true;
         }
-        if self.position != position
-            || self.paused != s.paused
+        let playing_id = s.current().map(|track| track.id);
+        let playback_changed =
+            self.playing_id != playing_id || self.queue_index != s.index || self.paused != s.paused;
+        if playback_changed
+            || self.position != position
             || self.current_title != title
             || self.duration != s.duration
             || self.volume != s.volume
@@ -742,7 +743,7 @@ impl Mousa {
         }
         self.current_title = title;
         self.current_artist = s.current().map(|t| t.artist.clone()).unwrap_or_default();
-        self.playing_id = s.current().map(|t| t.id);
+        self.playing_id = playing_id;
         self.position = position;
         self.duration = s.duration;
         self.volume = s.volume;
@@ -764,6 +765,9 @@ impl Mousa {
             changed = true;
         }
         drop(s);
+        if playback_changed && self.catalog_open {
+            self.catalog.update(cx, |_, cx| cx.notify());
+        }
         if availability_changed {
             self.player.refresh_metadata();
             self.refresh_tracks(cx);
@@ -1081,7 +1085,7 @@ impl Mousa {
                 let repairing = unavailable && is_active && !paused;
                 let row_key = (queue, if queue { i as i64 } else { id });
                 let show_play = source.is_none() && _this.hovered_track == Some(row_key);
-                let is_playing = is_active && !paused;
+                let playback = mousa::player::RowPlayback::new(is_active, paused);
                 let resting_lead = if queue {
                     div()
                         .font_family(font::MONO)
@@ -1097,23 +1101,6 @@ impl Mousa {
                     });
                     ui::collection_artwork(source, layout::row_index())
                 };
-                let play_control = div()
-                    .size(layout::row_index())
-                    .child(
-                        ui::track_play_button(("play-track", i), is_playing).on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                if is_active {
-                                    this.player.send(Command::Toggle);
-                                } else if queue {
-                                    this.player.send(Command::Jump(i));
-                                } else {
-                                    this.play(id, cx);
-                                }
-                            },
-                        )),
-                    )
-                    .into_any_element();
                 let inverted = unavailable
                     && (is_active
                         || unavailable_selection
@@ -1313,20 +1300,20 @@ impl Mousa {
                             }),
                         )
                     })
-                    .child(
-                        div()
-                            .w(layout::row_index())
-                            .h(control_size::row_action() + press::sm())
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(ui::exclusive_track_lead(
-                                resting_lead,
-                                play_control,
-                                show_play,
-                            )),
-                    )
+                    .child(ui::track_play_lead(
+                        ("play-track", i),
+                        resting_lead,
+                        show_play.then_some(playback),
+                        cx.listener(move |this, action, _, cx| {
+                            this.player.clone().activate_row(*action, || {
+                                if queue {
+                                    this.player.send(Command::Jump(i));
+                                } else {
+                                    this.play(id, cx);
+                                }
+                            });
+                        }),
+                    ))
                     .child(
                         div()
                             .flex_1()

@@ -84,6 +84,37 @@ pub enum Command {
     Stop,
     Metadata(Vec<(Track, Track)>),
 }
+/// The transport operation for an individual track row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPlaybackAction {
+    Start,
+    Toggle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPlayback {
+    Inactive,
+    Paused,
+    Playing,
+}
+
+impl RowPlayback {
+    pub fn new(active: bool, paused: bool) -> Self {
+        match (active, paused) {
+            (false, _) => Self::Inactive,
+            (true, true) => Self::Paused,
+            (true, false) => Self::Playing,
+        }
+    }
+
+    pub fn action(self) -> RowPlaybackAction {
+        match self {
+            Self::Inactive => RowPlaybackAction::Start,
+            Self::Paused | Self::Playing => RowPlaybackAction::Toggle,
+        }
+    }
+}
+
 /// Holds the requested position until the playback thread has handled that seek.
 pub struct PendingSeek {
     position: f64,
@@ -1014,6 +1045,13 @@ impl Player {
             completed,
         }
     }
+    pub fn activate_row(&self, action: RowPlaybackAction, start: impl FnOnce()) {
+        match action {
+            RowPlaybackAction::Start => start(),
+            RowPlaybackAction::Toggle => self.send(Command::Toggle),
+        }
+    }
+
     pub fn send(&self, c: Command) {
         let _ = self.tx.send(c);
     }
@@ -1022,6 +1060,28 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn row_playback_starts_inactive_tracks_and_toggles_the_current_track() {
+        let (tx, rx) = mpsc::channel();
+        let player = Player {
+            tx,
+            state: Arc::new(Mutex::new(Snapshot::default())),
+        };
+        let mut started = false;
+        let inactive = RowPlayback::new(false, false);
+        assert_eq!(inactive, RowPlayback::Inactive);
+        player.activate_row(inactive.action(), || started = true);
+        assert!(started);
+        assert!(rx.try_recv().is_err());
+
+        for (paused, expected) in [(false, RowPlayback::Playing), (true, RowPlayback::Paused)] {
+            let active = RowPlayback::new(true, paused);
+            assert_eq!(active, expected);
+            player.activate_row(active.action(), || panic!("restarted the active row"));
+            assert!(matches!(rx.try_recv(), Ok(Command::Toggle)));
+        }
+    }
 
     fn snapshot() -> Snapshot {
         Snapshot {
