@@ -14,6 +14,8 @@ pub struct Preview {
     state: String,
     selected: Option<usize>,
     playing: Option<usize>,
+    paused: bool,
+    hovered_track: Option<usize>,
     repair_frame: usize,
     confirm_delete: bool,
     editor: Option<Entity<PlaylistEditor>>,
@@ -85,7 +87,10 @@ impl Preview {
             input,
             state: state.into(),
             selected: None,
+            paused: state.ends_with("paused"),
+            hovered_track: None,
             playing: (state.ends_with("playing")
+                || state.ends_with("paused")
                 || state.ends_with("repairing")
                 || state.ends_with("repaired"))
             .then_some(0),
@@ -126,44 +131,39 @@ impl Render for Preview {
                     && (self.state.ends_with("unavailable")
                         || self.state.ends_with("repairing")
                         || self.state.ends_with("repair-error"));
+                let playback = mousa::player::RowPlayback::new(playing, self.paused);
                 let row = ui::track_row(i, playing)
-                    .child(
-                        div()
-                            .relative()
-                            .w(mousa::theme::layout::row_index())
-                            .h(mousa::theme::size::row_action() + mousa::theme::press::sm())
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                div()
-                                    .when(playing, |d| d.invisible())
-                                    .group_hover("track-row", |d| d.invisible())
-                                    .child(format!("{:02}", i + 1)),
-                            )
-                            .child(
-                                ui::track_play_button(("preview-play", i), playing)
-                                    .absolute()
-                                    .left_0()
-                                    .top_0()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        if repairing {
-                                            return;
-                                        } else if unavailable {
-                                            this.start_repair(cx);
-                                        } else {
-                                            this.playing = if this.playing == Some(i) {
-                                                None
-                                            } else {
-                                                Some(i)
-                                            };
-                                        }
-                                        cx.stop_propagation();
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
+                    .on_hover(cx.listener(move |this, hovered, _, cx| {
+                        if *hovered {
+                            this.hovered_track = Some(i);
+                        } else if this.hovered_track == Some(i) {
+                            this.hovered_track = None;
+                        }
+                        cx.notify();
+                    }))
+                    .child(ui::track_play_lead(
+                        ("preview-play", i),
+                        ui::collection_artwork(None, mousa::theme::layout::row_index()),
+                        (self.hovered_track == Some(i)).then_some(playback),
+                        cx.listener(move |this, action, _, cx| {
+                            if repairing {
+                                return;
+                            } else if unavailable {
+                                this.start_repair(cx);
+                            } else {
+                                match action {
+                                    mousa::player::RowPlaybackAction::Start => {
+                                        this.playing = Some(i);
+                                        this.paused = false;
+                                    }
+                                    mousa::player::RowPlaybackAction::Toggle => {
+                                        this.paused = !this.paused;
+                                    }
+                                }
+                            }
+                            cx.notify();
+                        }),
+                    ))
                     .child(
                         div()
                             .flex_1()

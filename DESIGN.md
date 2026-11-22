@@ -103,6 +103,7 @@ x-motion:
 x-alignment:
   playlist-editor-character-counters: right
 x-collection-layout: shared-artwork-header-with-bottom-right-search-and-inline-actions
+x-track-row-playback: shared-play-pause-for-library-and-catalog
 x-scrolling:
   scrollbar-gutter: overflow-only
   volume-slider: 5%-per-wheel-step-on-hover
@@ -713,7 +714,10 @@ an occurrence, Shift-click for an anchored range, and Ctrl+Shift-click to add a
 range. Selection is independent per table. Clicking a track row never starts
 playback; its Play button does. The 32px button face plus its 4px offset shadow
 exactly matches the 36px artwork or index slot and changes to a Pause action only
-while the current track is playing.
+while the current track is playing. Album and library playlist rows use the
+same control. Clicking the current row control pauses or resumes without
+rebuilding the queue. Clicking another row starts that occurrence in its
+collection.
 Row actions do not change selection or start
 a drag. Playlist reordering retains its existing restrictions and deferred
 selection collapse during dragging; catalog and queue rows cannot reorder.
@@ -928,8 +932,9 @@ playlist-only and mixed search matches, no matches, single/multiple/unavailable
 selection, playing-row highlighting, queue feedback, and the playlist destination
 picker. Channel search and clear use the production filter locally, with no
 service requests. Keep saved story identities stable as the story list grows.
-Library stories include a deterministic currently-playing row so its Pause icon,
-button depth, and local Play interactions can be reviewed without playback.
+Catalog album and library playlist stories include deterministic playing and
+paused rows so the shared icon, button depth, and interactions can be reviewed
+without audio playback.
 
 ### Checks
 

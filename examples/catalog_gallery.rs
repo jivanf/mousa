@@ -213,14 +213,15 @@ pub fn sample(state: &str) -> (Page, Option<Item>) {
             "playlist" => 214,
             _ => 5,
         })
-        .map(|(title, artist, duration)| Item {
+        .enumerate()
+        .map(|(index, (title, artist, duration))| Item {
             title: title.into(),
             artist: artist.into(),
             subtitle: artist.into(),
             kind: "Song".into(),
             category: "Songs".into(),
             duration,
-            video: Some("preview-only".into()),
+            video: Some(format!("preview-track-{index}")),
             collection_member: true,
             ..Default::default()
         })

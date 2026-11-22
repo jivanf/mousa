@@ -249,6 +249,14 @@ impl CatalogView {
         if matches!(state, "album-empty" | "album-loading" | "playlist-empty") {
             view.view.page.items.clear();
         }
+        if matches!(state, "channel-playing" | "album-playing" | "album-paused") {
+            if let Some(track) = view.view.page.items.first().and_then(Item::track) {
+                let mut player = view.player.state.lock().unwrap();
+                player.queue = Arc::new(vec![track]);
+                player.index = 0;
+                player.paused = state == "album-paused";
+            }
+        }
         if state.starts_with("channel") {
             let query = match state {
                 "channel-search-videos" => "cello",
@@ -280,13 +288,6 @@ impl CatalogView {
                         },
                     ));
                 view.view.selection.insert(table, selection);
-            }
-            if state == "channel-playing" {
-                if let Some(track) = view.view.page.items.first().and_then(Item::track) {
-                    let mut player = view.player.state.lock().unwrap();
-                    player.queue = Arc::new(vec![track]);
-                    player.index = 0;
-                }
             }
             if state == "channel-save-picker" {
                 view.pending = Some(
@@ -825,6 +826,7 @@ impl CatalogView {
                 if let Action::Play(index) = action {
                     let mut player = self.player.state.lock().unwrap();
                     player.index = index.min(tracks.len().saturating_sub(1));
+                    player.paused = false;
                     player.queue = Arc::new(tracks);
                 } else {
                     self.pending = Some(tracks);
@@ -1519,13 +1521,18 @@ impl CatalogView {
                 .is_some_and(|(hovered_table, hovered_index)| {
                     hovered_table == &table && *hovered_index == index
                 });
-        let playing = self
+        let (playing, paused) = self
             .player
             .state
             .lock()
             .ok()
-            .and_then(|state| state.current().cloned())
-            .is_some_and(|track| item_matches_track(&item, &track));
+            .map_or((false, true), |state| {
+                (
+                    catalog_row_is_current(&self.view.page.items, index, &state),
+                    state.paused,
+                )
+            });
+        let playback = crate::player::RowPlayback::new(playing, paused);
         let open = item.clone();
         let play = item.clone();
         let queue = item.clone();
@@ -1560,15 +1567,23 @@ impl CatalogView {
         } else {
             cover(item.thumbnail.as_deref(), f32::from(metrics::thumbnail())).into_any_element()
         };
-        let play_control = ui::track_play_button(("catalog-play", index), false)
-            .size(metrics::thumbnail())
-            .focus(|s| s.opacity(1.).bg(color::lime()))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.activate_item(play.clone(), index, cx);
-                cx.stop_propagation();
-            }))
-            .into_any_element();
-        lead = lead.child(ui::exclusive_track_lead(resting, play_control, show_play));
+        lead = lead.child(ui::track_play_lead(
+            ("catalog-play", index),
+            resting,
+            show_play.then_some(playback),
+            cx.listener(move |this, action, _, cx| {
+                if this.offline_preview && *action == crate::player::RowPlaybackAction::Toggle {
+                    if let Ok(mut state) = this.player.state.lock() {
+                        state.paused = !state.paused;
+                    }
+                    cx.notify();
+                    return;
+                }
+                this.player.clone().activate_row(*action, || {
+                    this.activate_item(play.clone(), index, cx);
+                });
+            }),
+        ));
         let hover_table = table.clone();
         let mut row = div()
             .id(("catalog-row", index))
@@ -2227,6 +2242,30 @@ fn item_matches_track(item: &Item, track: &Track) -> bool {
         .as_ref()
         .is_some_and(|video| track.url == format!("https://www.youtube.com/watch?v={video}"))
 }
+fn catalog_row_is_current(items: &[Item], index: usize, state: &crate::player::Snapshot) -> bool {
+    let Some(track) = state.current() else {
+        return false;
+    };
+    let item = &items[index];
+    if item.unavailable || !item_matches_track(item, track) {
+        return false;
+    }
+    // Match the occurrence as well as the video when a collection repeats a track.
+    let row_occurrence = items[..index]
+        .iter()
+        .filter(|other| !other.unavailable && other.video == item.video)
+        .count();
+    let queue_occurrence = state.queue[..state.index]
+        .iter()
+        .filter(|other| other.url == track.url)
+        .count();
+    row_occurrence == queue_occurrence
+        || (row_occurrence == 0
+            && !items[index + 1..]
+                .iter()
+                .any(|other| !other.unavailable && other.video == item.video))
+}
+
 fn visible_rows(top: f32, viewport: f32, height: f32, count: usize) -> std::ops::Range<usize> {
     let start = (top / height).floor().max(0.) as usize;
     let end = ((top + viewport) / height).ceil().max(0.) as usize;
@@ -2807,6 +2846,30 @@ mod presentation_tests {
         assert_eq!(description(&item, true), "Playlist · Classical Focus");
         assert_eq!(trailing_metadata(&item), "214 tracks");
     }
+    #[test]
+    fn repeated_catalog_tracks_highlight_only_the_current_occurrence() {
+        let song = Item {
+            video: Some("repeated-video".into()),
+            ..Default::default()
+        };
+        let missing = Item {
+            unavailable: true,
+            ..song.clone()
+        };
+        let items = [song.clone(), missing, song.clone()];
+        let mut state = crate::player::Snapshot {
+            queue: std::sync::Arc::new(vec![song.track().unwrap(), song.track().unwrap()]),
+            index: 1,
+            ..Default::default()
+        };
+        assert!(!super::catalog_row_is_current(&items, 0, &state));
+        assert!(!super::catalog_row_is_current(&items, 1, &state));
+        assert!(super::catalog_row_is_current(&items, 2, &state));
+        state.index = 0;
+        assert!(super::catalog_row_is_current(&items, 0, &state));
+        assert!(!super::catalog_row_is_current(&items, 2, &state));
+    }
+
     #[test]
     fn playing_catalog_row_matches_the_current_video_url() {
         let item = Item {

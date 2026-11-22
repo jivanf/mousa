@@ -1457,36 +1457,41 @@ impl Render for TrackScrollbar {
     }
 }
 
-/// A stationary play/pause button covering the row number on hover or keyboard focus.
-pub fn track_play_button(id: impl Into<ElementId>, playing: bool) -> Button {
-    track_action(button(id, "", color::surface()))
-        .size(size::row_action())
-        .px(layout::zero())
-        .opacity(if playing { 1. } else { 0. })
-        .group_hover("track-row", |s| s.opacity(1.))
-        .focus(|s| s.opacity(1.))
-        .child(icon(
-            if playing {
-                "player-pause"
-            } else {
-                "player-play"
-            },
-            false,
-        ))
-}
-
-/// Render exactly one leading track-row element so artwork or an index can
-/// never remain underneath the play control.
-pub fn exclusive_track_lead(
+/// Swap artwork or a number for the same Play/Pause control in every track list.
+pub fn track_play_lead(
+    id: impl Into<ElementId>,
     resting: AnyElement,
-    play_control: AnyElement,
-    show_play_control: bool,
-) -> AnyElement {
-    if show_play_control {
-        play_control
-    } else {
-        resting
-    }
+    revealed: Option<crate::player::RowPlayback>,
+    on_action: impl Fn(&crate::player::RowPlaybackAction, &mut Window, &mut App) + 'static,
+) -> Div {
+    use crate::player::RowPlayback;
+
+    div()
+        .size(layout::row_index())
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(if let Some(state) = revealed {
+            track_action(button(id, "", color::surface()))
+                .size(size::row_action())
+                .px(layout::zero())
+                .child(icon(
+                    if state == RowPlayback::Playing {
+                        "player-pause"
+                    } else {
+                        "player-play"
+                    },
+                    false,
+                ))
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    on_action(&state.action(), window, cx);
+                })
+                .into_any_element()
+        } else {
+            resting
+        })
 }
 
 /// Persistent ruled scrollbar for the catalog's non-virtualized sections.
