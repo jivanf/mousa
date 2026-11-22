@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.3](https://github.com/jivanf/mousa/compare/v0.7.2...v0.7.3) - 2026-11-22
+
+### Fixes and performance
+
+- *(ui)* Share Play/Pause across track listings (#64)
+
 ## [0.7.2](https://github.com/jivanf/mousa/compare/v0.7.1...v0.7.2) - 2026-11-21
 
 ### Fixes and performance
