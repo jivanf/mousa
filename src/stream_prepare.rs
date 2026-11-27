@@ -69,8 +69,25 @@ fn quote(s: &str) -> String {
     format!("%{}%{}", s.len(), s)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ResolveError {
+    code: &'static str,
+    request_stage: Option<&'static str>,
+    specific_error: Option<&'static str>,
+}
+
+impl From<&'static str> for ResolveError {
+    fn from(code: &'static str) -> Self {
+        Self {
+            code,
+            request_stage: None,
+            specific_error: None,
+        }
+    }
+}
+
 struct Outcome {
-    stream: Result<Stream, &'static str>,
+    stream: Result<Stream, ResolveError>,
     elapsed_ms: u128,
 }
 static NEXT_PREPARATION_ID: AtomicU64 = AtomicU64::new(1);
@@ -118,7 +135,10 @@ impl Preparation {
         matches!(
             &self.outcome,
             Some(Outcome {
-                stream: Err("unavailable"),
+                stream: Err(ResolveError {
+                    code: "unavailable",
+                    ..
+                }),
                 ..
             })
         )
@@ -147,11 +167,20 @@ impl Preparation {
             return;
         }
         if let Ok(outcome) = self.result.try_recv() {
-            metrics.emit(
-                json!({"event":"prepare_finished","preparation_id":self.id,"queue_index":self.index,"purpose":self.purpose,
-                "resolve_ms":outcome.elapsed_ms,
-                "outcome":outcome.stream.as_ref().map(|_| "ready").unwrap_or_else(|e| *e)}),
-            );
+            let mut event = json!({
+                "event":"prepare_finished","preparation_id":self.id,"queue_index":self.index,
+                "purpose":self.purpose,"resolve_ms":outcome.elapsed_ms,"outcome":"ready"
+            });
+            if let Err(error) = &outcome.stream {
+                event["outcome"] = json!(error.code);
+                if let Some(stage) = error.request_stage {
+                    event["request_stage"] = json!(stage);
+                }
+                if let Some(detail) = error.specific_error {
+                    event["specific_error"] = json!(detail);
+                }
+            }
+            metrics.emit(event);
             self.outcome = Some(outcome);
         }
     }
@@ -169,7 +198,11 @@ impl Preparation {
             Some(Outcome { stream: Ok(s), .. }) if s.fresh() => (Some(s), "ready"),
             Some(Outcome { stream: Ok(_), .. }) => (None, "expired"),
             Some(Outcome {
-                stream: Err("unavailable"),
+                stream:
+                    Err(ResolveError {
+                        code: "unavailable",
+                        ..
+                    }),
                 ..
             }) => (None, "unavailable"),
             Some(_) => (None, "failed"),
@@ -221,17 +254,17 @@ fn parse(bytes: &[u8]) -> Result<Stream, &'static str> {
     })
 }
 
-fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
-    let result = resolve_url(&track.url, cancel);
-    let reason = match result.as_ref().err().copied() {
-        Some("private") => Some("PRIVATE"),
-        Some("removed") => Some("REMOVED"),
-        Some("region_blocked") => Some("REGION BLOCKED"),
-        Some("unavailable") => Some("UNAVAILABLE"),
-        _ => None,
+fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, ResolveError> {
+    let mut error = match resolve_url(&track.url, cancel) {
+        Ok(stream) => return Ok(stream),
+        Err(error) => error,
     };
-    let Some(reason) = reason else {
-        return result;
+    let reason = match error.code {
+        "private" => "PRIVATE",
+        "removed" => "REMOVED",
+        "region_blocked" => "REGION BLOCKED",
+        "unavailable" => "UNAVAILABLE",
+        _ => return Err(error),
     };
     if let Some((replacement, mut stream)) = replacement(track, cancel) {
         if track.id > 0 {
@@ -239,14 +272,14 @@ fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
                 Ok(()) => stream.replacement = Some(replacement),
                 Err(error) => {
                     eprintln!("Could not save replacement to its playlist: {error:#}");
-                    return Err("replacement_save_failed");
+                    return Err("replacement_save_failed".into());
                 }
             }
         }
         return Ok(stream);
     }
     if cancel.load(Ordering::Relaxed) {
-        return Err("cancelled");
+        return Err("cancelled".into());
     }
     if let Ok(db) = crate::db::library() {
         let _ = db.conn.execute(
@@ -254,7 +287,8 @@ fn resolve(track: &Track, cancel: &AtomicBool) -> Result<Stream, &'static str> {
             rusqlite::params![reason, track.url],
         );
     }
-    Err("unavailable")
+    error.code = "unavailable";
+    Err(error)
 }
 
 fn replacement(track: &Track, cancel: &AtomicBool) -> Option<(String, Stream)> {
@@ -412,9 +446,9 @@ fn command_output(
     success.then_some(bytes).ok_or("resolver_failed")
 }
 
-fn resolve_url(url: &str, cancel: &AtomicBool) -> Result<Stream, &'static str> {
+fn resolve_url(url: &str, cancel: &AtomicBool) -> Result<Stream, ResolveError> {
     if cancel.load(Ordering::Relaxed) {
-        return Err("cancelled");
+        return Err("cancelled".into());
     }
     let mut command = Command::new(crate::integrations::ytdlp_path());
     #[cfg(target_os = "windows")]
@@ -444,7 +478,7 @@ fn resolve_command(
     mut command: Command,
     cancel: &AtomicBool,
     timeout: Duration,
-) -> Result<Stream, &'static str> {
+) -> Result<Stream, ResolveError> {
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -518,13 +552,19 @@ fn resolve_command(
     let bytes = reader.join().map_err(|_| "resolver_read_failed")?;
     let diagnostic = error_reader.join().unwrap_or_default();
     if status == Err("resolver_failed") {
-        return Err(resolver_failure_reason(&diagnostic));
+        return Err(resolver_error(
+            resolver_failure_reason(&diagnostic),
+            &diagnostic,
+        ));
     }
     if status == Err("timeout") {
-        return Err(resolver_timeout_reason(&diagnostic));
+        return Err(resolver_error(
+            resolver_timeout_reason(&diagnostic),
+            &diagnostic,
+        ));
     }
     status?;
-    parse(&bytes?)
+    Ok(parse(&bytes?)?)
 }
 
 fn unavailable_reason(diagnostic: &[u8]) -> Option<&'static str> {
@@ -579,23 +619,84 @@ fn resolver_failure_reason(diagnostic: &[u8]) -> &'static str {
     }
 }
 
-// yt-dlp's verbose output can contain URLs, titles, headers and command-line
-// arguments. Never persist it. Reduce the bounded in-memory diagnostic to one
-// fixed label describing the last extraction stage that began before timeout.
+// yt-dlp diagnostics may include URLs, headers and command-line arguments.
+// Only fixed labels leave this function.
+fn resolver_error(code: &'static str, diagnostic: &[u8]) -> ResolveError {
+    let text = String::from_utf8_lossy(diagnostic).to_ascii_lowercase();
+    let detail = text
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with("error:"))
+        .unwrap_or_default();
+    let specific_error = [
+        ("connection timed out", "connect_timeout"),
+        ("connect timeout", "connect_timeout"),
+        ("connecttimeouterror", "connect_timeout"),
+        ("read timed out", "read_timeout"),
+        ("read timeout", "read_timeout"),
+        ("readtimeouterror", "read_timeout"),
+        (
+            "temporary failure in name resolution",
+            "temporary_dns_failure",
+        ),
+        ("name or service not known", "name_not_found"),
+        ("getaddrinfo failed", "address_lookup_failed"),
+        ("failed to resolve", "address_lookup_failed"),
+        ("network is unreachable", "network_unreachable"),
+        ("no route to host", "no_route_to_host"),
+        ("connection refused", "connection_refused"),
+        ("connection reset", "connection_reset"),
+        (
+            "certificate verify failed",
+            "certificate_verification_failed",
+        ),
+        ("http error 403", "http_403"),
+        ("http error 429", "http_429"),
+        ("http error 500", "http_500"),
+        ("http error 502", "http_502"),
+        ("http error 503", "http_503"),
+        ("http error 504", "http_504"),
+    ]
+    .into_iter()
+    .find_map(|(pattern, label)| detail.contains(pattern).then_some(label));
+
+    ResolveError {
+        code,
+        request_stage: request_stage(&text),
+        specific_error,
+    }
+}
+
+fn request_stage(text: &str) -> Option<&'static str> {
+    text.lines().rev().find_map(|line| {
+        if line.contains("downloading m3u8 information") {
+            Some("manifest")
+        } else if line.contains("solving js challenges") || line.contains("running deno:") {
+            Some("js_challenge")
+        } else if line.contains(" player api json") {
+            Some("player_api")
+        } else if line.contains("downloading player ") || line.contains("loading youtube-sigfuncs.")
+        {
+            Some("player_js")
+        } else if line.contains("downloading webpage")
+            || line.contains("unable to download webpage")
+        {
+            Some("webpage")
+        } else {
+            None
+        }
+    })
+}
+
 fn resolver_timeout_reason(diagnostic: &[u8]) -> &'static str {
     let text = String::from_utf8_lossy(diagnostic).to_ascii_lowercase();
-    if text.contains("downloading m3u8 information") {
-        "timeout_manifest"
-    } else if text.contains("solving js challenges") || text.contains("running deno:") {
-        "timeout_js_challenge"
-    } else if text.contains("downloading player ") || text.contains("loading youtube-sigfuncs.") {
-        "timeout_player_js"
-    } else if text.contains(" player api json") {
-        "timeout_player_api"
-    } else if text.contains("downloading webpage") {
-        "timeout_webpage"
-    } else {
-        "timeout_unknown"
+    match request_stage(&text) {
+        Some("manifest") => "timeout_manifest",
+        Some("js_challenge") => "timeout_js_challenge",
+        Some("player_js") => "timeout_player_js",
+        Some("player_api") => "timeout_player_api",
+        Some("webpage") => "timeout_webpage",
+        _ => "timeout_unknown",
     }
 }
 
@@ -635,13 +736,15 @@ mod tests {
         );
         // A cold PowerShell start on Windows CI can take several seconds.
         assert_eq!(
-            resolve_command(command, &AtomicBool::new(false), Duration::from_secs(30)).err(),
+            resolve_command(command, &AtomicBool::new(false), Duration::from_secs(30))
+                .err()
+                .map(|error| error.code),
             Some("unavailable")
         );
         assert!(unavailable_reason(b"HTTP Error 503: Service Unavailable").is_none());
         let mut preparation = Preparation::pending(1, "original");
         preparation.outcome = Some(Outcome {
-            stream: Err("unavailable"),
+            stream: Err("unavailable".into()),
             elapsed_ms: 1,
         });
         assert_eq!(
@@ -674,6 +777,25 @@ mod tests {
             "resolver_failed"
         );
     }
+    #[test]
+    fn failed_resolver_reports_last_stage_and_known_error_only() {
+        let command = shell_command(
+            "printf '[youtube] Downloading m3u8 information\n[youtube] Downloading webpage\nERROR: Read timed out https://example.invalid/?signature=private-token\n' >&2; exit 1",
+            "[Console]::Error.WriteLine('[youtube] Downloading m3u8 information'); [Console]::Error.WriteLine('[youtube] Downloading webpage'); [Console]::Error.WriteLine('ERROR: Read timed out https://example.invalid/?signature=private-token'); exit 1",
+        );
+        let error = resolve_command(command, &AtomicBool::new(false), Duration::from_secs(30))
+            .err()
+            .unwrap();
+        assert_eq!(error.code, "network_timeout");
+        assert_eq!(error.request_stage, Some("webpage"));
+        assert_eq!(error.specific_error, Some("read_timeout"));
+        assert!(!format!("{error:?}").contains("private-token"));
+
+        let unknown = resolver_error("resolver_failed", b"ERROR: arbitrary private data");
+        assert_eq!(unknown.request_stage, None);
+        assert_eq!(unknown.specific_error, None);
+    }
+
     #[test]
     fn resolver_timeouts_only_return_fixed_stage_labels() {
         let private = "https://example.invalid/private?token=secret Artist - Track";
@@ -813,7 +935,7 @@ mod tests {
         assert!(cancel.load(Ordering::Relaxed));
         let mut ready = Preparation::pending(1, "original");
         ready.outcome = Some(Outcome {
-            stream: parse(br#"{"url":"https://example.org/audio"}"#),
+            stream: parse(br#"{"url":"https://example.org/audio"}"#).map_err(Into::into),
             elapsed_ms: 1,
         });
         assert_eq!(ready.take(2, "different", &m).1, "mismatch");
@@ -828,7 +950,7 @@ mod tests {
         assert_eq!(stale.take(1, "original", &m).1, "expired");
         let mut ready = Preparation::pending(1, "original");
         ready.outcome = Some(Outcome {
-            stream: parse(br#"{"url":"https://example.org/audio"}"#),
+            stream: parse(br#"{"url":"https://example.org/audio"}"#).map_err(Into::into),
             elapsed_ms: 1,
         });
         assert!(ready.take(1, "original", &m).0.is_some());
@@ -846,7 +968,7 @@ mod tests {
         assert!(cancel.load(Ordering::Relaxed));
         assert!(
             tx.send(Outcome {
-                stream: Err("cancelled"),
+                stream: Err("cancelled".into()),
                 elapsed_ms: 1
             })
             .is_err()
@@ -957,7 +1079,9 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let fail = shell_command("exit 1", "exit 1");
         assert_eq!(
-            resolve_command(fail, &cancel, Duration::from_secs(30)).err(),
+            resolve_command(fail, &cancel, Duration::from_secs(30))
+                .err()
+                .map(|error| error.code),
             Some("resolver_failed")
         );
         let sleep = shell_command(
@@ -971,14 +1095,19 @@ mod tests {
             Duration::from_millis(100)
         };
         assert_eq!(
-            resolve_command(sleep, &cancel, timeout).err(),
+            resolve_command(sleep, &cancel, timeout)
+                .err()
+                .map(|error| error.code),
             Some("timeout_webpage")
         );
         let sleep = shell_command("exec sleep 10", "Start-Sleep -Seconds 10");
         cancel.store(true, Ordering::Relaxed);
         assert!(matches!(
             resolve_command(sleep, &cancel, Duration::from_secs(10)),
-            Err("cancelled")
+            Err(ResolveError {
+                code: "cancelled",
+                ..
+            })
         ));
     }
     #[test]

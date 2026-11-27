@@ -74,13 +74,14 @@ try {
     $vulkan = Join-Path $deps 'vulkan\VulkanRT-X64-1.4.363.0-Components'
     Copy-Item "$vulkan\x64\vulkan-1.dll", "$vulkan\VulkanRT-License.txt" -Destination $deps -Force
     Get-VerifiedFile 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe' "$deps\yt-dlp.exe" '33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555'
-    Get-VerifiedFile 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip' "$deps\ffmpeg.zip" 'ae2b8d3f88cf9a1dd22d4e29a27d933dc51abff28a39172b8282488a3030b3e3'
+    Get-VerifiedFile 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip' "$deps\ffmpeg.zip" '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
     Expand-Archive -LiteralPath "$deps\ffmpeg.zip" -DestinationPath "$deps\ffmpeg" -Force
-    $ffmpeg = Get-ChildItem "$deps\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-    $ffmpegLicense = Get-ChildItem "$deps\ffmpeg" -Recurse -Filter LICENSE.txt | Select-Object -First 1
-    if (!$ffmpeg -or !$ffmpegLicense) { throw 'Could not extract FFmpeg.' }
-    Copy-Item $ffmpeg.FullName "$deps\ffmpeg.exe" -Force
-    Copy-Item $ffmpegLicense.FullName "$deps\FFmpeg-License.txt" -Force
+    $ffmpegDir = Join-Path $deps 'ffmpeg\ffmpeg-9.0.2-essentials_build'
+    $ffmpeg = Join-Path $ffmpegDir 'bin\ffmpeg.exe'
+    $ffmpegLicense = Join-Path $ffmpegDir 'LICENSE'
+    if (!(Test-Path -LiteralPath $ffmpeg) -or !(Test-Path -LiteralPath $ffmpegLicense)) { throw 'Could not extract FFmpeg.' }
+    Copy-Item -LiteralPath $ffmpeg -Destination "$deps\ffmpeg.exe" -Force
+    Copy-Item -LiteralPath $ffmpegLicense -Destination "$deps\FFmpeg-License.txt" -Force
     $previousLib = $env:LIB
     $previousFxc = $env:GPUI_FXC_PATH
     $previousPath = $env:PATH
