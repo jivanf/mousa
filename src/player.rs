@@ -891,6 +891,11 @@ impl Player {
                         listened += elapsed;
                     }
                 }
+                if let Some(p) = startup_preparation.as_mut()
+                    && let Some(track) = s.current()
+                {
+                    p.retry_startup(s.index, track, &metrics);
+                }
                 if loaded {
                     if let Some(m) = measurement.as_mut() {
                         m.sample(
