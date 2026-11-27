@@ -15,6 +15,11 @@ use std::{
 // Leave another full preparation window after our bounded resolver times out so
 // mpv can still prefetch the YouTube fallback before the current track ends.
 pub(crate) const LEAD_SECONDS: f64 = 60.;
+const STARTUP_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+];
 const MAX_AGE: Duration = Duration::from_secs(120);
 
 pub(crate) fn next_index(index: usize, len: usize, shuffle: bool, repeat: bool) -> Option<usize> {
@@ -72,6 +77,7 @@ fn quote(s: &str) -> String {
 struct Outcome {
     stream: Result<Stream, &'static str>,
     elapsed_ms: u128,
+    finished_at: Instant,
 }
 static NEXT_PREPARATION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -83,6 +89,7 @@ pub(crate) struct Preparation {
     cancel: Arc<AtomicBool>,
     result: Receiver<Outcome>,
     outcome: Option<Outcome>,
+    startup_retries: usize,
 }
 impl Preparation {
     pub fn start(index: usize, track: &Track, purpose: &'static str, metrics: &Metrics) -> Self {
@@ -98,6 +105,7 @@ impl Preparation {
             let _ = tx.send(Outcome {
                 stream,
                 elapsed_ms: start.elapsed().as_millis(),
+                finished_at: Instant::now(),
             });
         });
         metrics.emit(json!({"event":"prepare_started","preparation_id":id,"queue_index":index,"purpose":purpose}));
@@ -109,8 +117,36 @@ impl Preparation {
             cancel,
             result,
             outcome: None,
+            startup_retries: 0,
         }
     }
+    fn startup_retry_due(&self, now: Instant) -> bool {
+        let Some(Outcome {
+            stream: Err(reason),
+            finished_at,
+            ..
+        }) = &self.outcome
+        else {
+            return false;
+        };
+        self.purpose == "startup"
+            && (matches!(
+                *reason,
+                "network_timeout" | "dns_failed" | "network_failed" | "remote_server_error"
+            ) || reason.starts_with("timeout_"))
+            && STARTUP_RETRY_DELAYS
+                .get(self.startup_retries)
+                .is_some_and(|delay| now.duration_since(*finished_at) >= *delay)
+    }
+
+    pub fn retry_startup(&mut self, index: usize, track: &Track, metrics: &Metrics) {
+        if self.matches(index, track) && self.startup_retry_due(Instant::now()) {
+            let mut retry = Self::start(index, track, "startup", metrics);
+            retry.startup_retries = self.startup_retries + 1;
+            *self = retry;
+        }
+    }
+
     pub fn finished(&self) -> bool {
         self.outcome.is_some()
     }
@@ -140,6 +176,7 @@ impl Preparation {
             cancel: Arc::new(AtomicBool::new(false)),
             result,
             outcome: None,
+            startup_retries: 0,
         }
     }
     pub fn poll(&mut self, metrics: &Metrics) {
@@ -643,12 +680,48 @@ mod tests {
         preparation.outcome = Some(Outcome {
             stream: Err("unavailable"),
             elapsed_ms: 1,
+            finished_at: Instant::now(),
         });
         assert_eq!(
             preparation.take(1, "original", &Metrics::silent()).1,
             "unavailable"
         );
     }
+    #[test]
+    fn startup_retries_transient_failures_with_bounded_backoff() {
+        let mut preparation = Preparation::pending(0, "original");
+        preparation.purpose = "startup";
+        let finished_at = Instant::now();
+        for reason in [
+            "network_timeout",
+            "dns_failed",
+            "network_failed",
+            "remote_server_error",
+            "timeout_webpage",
+        ] {
+            preparation.outcome = Some(Outcome {
+                stream: Err(reason),
+                elapsed_ms: 1,
+                finished_at,
+            });
+            for (attempt, delay) in STARTUP_RETRY_DELAYS.into_iter().enumerate() {
+                preparation.startup_retries = attempt;
+                assert!(
+                    !preparation.startup_retry_due(finished_at + delay - Duration::from_millis(1))
+                );
+                assert!(preparation.startup_retry_due(finished_at + delay));
+            }
+            preparation.startup_retries = STARTUP_RETRY_DELAYS.len();
+            assert!(!preparation.startup_retry_due(finished_at + Duration::from_secs(60)));
+        }
+        preparation.startup_retries = 0;
+        preparation.outcome.as_mut().unwrap().stream = Err("unavailable");
+        assert!(!preparation.startup_retry_due(finished_at + Duration::from_secs(60)));
+        preparation.outcome.as_mut().unwrap().stream = Err("network_timeout");
+        preparation.purpose = "next";
+        assert!(!preparation.startup_retry_due(finished_at + Duration::from_secs(60)));
+    }
+
     #[test]
     fn resolver_errors_are_classified_without_retaining_raw_diagnostics() {
         assert_eq!(
@@ -815,6 +888,7 @@ mod tests {
         ready.outcome = Some(Outcome {
             stream: parse(br#"{"url":"https://example.org/audio"}"#),
             elapsed_ms: 1,
+            finished_at: Instant::now(),
         });
         assert_eq!(ready.take(2, "different", &m).1, "mismatch");
         let mut stale = Preparation::pending(1, "original");
@@ -823,6 +897,7 @@ mod tests {
         stale.outcome = Some(Outcome {
             stream: Ok(stream),
             elapsed_ms: 1,
+            finished_at: Instant::now(),
         });
         assert!(stale.needs_refresh());
         assert_eq!(stale.take(1, "original", &m).1, "expired");
@@ -830,6 +905,7 @@ mod tests {
         ready.outcome = Some(Outcome {
             stream: parse(br#"{"url":"https://example.org/audio"}"#),
             elapsed_ms: 1,
+            finished_at: Instant::now(),
         });
         assert!(ready.take(1, "original", &m).0.is_some());
     }
@@ -847,7 +923,8 @@ mod tests {
         assert!(
             tx.send(Outcome {
                 stream: Err("cancelled"),
-                elapsed_ms: 1
+                elapsed_ms: 1,
+                finished_at: Instant::now(),
             })
             .is_err()
         );
