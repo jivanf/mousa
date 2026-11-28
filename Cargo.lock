@@ -3914,7 +3914,7 @@ dependencies = [
 
 [[package]]
 name = "mousa"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3950,7 +3950,7 @@ dependencies = [
 
 [[package]]
 name = "mousa-launcher"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "directories",

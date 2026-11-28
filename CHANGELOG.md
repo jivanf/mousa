@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.4](https://github.com/jivanf/mousa/compare/v0.7.3...v0.7.4) - 2026-11-28
+
+### Fixes and performance
+
+- *(playback)* Log sanitized yt-dlp failure details (#66)
+
 ## [0.7.3](https://github.com/jivanf/mousa/compare/v0.7.2...v0.7.3) - 2026-11-22
 
 ### Fixes and performance
